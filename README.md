@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **串口调试**：设备扫描与描述、波特率、数据位 / 校验位 / 停止位和流控设置；分开的收发区与 Shell 模式；HEX 收发、循环发送和队列发送。
+- **串口调试**：设备扫描与描述、波特率、数据位 / 校验位 / 停止位和流控设置；分开的收发区与 Shell 模式；HEX 收发、循环发送和队列发送。支持多标签同时连接不同串口，各标签独立保留配置、记录、Shell 和发送任务；切换不停止后台收发，可拖动排序、双击名称重命名，关闭标签需确认。
 - **网络串口服务**：在独立窗口配置客户端 / 服务端和多路串口映射；远端串口可直接出现在调试列表中。创建系统级虚拟 COM 口需另行配置外部驱动及映射工具。
 - **本地与 SSH 终端**：本地 PowerShell / CMD、SSH 密码或私钥登录、密钥管理、多标签会话、连接握手日志和主机系统图标。终端支持彩色输出、TUI、复制粘贴、字号调整和独立全屏，窗口及字号变化会同步到 PTY。
 - **RDP / VNC 桌面**：在远程会话列表中新增连接，双击后直接嵌入现有标签页，支持切换、排序、重连、关闭确认和全屏。RDP 使用 Windows 原生 MSTSC ActiveX 控件，支持 NLA、系统证书提示、剪贴板重定向和窗口尺寸同步；旧版服务端回退为画面缩放。VNC 支持标准密码认证、桌面显示、键鼠输入和发送 Latin-1 剪贴板文本。
@@ -38,6 +38,8 @@ dotnet publish .\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj -c Release
 ```
 
 成品为 `artifacts\release\win-x64\EmbeddedDebugger.App.exe`。终端 HTML、JavaScript、样式及其许可文件已嵌入程序，运行时会解包到用户缓存，无需在 EXE 旁放置 `Assets` 目录。发布配置关闭裁剪以兼容 WPF、WebView2 和 SSH。
+
+Release 将完整的 BouncyCastle 程序集压缩存放，首次使用 SSH / VNC 时在内存中解压加载，不删减任何算法。当前精简 EXE 约 6.2 MiB；压缩只减少分发体积。依赖版本不变时，增量构建会复用压缩结果。排查依赖加载时可追加 `-p:PackManagedDependencies=false` 使用常规程序集。SDK 的 `EnableCompressionInSingleFile` 在精简版中仍保持关闭。
 
 如果需要向尚未安装 .NET 运行时的机器交付，可显式生成自带运行时的较大版本：
 
@@ -76,6 +78,10 @@ RDP 完整 Windows 登录、证书交互和不同 VNC 服务端的兼容性仍�
 ```powershell
 dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.App.SmokeTests.csproj -- --network-quality-check
 ```
+
+## 性能与资源限制
+
+接收区按批次增量更新，隐藏时暂停文本格式化；本地和远程终端合并输出后交给 WebView2。每个会话最多保留 1000 条、合计 4 MiB 原始历史，累计 RX / TX 不受截断影响；文本接收区最多保留约 100 万字符。VNC 在后台解码并复用帧缓冲，只向界面更新变化的区域。性能对比和复现方法见 [性能优化记录](docs/performance.md)。
 
 ## 项目结构
 

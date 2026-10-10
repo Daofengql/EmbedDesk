@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
 
@@ -8,6 +8,7 @@ public sealed class SerialPortRowViewModel : ObservableObject
 {
     private bool _isSelected;
     private bool _isOpen;
+    private bool _isAvailable = true;
     private int _baudRate = 115200;
     private int _customBaudRate;
     private int _dataBits = 8;
@@ -28,12 +29,12 @@ public sealed class SerialPortRowViewModel : ObservableObject
     public string Description { get; }
     public string Manufacturer { get; }
     public bool IsRemote { get; init; }
-    public string SelectionLabel => $"{PortName}  ·  {DisplayName}";
+    public bool IsAvailable { get => _isAvailable; set { if (SetProperty(ref _isAvailable, value)) OnPropertyChanged(nameof(SelectionLabel)); } }
+    public string SelectionLabel => $"{PortName}  ·  {DisplayName}{(IsAvailable ? string.Empty : " · 离线")}";
     public int DataBits { get => _dataBits; set => SetProperty(ref _dataBits, value); }
     public System.IO.Ports.Parity Parity { get => _parity; set => SetProperty(ref _parity, value); }
     public System.IO.Ports.StopBits StopBits { get => _stopBits; set => SetProperty(ref _stopBits, value); }
     public System.IO.Ports.Handshake Handshake { get => _handshake; set => SetProperty(ref _handshake, value); }
-    public TerminalBufferViewModel Terminal { get; } = new();
     public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
     public bool IsOpen
     {

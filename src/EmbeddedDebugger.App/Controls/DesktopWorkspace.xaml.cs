@@ -126,7 +126,7 @@ public partial class DesktopWorkspace : UserControl, IAsyncDisposable
                     if (generation != _generation || _image is null) return;
                     if (_bitmap?.PixelWidth != frame.Width || _bitmap.PixelHeight != frame.Height)
                         _image.Source = _bitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgr32, null);
-                    _bitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
+                    _bitmap.WritePixels(new Int32Rect(frame.X, frame.Y, frame.UpdatedWidth, frame.UpdatedHeight), frame.Pixels, frame.Width * 4, (frame.Y * frame.Width + frame.X) * 4);
                 }).Task;
                 vnc.Disconnected += text => Dispatcher.BeginInvoke(new Action(() => { if (generation == _generation) _vm.SetState("已断开", text); }));
                 await vnc.ConnectAsync(profile.Host, profile.Port, profile.Password);

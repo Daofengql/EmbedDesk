@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -15,6 +15,34 @@ namespace EmbeddedDebugger.App.SmokeTests;
 // Run with loopback_ssh.py to exercise actual SSH.NET, terminal replay and awk.
 internal static class SshIntegrationChecks
 {
+    // Protocol-only check for isolated publish builds; independent of desktop input focus.
+    public static async Task RunProtocolAsync(int port)
+    {
+        await using var session = new RemoteDebugService().CreateSession(new RemoteConnectionProfile
+        {
+            Host = "127.0.0.1", Port = port, Username = "regression", Password = "loopback-only", AcceptUnknownHostKey = true
+        });
+        var output = new StringBuilder();
+        var gate = new object();
+        EmbeddedDebugger.Core.Models.RemotePerformanceSnapshot? latest = null;
+        session.TextReceived += (_, text) => { lock (gate) output.Append(text); };
+        session.PerformanceChanged += (_, snapshot) => { lock (gate) latest = snapshot; };
+        await session.ResizeAsync(91, 23);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await session.ConnectAsync();
+        Console.WriteLine($"METRIC isolated SSH connect (includes intentional fixture delays): {System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.0} ms");
+        await WaitAsync(() => { lock (gate) return Task.FromResult(output.ToString().Contains("MOTD-END")); });
+        string received; lock (gate) received = output.ToString();
+        Require(session.State == RemoteSessionState.Connected && received.Contains("PTY=91x23") && received.Contains("拆包中文"), "Published SSH authenticates and preserves PTY size and split UTF-8");
+        Require(Enumerable.Range(0, 600).All(i => received.Split($"MOTD-{i:000}:").Length == 2), "Published SSH receives all 600 MOTD lines exactly once");
+        await WaitAsync(() => { lock (gate) return Task.FromResult(latest?.CpuPercent is not null); });
+        lock (gate) Require(Math.Abs(latest!.CpuPercent!.Value - 40) < .01 && latest.MemoryPercent == 60, "Published SSH collects real remote command output");
+        await session.ResizeAsync(83, 19);
+        await session.SendAsync("__tty_size__PACKED\r");
+        await WaitAsync(() => { lock (gate) return Task.FromResult(output.ToString().Contains("TTY_SIZE_PACKED=83,19")); });
+        Require(true, "Published SSH sends terminal input and resizes the remote TTY");
+    }
+
     public static async Task RunAsync(int port)
     {
         await using var vm = new RemoteWorkspaceViewModel(new RemoteDebugService(), new RemoteConnectionProfile

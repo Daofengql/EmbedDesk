@@ -1,5 +1,7 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.IO;
+using System.Buffers;
+using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,11 +17,14 @@ public partial class ShellTerminal : UserControl, IDisposable
 {
     private bool _ready;
     private bool _initializing;
+    private bool _navigationPending;
     private bool _disposed;
     private Window? _ownerWindow;
     private TerminalBufferViewModel? _buffer;
-    private int _renderGeneration;
-    private readonly SemaphoreSlim _renderLock = new(1, 1);
+    private readonly Queue<byte[]> _pendingWrites = new();
+    private readonly DispatcherTimer _flushTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
+    private int _writeOffset;
+    private bool _writing, _resetPending;
 
     public static readonly DependencyProperty BufferProperty = DependencyProperty.Register(nameof(Buffer), typeof(TerminalBufferViewModel), typeof(ShellTerminal), new PropertyMetadata(null, OnBufferChanged));
     public TerminalBufferViewModel? Buffer { get => (TerminalBufferViewModel?)GetValue(BufferProperty); set => SetValue(BufferProperty, value); }
@@ -36,6 +41,7 @@ public partial class ShellTerminal : UserControl, IDisposable
     public ShellTerminal()
     {
         InitializeComponent();
+        _flushTimer.Tick += async (_, _) => { _flushTimer.Stop(); await FlushWritesAsync(); };
         Loaded += InitializeAsync;
         Browser.SizeChanged += async (_, _) => await UpdateViewportAsync();
         Browser.PreviewKeyDown += (_, e) =>
@@ -52,7 +58,7 @@ public partial class ShellTerminal : UserControl, IDisposable
 
     private async void InitializeAsync(object sender, RoutedEventArgs e)
     {
-        if (_disposed || _ready || _initializing || !IsVisible) return;
+        if (_disposed || _ready || _initializing || _navigationPending || !IsVisible) return;
         if (_ownerWindow is null && Window.GetWindow(this) is { } owner)
         {
             _ownerWindow = owner;
@@ -98,11 +104,15 @@ public partial class ShellTerminal : UserControl, IDisposable
                 catch (InvalidOperationException) { }
                 InputReceived?.Invoke(this, message);
             };
-            Browser.NavigationCompleted += async (_, args) => { if (!_disposed && args.IsSuccess) { _ready = true; UpdateFullscreen(); await UpdateViewportAsync(); await ReplayAsync(); } };
+            Browser.NavigationCompleted += async (_, args) => { _navigationPending = false; if (!_disposed && args.IsSuccess) { _ready = true; UpdateFullscreen(); await UpdateViewportAsync(); await ReplayAsync(); } };
+            // A tab can be hidden and restored between Source assignment and NavigationCompleted.
+            // Keep initialization reserved until navigation ends so restoring never reloads a live TUI.
+            _navigationPending = true;
             Browser.Source = new Uri("https://terminal.local/index.html");
         }
         catch (Exception ex)
         {
+            _navigationPending = false;
             if (_disposed) return;
             ErrorText.Text = $"终端初始化失败：{ex.Message}";
             ErrorText.Visibility = Visibility.Visible;
@@ -142,55 +152,62 @@ public partial class ShellTerminal : UserControl, IDisposable
         _ = control.ReplayAsync();
     }
 
-    private async Task ReplayAsync()
+    private Task ReplayAsync()
     {
-        if (!_ready || _disposed) return;
-        // Snapshot before yielding: later collection additions are queued only once.
-        var generation = ++_renderGeneration;
-        var entries = _buffer?.Entries.ToArray() ?? [];
-        await _renderLock.WaitAsync();
-        try
-        {
-            if (_disposed || generation != _renderGeneration) return;
-            await Browser.ExecuteScriptAsync("window.resetTerminal()");
-            foreach (var entry in entries)
-            {
-                if (_disposed || generation != _renderGeneration) return;
-                if (entry.IsReceived) await WriteAsync(entry.Data);
-            }
-        }
-        catch (ObjectDisposedException) { }
-        finally { _renderLock.Release(); }
+        if (!_ready || _disposed) return Task.CompletedTask;
+        // Reset and replay share one queue with live writes, preserving stream order.
+        _pendingWrites.Clear(); _writeOffset = 0; _resetPending = true;
+        if (_buffer is not null)
+            foreach (var entry in _buffer.Entries) if (entry.IsReceived) _pendingWrites.Enqueue(entry.Data);
+        return FlushWritesAsync();
     }
 
-    private async void OnEntriesChanged(object? sender, NotifyCollectionChangedEventArgs args)
+    private void OnEntriesChanged(object? sender, NotifyCollectionChangedEventArgs args)
     {
         if (!_ready || _disposed) return;
-        if (args.Action == NotifyCollectionChangedAction.Reset) { await ReplayAsync(); return; }
+        if (args.Action == NotifyCollectionChangedAction.Reset) { _ = ReplayAsync(); return; }
         if (args.NewItems is null) return;
-        var generation = _renderGeneration;
-        await _renderLock.WaitAsync();
+        foreach (TrafficEntryViewModel entry in args.NewItems) if (entry.IsReceived && entry.Data.Length > 0) _pendingWrites.Enqueue(entry.Data);
+        if (!_writing && !_flushTimer.IsEnabled) _flushTimer.Start();
+    }
+
+    private async Task FlushWritesAsync()
+    {
+        if (_writing || !_ready || _disposed) return;
+        _writing = true;
+        var batch = ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
         {
-            if (_disposed || generation != _renderGeneration) return;
-            foreach (TrafficEntryViewModel entry in args.NewItems)
+            while (!_disposed && (_resetPending || _pendingWrites.Count > 0))
             {
-                if (_disposed || generation != _renderGeneration) return;
-                if (entry.IsReceived) await WriteAsync(entry.Data);
+                if (_resetPending)
+                {
+                    _resetPending = false;
+                    await Browser.ExecuteScriptAsync("window.resetTerminal()");
+                    continue;
+                }
+                var count = 0;
+                while (count < 64 * 1024 && _pendingWrites.TryPeek(out var data))
+                {
+                    var copy = Math.Min(data.Length - _writeOffset, 64 * 1024 - count);
+                    data.AsSpan(_writeOffset, copy).CopyTo(batch.AsSpan(count));
+                    count += copy; _writeOffset += copy;
+                    if (_writeOffset == data.Length) { _pendingWrites.Dequeue(); _writeOffset = 0; }
+                }
+                if (count > 0)
+                    await Browser.ExecuteScriptAsync($"window.writeTerminal({JsonSerializer.Serialize(Convert.ToBase64String(batch, 0, count))})");
             }
         }
         catch (ObjectDisposedException) { }
-        finally { _renderLock.Release(); }
+        finally { ArrayPool<byte>.Shared.Return(batch); _writing = false; }
     }
-
-    private Task<string> WriteAsync(byte[] bytes) => _disposed ? Task.FromResult(string.Empty) : Browser.ExecuteScriptAsync($"window.writeTerminal({JsonSerializer.Serialize(Convert.ToBase64String(bytes))})");
-
     private void OwnerWindow_Closed(object? sender, EventArgs e) => Dispose();
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         _ready = false;
+        _flushTimer.Stop(); _pendingWrites.Clear();
         if (_buffer is not null) _buffer.Entries.CollectionChanged -= OnEntriesChanged;
         if (_ownerWindow is not null) _ownerWindow.Closed -= OwnerWindow_Closed;
         Browser.Dispose();

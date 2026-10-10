@@ -47,6 +47,28 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--ssh-protocol-check") && int.TryParse(Environment.GetEnvironmentVariable("EDBG_SSH_PORT"), out var protocolPort))
+            {
+                await SshIntegrationChecks.RunProtocolAsync(protocolPort);
+                Shutdown(0);
+                return;
+            }
+            if (e.Args.Contains("--connection-layout-check"))
+            {
+                await ConnectionLayoutChecks.RunAsync(viewModel.RemoteDebug!);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--serial-tabs-check"))
+            {
+                await SerialTabsChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--performance-check"))
+            {
+                await PerformanceChecks.RunAsync(viewModel);
+                Shutdown(0);
+                return;
+            }
             if (e.Args.Contains("--network-quality-check"))
             {
                 await NetworkQualityChecks.RunAsync();
@@ -77,6 +99,8 @@ internal sealed class SmokeApplication : Application
                 await delayedTerminal.ConnectCommand.ExecuteAsync(null);
                 Require(remoteDebug.LastResize == (83, 19), "Reconnected SSH session receives the current visible dimensions");
             }
+            await ConnectionLayoutChecks.RunAsync(viewModel.RemoteDebug!);
+            await SerialTabsChecks.RunAsync();
             await viewModel.InitializeAsync();
             var window = new MainWindow(viewModel) { Left = 10, Top = 10, Width = 1240, Height = 820 };
             window.Show();
@@ -139,62 +163,62 @@ internal sealed class SmokeApplication : Application
             mainTabs.SelectedIndex = 0;
             await Task.Delay(100);
             var selector = (ComboBox)workspace.FindName("PortSelector");
-            Console.WriteLine($"BINDING selected={viewModel.SelectedSerialPort?.PortName ?? "NULL"}, selector={((SerialPortRowViewModel?)selector.SelectedItem)?.PortName ?? "NULL"}, workspaceData={workspace.DataContext?.GetType().Name}");
-            Require(viewModel.SelectedSerialPort is not null, "Default serial port is selected");
-            Require(viewModel.OpenSelectedSerialCommand.CanExecute(null), "Connect command is enabled");
-            viewModel.SelectedSerialPort!.Parity = System.IO.Ports.Parity.Even;
-            viewModel.SelectedSerialPort.DataBits = 7;
-            viewModel.SelectedSerialPort.Handshake = System.IO.Ports.Handshake.RequestToSend;
-            await viewModel.OpenSelectedSerialCommand.ExecuteAsync(null);
+            Console.WriteLine($"BINDING selected={viewModel.SelectedSerialSession!.SelectedSerialPort?.PortName ?? "NULL"}, selector={((SerialPortRowViewModel?)selector.SelectedItem)?.PortName ?? "NULL"}, workspaceData={workspace.DataContext?.GetType().Name}");
+            Require(viewModel.SelectedSerialSession!.SelectedSerialPort is not null, "Default serial port is selected");
+            Require(viewModel.SelectedSerialSession!.OpenSelectedSerialCommand.CanExecute(null), "Connect command is enabled");
+            viewModel.SelectedSerialSession!.SelectedSerialPort!.Parity = System.IO.Ports.Parity.Even;
+            viewModel.SelectedSerialSession!.SelectedSerialPort.DataBits = 7;
+            viewModel.SelectedSerialSession!.SelectedSerialPort.Handshake = System.IO.Ports.Handshake.RequestToSend;
+            await viewModel.SelectedSerialSession!.OpenSelectedSerialCommand.ExecuteAsync(null);
             Require(serial.LastSettings is { DataBits: 7, Parity: System.IO.Ports.Parity.Even, Handshake: System.IO.Ports.Handshake.RequestToSend }, "Serial options reach channel");
-            viewModel.SerialSendText = "AT";
-            viewModel.SerialAppendCrLf = true;
-            await viewModel.SendSelectedSerialCommand.ExecuteAsync(null);
+            viewModel.SelectedSerialSession!.SerialSendText = "AT";
+            viewModel.SelectedSerialSession!.SerialAppendCrLf = true;
+            await viewModel.SelectedSerialSession!.SendSelectedSerialCommand.ExecuteAsync(null);
             Require(Encoding.UTF8.GetString(serial.Writes.Last()) == "AT\r\n", "CRLF send");
-            viewModel.SerialSendAsHex = true;
-            viewModel.SerialSendText = "00 ff 10";
-            await viewModel.SendSelectedSerialCommand.ExecuteAsync(null);
+            viewModel.SelectedSerialSession!.SerialSendAsHex = true;
+            viewModel.SelectedSerialSession!.SerialSendText = "00 ff 10";
+            await viewModel.SelectedSerialSession!.SendSelectedSerialCommand.ExecuteAsync(null);
             Require(serial.Writes.Last().SequenceEqual(new byte[] { 0, 255, 16 }), "HEX send");
             var writeCount = serial.Writes.Count;
-            viewModel.SerialSendText = "xyz";
-            await viewModel.SendSelectedSerialCommand.ExecuteAsync(null);
+            viewModel.SelectedSerialSession!.SerialSendText = "xyz";
+            await viewModel.SelectedSerialSession!.SendSelectedSerialCommand.ExecuteAsync(null);
             Require(serial.Writes.Count == writeCount, "Invalid HEX does not send");
-            viewModel.SerialSendAsHex = false;
-            viewModel.SerialAppendCrLf = false;
-            viewModel.SerialSendText = "ping";
-            viewModel.SerialIntervalMs = "50";
-            viewModel.SerialLoopEnabled = true;
+            viewModel.SelectedSerialSession!.SerialSendAsHex = false;
+            viewModel.SelectedSerialSession!.SerialAppendCrLf = false;
+            viewModel.SelectedSerialSession!.SerialSendText = "ping";
+            viewModel.SelectedSerialSession!.SerialIntervalMs = "50";
+            viewModel.SelectedSerialSession!.SerialLoopEnabled = true;
             await Task.Delay(180);
-            viewModel.StopSerialJobCommand.Execute(null);
+            viewModel.SelectedSerialSession!.StopSerialJobCommand.Execute(null);
             await Task.Delay(80);
             writeCount = serial.Writes.Count;
             await Task.Delay(100);
-            Require(serial.Writes.Count == writeCount && !viewModel.SerialLoopEnabled, "Loop stops");
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "first" });
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "skip", Enabled = false });
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "second" });
-            await viewModel.RunQueueCommand.ExecuteAsync(null);
+            Require(serial.Writes.Count == writeCount && !viewModel.SelectedSerialSession!.SerialLoopEnabled, "Loop stops");
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "first" });
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "skip", Enabled = false });
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "second" });
+            await viewModel.SelectedSerialSession!.RunQueueCommand.ExecuteAsync(null);
             Require(Encoding.UTF8.GetString(serial.Writes[^2]) == "first" && Encoding.UTF8.GetString(serial.Writes[^1]) == "second", "Queue order and enabled state");
-            viewModel.QueueRepeat = true;
-            var queueTask = viewModel.RunQueueCommand.ExecuteAsync(null);
+            viewModel.SelectedSerialSession!.QueueRepeat = true;
+            var queueTask = viewModel.SelectedSerialSession!.RunQueueCommand.ExecuteAsync(null);
             await Task.Delay(90);
-            viewModel.StopSerialJobCommand.Execute(null);
+            viewModel.SelectedSerialSession!.StopSerialJobCommand.Execute(null);
             await queueTask;
-            Require(!viewModel.RunQueueCommand.IsRunning, "Queue cancellation");
-            var buffer = viewModel.SelectedSerialPort.Terminal;
+            Require(!viewModel.SelectedSerialSession!.RunQueueCommand.IsRunning, "Queue cancellation");
+            var buffer = viewModel.SelectedSerialSession!.Terminal;
             await viewModel.ScanSerialPortsCommand.ExecuteAsync(null);
-            Require(viewModel.SelectedSerialPort?.IsOpen == true && viewModel.SelectedSerialPort.Terminal == buffer, "Refresh preserves open port and buffer");
-            await viewModel.CloseSelectedSerialCommand.ExecuteAsync(null);
-            viewModel.SelectedSerialPort!.DataBits = 8;
-            viewModel.SelectedSerialPort.Parity = System.IO.Ports.Parity.None;
-            viewModel.SelectedSerialPort.Handshake = System.IO.Ports.Handshake.None;
-            viewModel.SerialSendQueue.Clear();
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+STATUS" });
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+VERSION" });
-            viewModel.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+RESET", Enabled = false });
+            Require(viewModel.SelectedSerialSession!.SelectedSerialPort?.IsOpen == true && viewModel.SelectedSerialSession!.Terminal == buffer, "Refresh preserves open port and buffer");
+            await viewModel.SelectedSerialSession!.CloseSelectedSerialCommand.ExecuteAsync(null);
+            viewModel.SelectedSerialSession!.SelectedSerialPort!.DataBits = 8;
+            viewModel.SelectedSerialSession!.SelectedSerialPort.Parity = System.IO.Ports.Parity.None;
+            viewModel.SelectedSerialSession!.SelectedSerialPort.Handshake = System.IO.Ports.Handshake.None;
+            viewModel.SelectedSerialSession!.SerialSendQueue.Clear();
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+STATUS" });
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+VERSION" });
+            viewModel.SelectedSerialSession!.SerialSendQueue.Add(new SerialSendQueueItem { Payload = "AT+RESET", Enabled = false });
             buffer.ClearCommand.Execute(null);
             buffer.Add(DateTimeOffset.Now, true, Encoding.UTF8.GetBytes("Booting device...\r\nFirmware v2.4.0\r\nReady.\r\n"));
-            viewModel.SerialSendText = "AT+STATUS";
+            viewModel.SelectedSerialSession!.SerialSendText = "AT+STATUS";
             Console.WriteLine("READY. Commands: normal, small, tools, shell, bridge, client, network, quit");
             Window? auxiliary = null;
             while (true)
@@ -205,11 +229,11 @@ internal sealed class SmokeApplication : Application
                 auxiliary = null;
                 switch (command)
                 {
-                    case "normal": window.Width = 1240; window.Height = 820; viewModel.ShellMode = false; break;
-                    case "small": window.Width = 1080; window.Height = 680; viewModel.ShellMode = false; break;
-                    case "tools": window.Width = 1080; window.Height = 680; viewModel.ShellMode = false; break;
+                    case "normal": window.Width = 1240; window.Height = 820; viewModel.SelectedSerialSession!.ShellMode = false; break;
+                    case "small": window.Width = 1080; window.Height = 680; viewModel.SelectedSerialSession!.ShellMode = false; break;
+                    case "tools": window.Width = 1080; window.Height = 680; viewModel.SelectedSerialSession!.ShellMode = false; break;
                     case "shell":
-                        viewModel.ShellMode = true;
+                        viewModel.SelectedSerialSession!.ShellMode = true;
                         buffer.ClearCommand.Execute(null);
                         buffer.Add(DateTimeOffset.Now, true, Encoding.UTF8.GetBytes("\u001b[32mEmbedded Linux 6.6\u001b[0m\r\nroot@device:~# uname -a\r\nLinux device 6.6.21 aarch64 GNU/Linux\r\nroot@device:~# "));
                         await Task.Delay(2000);

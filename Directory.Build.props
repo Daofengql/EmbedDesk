@@ -7,5 +7,6 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <PackManagedDependencies Condition="'$(PackManagedDependencies)' == '' and '$(Configuration)' == 'Release'">true</PackManagedDependencies>
   </PropertyGroup>
 </Project>

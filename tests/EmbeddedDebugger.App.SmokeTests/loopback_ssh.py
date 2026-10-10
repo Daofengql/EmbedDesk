@@ -151,7 +151,10 @@ def accept():
 threading.Thread(target=accept, daemon=True).start()
 try:
     env = dict(os.environ, EDBG_SSH_PORT=str(listener.getsockname()[1]))
-    result = subprocess.run(["dotnet", "run", "--project", str(project), "-c", "Debug", "-p:RunAnalyzers=false"], env=env, timeout=90)
+    # An isolated published verifier also exercises compressed dependency loading.
+    verifier = os.environ.get("EDBG_SSH_TEST_EXE")
+    command = [verifier, "--ssh-protocol-check"] if verifier else ["dotnet", "run", "--project", str(project), "-c", "Debug", "-p:RunAnalyzers=false"]
+    result = subprocess.run(command, env=env, timeout=120)
     raise SystemExit(result.returncode)
 finally:
     listener.close()

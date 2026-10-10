@@ -159,6 +159,7 @@ internal static class DesktopNetworkChecks
             manager.CloseDesktop(vncSession);
             Require(!manager.Tabs.Contains(vncSession), "Closing VNC removes the tab and stops the session");
             await CheckVncResizeAsync();
+            await CheckVncIncrementalAsync();
         }
         finally { await vm.DisposeAsync(); window.Close(); }
     }
@@ -167,7 +168,7 @@ internal static class DesktopNetworkChecks
         await using var fixture = new VncFixture(authenticate: false, resize: true);
         await using var client = new VncClient();
         var frames = new List<VncFrame>();
-        client.FrameReceived = frame => { lock (frames) frames.Add(frame); return Task.CompletedTask; };
+        client.FrameReceived = frame => { lock (frames) frames.Add(frame with { Pixels = (byte[])frame.Pixels.Clone() }); return Task.CompletedTask; };
         await client.ConnectAsync("127.0.0.1", fixture.Port, "");
         await WaitAsync(() => { lock (frames) return frames.Count >= 2; });
         lock (frames)
@@ -178,6 +179,30 @@ internal static class DesktopNetworkChecks
         await client.SendPointerAsync(500, -1, 1); await client.SendClipboardAsync("clipboard test");
         await WaitAsync(() => fixture.Pointer is not null && fixture.Clipboard is not null);
         Require(fixture.Pointer == (1, 0, 1) && fixture.Clipboard == "clipboard test", "VNC clamps pointer coordinates and sends clipboard text");
+    }
+    private static async Task CheckVncIncrementalAsync()
+    {
+        await using var fixture = new VncFixture(authenticate: false, incremental: true);
+        await using var client = new VncClient();
+        byte[]? first = null;
+        var rendered = 0;
+        var bitmap = new System.Windows.Media.Imaging.WriteableBitmap(320, 200, 96, 96, PixelFormats.Bgr32, null);
+        client.FrameReceived = async frame =>
+        {
+            if (first is null) first = frame.Pixels;
+            else Require(ReferenceEquals(first, frame.Pixels) && frame.X == 5 && frame.Y == 7 && frame.UpdatedWidth == 2 && frame.UpdatedHeight == 2,
+                "Incremental VNC reuses the framebuffer and reports only the dirty region");
+            Require(!Application.Current.Dispatcher.CheckAccess(), "VNC parsing runs off the UI thread");
+            await Application.Current.Dispatcher.InvokeAsync(() => bitmap.WritePixels(new Int32Rect(frame.X, frame.Y, frame.UpdatedWidth, frame.UpdatedHeight), frame.Pixels, frame.Width * 4, (frame.Y * frame.Width + frame.X) * 4));
+            var before = frame.Pixels[0]; await Task.Delay(20);
+            Require(frame.Pixels[0] == before, "Borrowed VNC pixels remain stable until rendering completes");
+            rendered++;
+        };
+        await client.ConnectAsync("127.0.0.1", fixture.Port, "");
+        await WaitAsync(() => rendered == 2);
+        var pixels = new byte[320 * 200 * 4]; bitmap.CopyPixels(pixels, 320 * 4, 0);
+        Require(pixels.AsSpan((7 * 320 + 5) * 4, 8).SequenceEqual(new byte[] { 1, 2, 3, 0, 4, 5, 6, 0 }) && pixels[0] == 40,
+            "WPF updates the VNC region at the correct offset without changing surrounding pixels");
     }
     private static int FreePort() { using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); return ((IPEndPoint)listener.LocalEndpoint).Port; }
     private static async Task WaitAsync(Func<bool> predicate, int timeout = 8000)
@@ -201,12 +226,12 @@ internal static class DesktopNetworkChecks
         public List<(uint, bool)> Keys { get; } = [];
         public (int, int, byte)? Pointer { get; private set; }
         public string? Clipboard { get; private set; }
-        public VncFixture(bool authenticate, bool resize = false)
+        public VncFixture(bool authenticate, bool resize = false, bool incremental = false)
         {
             _listener.Start(); Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-            _worker = RunAsync(authenticate, resize);
+            _worker = RunAsync(authenticate, resize, incremental);
         }
-        private async Task RunAsync(bool authenticate, bool resize)
+        private async Task RunAsync(bool authenticate, bool resize, bool incremental)
         {
             try
             {
@@ -239,6 +264,13 @@ internal static class DesktopNetworkChecks
                         {
                             var packet = new byte[16 + 320 * 200 * 4]; packet[3] = 1; Put16(packet, 8, 320); Put16(packet, 10, 200);
                             for (var y = 0; y < 200; y++) for (var x = 0; x < 320; x++) { var i = 16 + (y * 320 + x) * 4; packet[i] = (byte)(40 + y / 2); packet[i + 1] = (byte)(80 + x / 3); packet[i + 2] = 35; }
+                            await Write(packet); sent++;
+                        }
+                        else if (sent == 1 && incremental)
+                        {
+                            var packet = new byte[32]; packet[3] = 1;
+                            Put16(packet, 4, 5); Put16(packet, 6, 7); Put16(packet, 8, 2); Put16(packet, 10, 2);
+                            new byte[] { 1, 2, 3, 0, 4, 5, 6, 0, 7, 8, 9, 0, 10, 11, 12, 0 }.CopyTo(packet, 16);
                             await Write(packet); sent++;
                         }
                         else if (sent == 1 && resize)

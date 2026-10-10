@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -8,6 +8,8 @@ public sealed class TerminalBufferViewModel : ObservableObject
 {
     private long _receivedBytes;
     private long _sentBytes;
+    private int _historyBytes;
+    public const int MaxHistoryBytes = 4 * 1024 * 1024;
 
     public TerminalBufferViewModel() => ClearCommand = new RelayCommand(Clear);
 
@@ -20,13 +22,21 @@ public sealed class TerminalBufferViewModel : ObservableObject
     {
         if (isReceived) ReceivedBytes += data.Length;
         else SentBytes += data.Length;
+        // Keep byte counters exact while bounding retained data for every session.
+        if (data.Length > MaxHistoryBytes) data = data[^MaxHistoryBytes..];
         Entries.Add(new TrafficEntryViewModel(timestamp, isReceived, data));
-        while (Entries.Count > 1000) Entries.RemoveAt(0);
+        _historyBytes += data.Length;
+        while (Entries.Count > 1000 || _historyBytes > MaxHistoryBytes)
+        {
+            _historyBytes -= Entries[0].Data.Length;
+            Entries.RemoveAt(0);
+        }
     }
 
     public void Clear()
     {
         Entries.Clear();
+        _historyBytes = 0;
         ReceivedBytes = 0;
         SentBytes = 0;
     }

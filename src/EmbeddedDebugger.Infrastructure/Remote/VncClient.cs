@@ -1,12 +1,14 @@
 ﻿using System.Buffers.Binary;
 using System.Net.Sockets;
+using System.Buffers;
 using System.Text;
 using Org.BouncyCastle.Crypto.Engines;
 using Org.BouncyCastle.Crypto.Parameters;
 
 namespace EmbeddedDebugger.Infrastructure.Remote;
 
-public sealed record VncFrame(int Width, int Height, byte[] Pixels);
+/// <summary>Pixels are borrowed until the FrameReceived task completes. Copy them to retain a snapshot.</summary>
+public sealed record VncFrame(int Width, int Height, byte[] Pixels, int X, int Y, int UpdatedWidth, int UpdatedHeight);
 
 /// <summary>RFB 3.3/3.7/3.8 client with Raw, CopyRect and DesktopSize encodings.</summary>
 public sealed class VncClient : IAsyncDisposable
@@ -85,7 +87,8 @@ public sealed class VncClient : IAsyncDisposable
         byte[] encodings = [2, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 255, 255, 255, 33, 255, 255, 255, 32];
         await WriteAsync(encodings, ct); // Raw, CopyRect, DesktopSize (-223), LastRect (-224).
         await RequestFrameAsync(false, ct);
-        _reader = ReadLoopAsync(_lifetime.Token);
+        // Decode rectangles off the UI thread; the awaited renderer supplies backpressure.
+        _reader = Task.Run(() => ReadLoopAsync(_lifetime.Token));
     }
 
     public async Task SendKeyAsync(uint keysym, bool down, CancellationToken token = default)
@@ -121,18 +124,31 @@ public sealed class VncClient : IAsyncDisposable
                     var header = await ReadAsync(3, ct);
                     var count = U16(header, 1);
                     var resized = false;
+                    var left = _width; var top = _height; var right = 0; var bottom = 0;
                     for (var i = 0; i < count; i++)
                     {
                         var rect = await ReadAsync(12, ct);
                         var x = U16(rect, 0); var y = U16(rect, 2); var w = U16(rect, 4); var h = U16(rect, 6);
                         var encoding = BinaryPrimitives.ReadInt32BigEndian(rect.AsSpan(8));
                         if (encoding == -224) break;
-                        if (encoding == -223) { Resize(w, h); resized = true; continue; }
+                        if (encoding == -223) { Resize(w, h); resized = true; left = top = 0; right = w; bottom = h; continue; }
                         ValidateRectangle(x, y, w, h);
+                        left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x + w); bottom = Math.Max(bottom, y + h);
                         if (encoding == 0)
                         {
-                            var data = await ReadAsync(checked(w * h * 4), ct);
-                            for (var row = 0; row < h; row++) Buffer.BlockCopy(data, row * w * 4, _pixels, ((y + row) * _width + x) * 4, w * 4);
+                            if (x == 0 && w == _width)
+                                await _stream!.ReadExactlyAsync(_pixels.AsMemory(y * _width * 4, checked(w * h * 4)), ct);
+                            else
+                            {
+                                var length = checked(w * h * 4);
+                                var data = ArrayPool<byte>.Shared.Rent(length);
+                                try
+                                {
+                                    await _stream!.ReadExactlyAsync(data.AsMemory(0, length), ct);
+                                    for (var row = 0; row < h; row++) Buffer.BlockCopy(data, row * w * 4, _pixels, ((y + row) * _width + x) * 4, w * 4);
+                                }
+                                finally { ArrayPool<byte>.Shared.Return(data); }
+                            }
                         }
                         else if (encoding == 1)
                         {
@@ -146,7 +162,10 @@ public sealed class VncClient : IAsyncDisposable
                         }
                         else throw new IOException($"服务器返回未协商的 VNC 编码：{encoding}");
                     }
-                    if (FrameReceived is { } render) await render(new VncFrame(_width, _height, (byte[])_pixels.Clone()));
+                    // Await the consumer before receiving more pixels: one stable framebuffer,
+                    // no full-screen snapshot allocation for every incremental update.
+                    if (right > left && bottom > top && FrameReceived is { } render)
+                        await render(new VncFrame(_width, _height, _pixels, left, top, right - left, bottom - top));
                     await RequestFrameAsync(!resized, ct);
                 }
                 else if (type == 2) { /* Bell */ }

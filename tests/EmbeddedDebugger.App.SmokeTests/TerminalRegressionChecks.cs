@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -49,6 +49,21 @@ internal static class TerminalRegressionChecks
             await Task.Delay(200);
             var actual = JsonSerializer.Deserialize<string>(await browser.ExecuteScriptAsync("Array.from({length:terminal.buffer.active.length},(_,i)=>terminal.buffer.active.getLine(i).translateToString(true)).filter(x=>x.startsWith('MOTD-')).join('\\n')"));
             Require(actual == string.Join('\n', Enumerable.Range(0, 160).Select(i => $"MOTD-{i:000}")), "Hidden initialization and live replay preserve every MOTD line exactly once");
+            control.Buffer.Clear(); await Task.Delay(100);
+            await browser.ExecuteScriptAsync("window.batchWrites=0; window.originalWrite=window.writeTerminal; window.writeTerminal=data=>{window.batchWrites++;window.originalWrite(data);}");
+            for (var i = 0; i < 800; i++) control.Buffer.Add(DateTimeOffset.Now, true, Encoding.UTF8.GetBytes($"BATCH-{i:000}\r\n"));
+            await Task.Delay(300);
+            var batched = JsonSerializer.Deserialize<string>(await browser.ExecuteScriptAsync("Array.from({length:terminal.buffer.active.length},(_,i)=>terminal.buffer.active.getLine(i).translateToString(true)).filter(x=>x.startsWith('BATCH-')).join('\\n')"));
+            Require(batched == string.Join('\n', Enumerable.Range(0, 800).Select(i => $"BATCH-{i:000}")), "Batching preserves the exact order of 800 terminal writes");
+            var writes = int.Parse(await browser.ExecuteScriptAsync("window.batchWrites"), System.Globalization.CultureInfo.InvariantCulture);
+            Require(writes < 10, $"800 packets use {writes} WebView script calls instead of 800");
+            control.Buffer.Add(DateTimeOffset.Now, true, Encoding.UTF8.GetBytes("stale-before-reset"));
+            control.Buffer.Clear();
+            control.Buffer.Add(DateTimeOffset.Now, true, Encoding.UTF8.GetBytes("fresh-after-reset"));
+            await Task.Delay(150);
+            var afterReset = await browser.ExecuteScriptAsync("Array.from({length:terminal.buffer.active.length},(_,i)=>terminal.buffer.active.getLine(i).translateToString(true)).join('\\n')");
+            Require(afterReset.Contains("fresh-after-reset") && !afterReset.Contains("stale-before-reset"), "Clear invalidates queued terminal output before replay");
+            await browser.ExecuteScriptAsync("window.writeTerminal=window.originalWrite");
             control.Buffer.Clear();
             await Task.Delay(100);
             await browser.ExecuteScriptAsync("terminal.focus()");

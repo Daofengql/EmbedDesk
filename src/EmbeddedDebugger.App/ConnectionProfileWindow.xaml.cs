@@ -27,6 +27,9 @@ public partial class ConnectionProfileWindow : Window, INotifyPropertyChanged
     public ConnectionProfileWindow(RemoteDebugWorkspaceViewModel workspace, RemoteConnectionProfile profile, bool isNew)
     {
         InitializeComponent();
+        MaxHeight = Math.Max(MinHeight, SystemParameters.WorkArea.Height - 32);
+        Loaded += (_, _) => FitToScreen();
+        SizeChanged += (_, _) => { if (IsLoaded) KeepOnScreen(); };
         _workspace = workspace;
         _profile = profile;
         _isNew = isNew;
@@ -42,15 +45,30 @@ public partial class ConnectionProfileWindow : Window, INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsSsh));
                 OnPropertyChanged(nameof(HasUsername));
                 OnPropertyChanged(nameof(ConnectionHint));
-                UpdateProtocolLayout();
             }
         };
         PasswordEditor.Password = Editor.Password;
         KeyPassphraseEditor.Password = Editor.PrivateKeyPassphrase;
-        UpdateProtocolLayout();
     }
 
-    private void UpdateProtocolLayout() => Height = Editor.IsSsh ? 560 : Editor.IsVnc ? 450 : 500;
+    private Rect ScreenWorkArea()
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var pixels = System.Windows.Forms.Screen.FromHandle(handle).WorkingArea;
+        var scale = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        return new Rect(pixels.Left / scale.DpiScaleX, pixels.Top / scale.DpiScaleY,
+            pixels.Width / scale.DpiScaleX, pixels.Height / scale.DpiScaleY);
+    }
+    private void FitToScreen()
+    {
+        MaxHeight = Math.Max(MinHeight, ScreenWorkArea().Height - 32);
+        KeepOnScreen();
+    }
+    private void KeepOnScreen()
+    {
+        var area = ScreenWorkArea();
+        if (!double.IsNaN(Top)) Top = Math.Clamp(Top, area.Top + 16, Math.Max(area.Top + 16, area.Bottom - ActualHeight - 16));
+    }
 
     private void PasswordEditor_Changed(object sender, RoutedEventArgs e) { if (Editor is not null) Editor.Password = PasswordEditor.Password; }
     private void KeyPassphraseEditor_Changed(object sender, RoutedEventArgs e) { if (Editor is not null) Editor.PrivateKeyPassphrase = KeyPassphraseEditor.Password; }
@@ -77,6 +95,7 @@ public partial class ConnectionProfileWindow : Window, INotifyPropertyChanged
     {
         if (!string.IsNullOrWhiteSpace(Editor.Host) && int.TryParse(PortEditor.Text, out var port) && port is > 0 and <= 65535 && !string.IsNullOrWhiteSpace(Editor.Name)) { Editor.Port = port; return true; }
         ValidationMessage.Text = "请填写连接名称、主机地址和有效端口（1–65535）。";
+        Dispatcher.BeginInvoke(new Action(() => ValidationMessage.BringIntoView()));
         return false;
     }
     private void Apply()

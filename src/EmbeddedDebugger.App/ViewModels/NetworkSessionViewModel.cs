@@ -131,14 +131,19 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     private void HandleMessage(TransportMessage message)
     {
         if (_disposed) return;
-        State = message.State switch
+        var nextState = message.State switch
         {
             TransportSessionState.Created => "未启动", TransportSessionState.Starting => "启动中", TransportSessionState.Listening => "监听中",
             TransportSessionState.Connecting => "连接中", TransportSessionState.Connected => "已连接", TransportSessionState.Stopping => "停止中",
             TransportSessionState.Stopped => "已停止", _ => "连接失败"
         };
-        NotifyCommands();
-        UpdateNetworkTarget(message);
+        if (State != nextState)
+        {
+            State = nextState;
+            NotifyCommands();
+        }
+        if (message.Kind is TransportEventKind.StateChanged or TransportEventKind.Connected or TransportEventKind.Disconnected || _session.Options.Protocol == TransportProtocol.Udp)
+            UpdateNetworkTarget(message);
         if (!CanSend) StopSending();
         if (message.Kind is TransportEventKind.Received or TransportEventKind.Sent)
         {

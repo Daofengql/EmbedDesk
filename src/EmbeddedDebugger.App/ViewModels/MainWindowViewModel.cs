@@ -14,24 +14,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly ISerialPortService _serialPortService;
     private readonly ISerialBridgeService _serialBridgeService;
     private readonly IRemoteSerialClient _remoteSerialClient;
-    private readonly Dictionary<string, ISerialPortChannel> _openSerialChannels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SerialSessionViewModel> _serialOwners = new(StringComparer.OrdinalIgnoreCase);
+    private SerialSessionViewModel? _selectedSerialSession;
+    private int _serialSessionNumber;
+    private bool _disposed, _bridgeStarting;
     private NetworkSessionViewModel? _selectedSession;
-    private SerialPortRowViewModel? _selectedSerialPort;
-    private string _serialSendText = string.Empty;
     private string _networkSendText = string.Empty;
     private string _activityStatus = "就绪";
-    private bool _serialSendAsHex;
-    private bool _serialAppendCrLf;
     private bool _networkSendAsHex;
     private bool _networkAppendCrLf;
     private string? _bridgeId;
     private string _bridgeMode = "服务端";
-    private bool _shellMode;
-    private bool _serialLoopEnabled;
-    private bool _queueRepeat;
-    private bool _serialSending;
-    private string _serialIntervalMs = "1000";
-    private string _serialJobStatus = "未运行";
 
     public MainWindowViewModel(
         ITransportService transportService,
@@ -47,7 +40,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _remoteSerialClient = remoteSerialClient;
         RemoteDebug = remoteDebugService is null ? null : new RemoteDebugWorkspaceViewModel(remoteDebugService, remoteSettingsDirectory);
         _remoteSerialClient.PortsChanged += OnRemotePortsChanged;
-        _remoteSerialClient.ConnectionChanged += (_, _) => RunOnUi(NotifyBridgeState);
+        _remoteSerialClient.ConnectionChanged += OnRemoteConnectionChanged;
 
         ProtocolOptions = new ObservableCollection<string> { "TCP", "UDP" };
         ModeOptions = new ObservableCollection<string> { "客户端", "服务端" };
@@ -60,16 +53,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RemoveSelectedNetworkCommand = new AsyncRelayCommand(RemoveSelectedNetworkAsync, () => SelectedSession is not null);
         SendSelectedNetworkCommand = new AsyncRelayCommand(SendSelectedNetworkAsync, () => SelectedSession?.CanSend == true && !string.IsNullOrWhiteSpace(NetworkSendText));
         ScanSerialPortsCommand = new AsyncRelayCommand(ScanSerialPortsAsync);
-        OpenSelectedSerialCommand = new AsyncRelayCommand(OpenSelectedSerialAsync, () => SelectedSerialPort is { IsOpen: false } && (SelectedSerialPort.IsRemote || _bridgeId is null));
-        CloseSelectedSerialCommand = new AsyncRelayCommand(CloseSelectedSerialAsync, () => SelectedSerialPort?.IsOpen == true);
-        SendSelectedSerialCommand = new AsyncRelayCommand(SendSelectedSerialAsync, () => SelectedSerialPort?.IsOpen == true && !string.IsNullOrWhiteSpace(SerialSendText));
         StartBridgeCommand = new AsyncRelayCommand(StartBridgeAsync, () => !IsBridgeRunning && (BridgeMode == "客户端" || SerialPorts.Any(port => port.IsSelected && !port.IsRemote)));
         StopBridgeCommand = new AsyncRelayCommand(StopBridgeAsync, () => IsBridgeRunning);
         ClearLogsCommand = new RelayCommand(() => Logs.Clear());
-        AddQueueItemCommand = new RelayCommand(() => SerialSendQueue.Add(new SerialSendQueueItem { Payload = SerialSendText }));
-        RemoveQueueItemCommand = new RelayCommand(() => { if (SelectedQueueItem is not null) SerialSendQueue.Remove(SelectedQueueItem); });
-        RunQueueCommand = new AsyncRelayCommand(RunQueueAsync, () => SelectedSerialPort?.IsOpen == true && !_serialSending);
-        StopSerialJobCommand = new RelayCommand(() => { SerialLoopEnabled = false; RunQueueCommand.Cancel(); });
+        AddSerialSessionCommand = new RelayCommand(() => AddSerialSession());
+        AddSerialSession();
         SerialPorts.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSerialPorts));
     }
 
@@ -79,26 +67,73 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<NetworkSessionViewModel> Sessions { get; }
     public ObservableCollection<SerialPortRowViewModel> SerialPorts { get; }
     public ObservableCollection<LogEntryViewModel> Logs { get; }
-    public ObservableCollection<SerialSendQueueItem> SerialSendQueue { get; } = new();
     public RemoteDebugWorkspaceViewModel? RemoteDebug { get; }
-    public SerialSendQueueItem? SelectedQueueItem { get; set; }
     public int[] DataBitsOptions { get; } = [5, 6, 7, 8];
     public System.IO.Ports.Parity[] ParityOptions { get; } = [System.IO.Ports.Parity.None, System.IO.Ports.Parity.Odd, System.IO.Ports.Parity.Even, System.IO.Ports.Parity.Mark, System.IO.Ports.Parity.Space];
     public System.IO.Ports.StopBits[] StopBitsOptions { get; } = [System.IO.Ports.StopBits.One, System.IO.Ports.StopBits.OnePointFive, System.IO.Ports.StopBits.Two];
     public System.IO.Ports.Handshake[] HandshakeOptions { get; } = [System.IO.Ports.Handshake.None, System.IO.Ports.Handshake.RequestToSend, System.IO.Ports.Handshake.XOnXOff, System.IO.Ports.Handshake.RequestToSendXOnXOff];
     public bool HasSerialPorts => SerialPorts.Count > 0;
-    public bool ShellMode { get => _shellMode; set { if (SetProperty(ref _shellMode, value)) { SerialLoopEnabled = false; RunQueueCommand.Cancel(); } } }
-    public string SerialIntervalMs { get => _serialIntervalMs; set => SetProperty(ref _serialIntervalMs, value); }
-    public bool QueueRepeat { get => _queueRepeat; set => SetProperty(ref _queueRepeat, value); }
-    public string SerialJobStatus { get => _serialJobStatus; private set => SetProperty(ref _serialJobStatus, value); }
-    public bool SerialLoopEnabled
+    public ObservableCollection<SerialSessionViewModel> SerialSessions { get; } = [];
+    public IRelayCommand AddSerialSessionCommand { get; }
+    public SerialSessionViewModel? SelectedSerialSession
     {
-        get => _serialLoopEnabled;
-        set
+        get => _selectedSerialSession;
+        set { if (value is not null && SerialSessions.Contains(value)) SetProperty(ref _selectedSerialSession, value); }
+    }
+
+    public SerialSessionViewModel AddSerialSession()
+    {
+        var session = new SerialSessionViewModel(this, ++_serialSessionNumber);
+        session.RefreshPorts(SerialPorts.ToArray());
+        session.SelectedSerialPort = session.SerialPorts.FirstOrDefault(port => !SerialSessions.Any(s => s.SelectedSerialPort?.PortName == port.PortName)) ?? session.SelectedSerialPort;
+        SerialSessions.Add(session);
+        SelectedSerialSession = session;
+        return session;
+    }
+
+    public async Task CloseSerialSessionAsync(SerialSessionViewModel session)
+    {
+        if (!SerialSessions.Contains(session)) return;
+        await session.DisposeAsync();
+        var index = SerialSessions.IndexOf(session);
+        if (index < 0) return;
+        SerialSessions.RemoveAt(index);
+        if (SerialSessions.Count == 0 && !_disposed) AddSerialSession();
+        else if (SelectedSerialSession == session && SerialSessions.Count > 0)
+            SelectedSerialSession = SerialSessions[Math.Min(index, SerialSessions.Count - 1)];
+    }
+
+    internal bool TryAcquireSerialPort(SerialSessionViewModel session, SerialPortRowViewModel port, out string error)
+    {
+        if (_serialOwners.TryGetValue(port.PortName, out var owner))
         {
-            if (!SetProperty(ref _serialLoopEnabled, value)) return;
-            if (value) { RunQueueCommand.Cancel(); _ = RunLoopAsync(); }
+            SelectedSerialSession = owner;
+            error = "串口已在其他标签打开";
+            AddSerialLog($"{port.PortName} 已在其他标签打开，已切换到该标签", TransportEventKind.Info);
+            return false;
         }
+        if (!port.IsRemote && (_bridgeId is not null || _bridgeStarting)) { error = "请先停止串口映射服务"; return false; }
+        _serialOwners.Add(port.PortName, session);
+        UpdateSerialUsage(); error = ""; return true;
+    }
+    internal void ReleaseSerialPort(SerialSessionViewModel session)
+    {
+        foreach (var key in _serialOwners.Where(pair => pair.Value == session).Select(pair => pair.Key).ToArray()) _serialOwners.Remove(key);
+        UpdateSerialUsage();
+    }
+    private void UpdateSerialUsage()
+    {
+        foreach (var row in SerialPorts) row.IsOpen = _serialOwners.ContainsKey(row.PortName);
+        StartBridgeCommand.NotifyCanExecuteChanged();
+    }
+    internal ISerialPortChannel CreateSerialChannel(SerialPortRowViewModel port) => port.IsRemote
+        ? _remoteSerialClient.CreateChannel(port.PortName, port.ToSettings()) : _serialPortService.CreateChannel(port.ToSettings());
+    internal void AddSerialLog(string message, TransportEventKind kind) => AddLog("串口", message, kind);
+    private void RefreshSerialSessions()
+    {
+        var available = SerialPorts.ToArray();
+        foreach (var session in SerialSessions) session.RefreshPorts(available);
+        UpdateSerialUsage();
     }
 
     public string ActivityStatus { get => _activityStatus; private set => SetProperty(ref _activityStatus, value); }
@@ -114,12 +149,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             SendSelectedNetworkCommand.NotifyCanExecuteChanged();
         }
     }
-    public SerialPortRowViewModel? SelectedSerialPort
-    {
-        get => _selectedSerialPort;
-        set { if (SetProperty(ref _selectedSerialPort, value)) { SerialLoopEnabled = false; RunQueueCommand.Cancel(); NotifySerialCommands(); } }
-    }
-
     public string NetworkProtocol { get; set; } = "TCP";
     public string NetworkMode { get; set; } = "客户端";
     public string LocalHost { get; set; } = "0.0.0.0";
@@ -131,10 +160,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public bool ScheduledSendEnabled { get; set; }
     public string ScheduleIntervalMs { get; set; } = "1000";
     public string ScheduledPayload { get; set; } = "ping";
-    public string SerialSendText { get => _serialSendText; set { if (SetProperty(ref _serialSendText, value)) SendSelectedSerialCommand.NotifyCanExecuteChanged(); } }
     public string NetworkSendText { get => _networkSendText; set { if (SetProperty(ref _networkSendText, value)) SendSelectedNetworkCommand.NotifyCanExecuteChanged(); } }
-    public bool SerialSendAsHex { get => _serialSendAsHex; set => SetProperty(ref _serialSendAsHex, value); }
-    public bool SerialAppendCrLf { get => _serialAppendCrLf; set => SetProperty(ref _serialAppendCrLf, value); }
     public bool NetworkSendAsHex { get => _networkSendAsHex; set => SetProperty(ref _networkSendAsHex, value); }
     public bool NetworkAppendCrLf { get => _networkAppendCrLf; set => SetProperty(ref _networkAppendCrLf, value); }
     public bool EnableVirtualSerialPorts { get; set; }
@@ -152,16 +178,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public IAsyncRelayCommand RemoveSelectedNetworkCommand { get; }
     public IAsyncRelayCommand SendSelectedNetworkCommand { get; }
     public IAsyncRelayCommand ScanSerialPortsCommand { get; }
-    public IAsyncRelayCommand OpenSelectedSerialCommand { get; }
-    public IAsyncRelayCommand CloseSelectedSerialCommand { get; }
-    public IAsyncRelayCommand SendSelectedSerialCommand { get; }
     public IAsyncRelayCommand StartBridgeCommand { get; }
     public IAsyncRelayCommand StopBridgeCommand { get; }
     public IRelayCommand ClearLogsCommand { get; }
-    public IRelayCommand AddQueueItemCommand { get; }
-    public IRelayCommand RemoveQueueItemCommand { get; }
-    public IAsyncRelayCommand RunQueueCommand { get; }
-    public IRelayCommand StopSerialJobCommand { get; }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -171,12 +190,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        SerialLoopEnabled = false;
-        RunQueueCommand.Cancel();
+        if (_disposed) return;
+        _disposed = true;
+        foreach (var session in SerialSessions.ToArray()) await session.DisposeAsync();
         _remoteSerialClient.PortsChanged -= OnRemotePortsChanged;
+        _remoteSerialClient.ConnectionChanged -= OnRemoteConnectionChanged;
         await _remoteSerialClient.DisconnectAsync();
         foreach (var session in Sessions.ToArray()) await session.DisposeAsync();
-        foreach (var channel in _openSerialChannels.Values.ToArray()) await channel.DisposeAsync();
         if (_bridgeId is not null) await _serialBridgeService.StopAsync(_bridgeId);
         if (RemoteDebug is not null) await RemoteDebug.DisposeAsync();
     }
@@ -245,14 +265,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         try
         {
             var ports = await _serialPortService.ScanAsync(cancellationToken);
-            var selectedName = SelectedSerialPort?.PortName;
             var knownPorts = SerialPorts.ToDictionary(port => port.PortName, StringComparer.OrdinalIgnoreCase);
             var rows = ports.Select(port => knownPorts.TryGetValue(port.PortName, out var row) ? row : new SerialPortRowViewModel(port)).ToList();
-            rows.AddRange(SerialPorts.Where(port => (port.IsOpen || port.IsRemote) && rows.All(row => row.PortName != port.PortName)));
+            rows.AddRange(SerialPorts.Where(port => port.IsRemote));
             foreach (var row in SerialPorts) row.PropertyChanged -= OnSerialPortChanged;
             SerialPorts.Clear();
             foreach (var row in rows) { row.PropertyChanged += OnSerialPortChanged; SerialPorts.Add(row); }
-            SelectedSerialPort = SerialPorts.FirstOrDefault(port => port.PortName == selectedName) ?? SerialPorts.FirstOrDefault();
+            RefreshSerialSessions();
             StartBridgeCommand.NotifyCanExecuteChanged();
             AddLog("串口", $"扫描到 {ports.Count} 个本地串口", TransportEventKind.Info);
         }
@@ -262,60 +281,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    private async Task OpenSelectedSerialAsync(CancellationToken cancellationToken = default)
-    {
-        if (SelectedSerialPort is null) return;
-        var row = SelectedSerialPort;
-        ISerialPortChannel? channel = null;
-        try
-        {
-            channel = row.IsRemote ? _remoteSerialClient.CreateChannel(row.PortName, row.ToSettings()) : _serialPortService.CreateChannel(row.ToSettings());
-            channel.DataReceived += OnSerialDataReceived;
-            await channel.OpenAsync(cancellationToken);
-            _openSerialChannels[row.PortName] = channel;
-            row.IsOpen = true;
-            AddLog("串口", $"已打开 {row.PortName} @ {row.EffectiveBaudRate}", TransportEventKind.Connected);
-        }
-        catch (Exception ex)
-        {
-            if (channel is not null) { channel.DataReceived -= OnSerialDataReceived; await channel.DisposeAsync(); }
-            AddLog("串口", $"打开失败: {ex.Message}", TransportEventKind.Error);
-        }
-    }
-
-    private async Task CloseSelectedSerialAsync(CancellationToken cancellationToken = default)
-    {
-        if (SelectedSerialPort is null || !_openSerialChannels.Remove(SelectedSerialPort.PortName, out var channel)) return;
-        SerialLoopEnabled = false;
-        RunQueueCommand.Cancel();
-        channel.DataReceived -= OnSerialDataReceived;
-        await channel.CloseAsync(cancellationToken);
-        await channel.DisposeAsync();
-        SelectedSerialPort.IsOpen = false;
-        AddLog("串口", $"已关闭 {SelectedSerialPort.PortName}", TransportEventKind.Disconnected);
-    }
-
-    private async Task SendSelectedSerialAsync(CancellationToken cancellationToken = default)
-    {
-        if (SelectedSerialPort is null || !_openSerialChannels.TryGetValue(SelectedSerialPort.PortName, out var channel)) return;
-        if (string.IsNullOrEmpty(SerialSendText)) return;
-        try
-        {
-            var row = SelectedSerialPort;
-            var payload = SendPayload.Encode(SerialSendText, SerialSendAsHex, SerialAppendCrLf);
-            await channel.SendAsync(payload, cancellationToken);
-            row.Terminal.Add(DateTimeOffset.Now, false, payload);
-            AddLog("串口", $"TX {row.PortName}: {payload.Length} B", TransportEventKind.Sent);
-        }
-        catch (Exception ex) when (ex is FormatException or InvalidOperationException or System.IO.IOException)
-        {
-            AddLog("串口", $"发送失败: {ex.Message}", TransportEventKind.Error);
-        }
-    }
-
     private async Task StartBridgeAsync(CancellationToken cancellationToken = default)
     {
-        if (IsBridgeRunning) return;
+        if (IsBridgeRunning || _bridgeStarting) return;
         if (!IsBridgeServer)
         {
             try
@@ -350,6 +318,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             CreateVirtualPorts = EnableVirtualSerialPorts,
             Channels = selected.Select(row => row.ToSettings()).ToArray()
         };
+        _bridgeStarting = true;
         try
         {
             _bridgeId = await _serialBridgeService.StartAsync(profile, cancellationToken);
@@ -361,6 +330,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             AddLog("映射", $"启动失败: {ex.Message}", TransportEventKind.Error);
         }
+        finally { _bridgeStarting = false; }
     }
 
     private async Task StopBridgeAsync(CancellationToken cancellationToken = default)
@@ -380,17 +350,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         AddLog("映射", "串口复用链路已停止", TransportEventKind.Disconnected);
     }
 
-    private void OnSerialDataReceived(object? sender, ReadOnlyMemory<byte> data)
-    {
-        var channel = sender as ISerialPortChannel;
-        var bytes = data.ToArray();
-        RunOnUi(() =>
-        {
-            SerialPorts.FirstOrDefault(row => row.PortName == channel?.Settings.PortName)?.Terminal.Add(DateTimeOffset.Now, true, bytes);
-            AddLog("串口", $"RX {channel?.Settings.PortName ?? "-"}: {bytes.Length} B", TransportEventKind.Received);
-        });
-    }
-
     private void AddLog(string category, string message, TransportEventKind kind)
     {
         var action = new Action(() =>
@@ -407,18 +366,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private static int ParsePort(string value, int fallback) => Math.Clamp(ParseInt(value, fallback), 1, 65535);
     private static int ParseInt(string value, int fallback) => int.TryParse(value, out var result) ? result : fallback;
 
-    private void OnSelectedSessionChanged(object? sender, PropertyChangedEventArgs e) => SendSelectedNetworkCommand.NotifyCanExecuteChanged();
+    private void OnSelectedSessionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(NetworkSessionViewModel.CanSend) or nameof(NetworkSessionViewModel.State)) SendSelectedNetworkCommand.NotifyCanExecuteChanged();
+    }
     private void OnSerialPortChanged(object? sender, PropertyChangedEventArgs e)
     {
-        NotifySerialCommands();
         StartBridgeCommand.NotifyCanExecuteChanged();
-    }
-    private void NotifySerialCommands()
-    {
-        OpenSelectedSerialCommand.NotifyCanExecuteChanged();
-        CloseSelectedSerialCommand.NotifyCanExecuteChanged();
-        SendSelectedSerialCommand.NotifyCanExecuteChanged();
-        RunQueueCommand.NotifyCanExecuteChanged();
     }
     private void NotifyBridgeState()
     {
@@ -426,7 +380,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanConfigureBridge));
         StartBridgeCommand.NotifyCanExecuteChanged();
         StopBridgeCommand.NotifyCanExecuteChanged();
-        NotifySerialCommands();
     }
     private static void RunOnUi(Action action)
     {
@@ -435,81 +388,16 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         else dispatcher.BeginInvoke(action);
     }
 
-    public async Task SendShellInputAsync(string text)
-    {
-        if (SelectedSerialPort is null || !_openSerialChannels.TryGetValue(SelectedSerialPort.PortName, out var channel)) return;
-        try
-        {
-            var row = SelectedSerialPort;
-            var bytes = System.Text.Encoding.UTF8.GetBytes(text);
-            await channel.SendAsync(bytes);
-            row.Terminal.Add(DateTimeOffset.Now, false, bytes);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or System.IO.IOException) { AddLog("串口", $"发送失败: {ex.Message}", TransportEventKind.Error); }
-    }
-
-    private async Task RunLoopAsync()
-    {
-        if (_serialSending) { SerialLoopEnabled = false; return; }
-        if (SelectedSerialPort is not { IsOpen: true } || string.IsNullOrWhiteSpace(SerialSendText))
-        {
-            SerialLoopEnabled = false;
-            SerialJobStatus = "串口未连接或发送内容为空";
-            return;
-        }
-        _serialSending = true;
-        NotifySerialCommands();
-        var port = SelectedSerialPort;
-        try
-        {
-            SerialJobStatus = "循环发送中";
-            while (SerialLoopEnabled && port == SelectedSerialPort && port.IsOpen)
-            {
-                await SendSelectedSerialAsync();
-                await Task.Delay(Math.Max(50, ParseInt(SerialIntervalMs, 1000)));
-            }
-        }
-        finally { _serialSending = false; SerialLoopEnabled = false; SerialJobStatus = "已停止"; NotifySerialCommands(); }
-    }
-
-    private async Task RunQueueAsync(CancellationToken cancellationToken)
-    {
-        var port = SelectedSerialPort;
-        if (port is null || !_openSerialChannels.TryGetValue(port.PortName, out var channel)) return;
-        var items = SerialSendQueue.Where(item => item.Enabled && !string.IsNullOrWhiteSpace(item.Payload)).Select(item => item.Payload).ToArray();
-        if (items.Length == 0) { SerialJobStatus = "队列为空"; return; }
-        _serialSending = true;
-        NotifySerialCommands();
-        try
-        {
-            do
-            {
-                for (var index = 0; index < items.Length; index++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    SerialJobStatus = $"队列发送 {index + 1}/{items.Length}";
-                    var payload = SendPayload.Encode(items[index], SerialSendAsHex, SerialAppendCrLf);
-                    await channel.SendAsync(payload, cancellationToken);
-                    port.Terminal.Add(DateTimeOffset.Now, false, payload);
-                    await Task.Delay(Math.Max(50, ParseInt(SerialIntervalMs, 1000)), cancellationToken);
-                }
-            } while (QueueRepeat);
-            SerialJobStatus = "队列已完成";
-        }
-        catch (OperationCanceledException) { SerialJobStatus = "已停止"; }
-        catch (Exception ex) { SerialJobStatus = $"发送失败: {ex.Message}"; AddLog("串口", SerialJobStatus, TransportEventKind.Error); }
-        finally { _serialSending = false; NotifySerialCommands(); }
-    }
-
+    private void OnRemoteConnectionChanged(object? sender, EventArgs e) => RunOnUi(NotifyBridgeState);
     private void OnRemotePortsChanged(object? sender, EventArgs e) => RunOnUi(() =>
     {
+        if (_disposed) return;
         var remotePorts = _remoteSerialClient.Ports;
         foreach (var row in SerialPorts.Where(row => row.IsRemote && remotePorts.All(port => port.PortName != row.PortName)).ToArray())
         {
             row.IsOpen = false;
             row.PropertyChanged -= OnSerialPortChanged;
             SerialPorts.Remove(row);
-            if (_openSerialChannels.Remove(row.PortName, out var channel)) _ = channel.DisposeAsync();
         }
         foreach (var port in remotePorts.Where(port => SerialPorts.All(row => row.PortName != port.PortName)))
         {
@@ -517,7 +405,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             row.PropertyChanged += OnSerialPortChanged;
             SerialPorts.Add(row);
         }
-        if (SelectedSerialPort is null || !SerialPorts.Contains(SelectedSerialPort)) SelectedSerialPort = SerialPorts.FirstOrDefault();
+        RefreshSerialSessions();
         NotifyBridgeState();
     });
 }

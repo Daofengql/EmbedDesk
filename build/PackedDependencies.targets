@@ -1,0 +1,47 @@
+<Project>
+  <!-- Keep the complete crypto assembly; compression changes storage, not algorithms.
+       Debug builds and -p:PackManagedDependencies=false use ordinary SDK resolution. -->
+  <UsingTask TaskName="CompressManagedAssembly" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup><Source ParameterType="System.String" Required="true" /><Destination ParameterType="System.String" Required="true" /></ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" /><Using Namespace="System.IO.Compression" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        Directory.CreateDirectory(Path.GetDirectoryName(Destination));
+        var temporary = Destination + "." + System.Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+          using (var input = File.OpenRead(Source))
+          using (var output = File.Create(temporary))
+          using (var compressed = new DeflateStream(output, CompressionLevel.Optimal)) input.CopyTo(compressed);
+          if (File.Exists(Destination)) File.Replace(temporary, Destination, null);
+          else File.Move(temporary, Destination);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="LocatePackedDependency" DependsOnTargets="ResolveReferences" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+    <ItemGroup><_PackedSource Include="@(ReferencePath)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" /></ItemGroup>
+    <Error Condition="'@(_PackedSource)' == ''" Text="Cannot locate the crypto dependency for compression." />
+    <PropertyGroup><_PackedFile>$(IntermediateOutputPath)packed/%(_PackedSource.NuGetPackageVersion)/BouncyCastle.Cryptography.deflate</_PackedFile></PropertyGroup>
+  </Target>
+  <Target Name="CompressPackedDependency" DependsOnTargets="LocatePackedDependency" Inputs="@(_PackedSource);$(MSBuildThisFileFullPath);$(ProjectAssetsFile)" Outputs="$(_PackedFile)" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+    <CompressManagedAssembly Source="@(_PackedSource)" Destination="$(_PackedFile)" />
+  </Target>
+  <Target Name="EmbedPackedDependency" BeforeTargets="AssignTargetPaths" DependsOnTargets="CompressPackedDependency" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+    <ItemGroup>
+      <EmbeddedResource Include="$(_PackedFile)" LogicalName="PackedDependencies.BouncyCastle.Cryptography" />
+      <FileWrites Include="$(_PackedFile)" />
+    </ItemGroup>
+  </Target>
+  <Target Name="ExcludePackedDependencyRuntime" AfterTargets="ResolveAssemblyReferences" BeforeTargets="GenerateBuildDependencyFile;GeneratePublishDependencyFile;_ComputeResolvedCopyLocalPublishAssets" Condition="'$(PackManagedDependencies)' == 'true'">
+    <ItemGroup>
+      <RuntimeCopyLocalItems Remove="@(RuntimeCopyLocalItems)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" />
+      <_ResolvedNuGetFilesForPublish Remove="@(_ResolvedNuGetFilesForPublish)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="ExcludePackedDependencyPublish" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PackManagedDependencies)' == 'true'">
+    <ItemGroup><ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" /></ItemGroup>
+  </Target>
+</Project>
