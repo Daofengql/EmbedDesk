@@ -1,0 +1,26 @@
+<UserControl x:Class="EmbeddedDebugger.App.Controls.NetworkToolsWorkspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="{StaticResource PanelBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border Padding="22,14" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+            <StackPanel><TextBlock Text="网络工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="CIDR、链路探测、吞吐测试和内网发现工具" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
+        </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <WrapPanel Margin="22" HorizontalAlignment="Left">
+                <Button Tag="Cidr" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="20"><TextBlock Text="⌘" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="CIDR 计算" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="网络地址、掩码、广播地址和可用主机范围" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                </Button>
+                <Button Tag="Ping" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="20"><TextBlock Text="◌" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="Ping 探测" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="ICMPing 与 TCPing、包大小、次数、IPv4/IPv6 和网络出口" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                </Button>
+                <Button Tag="Iperf3" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="20"><TextBlock Text="⚡" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="iperf3" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="启动客户端或服务端进行吞吐量测试" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                </Button>
+                <Button Tag="Discovery" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="20"><TextBlock Text="⌕" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="内网扫描" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="轮询 Ping 并结合 ARP 查找在线设备和主机名" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                </Button>
+            </WrapPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

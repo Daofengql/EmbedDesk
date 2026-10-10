@@ -60,15 +60,18 @@ public partial class NetworkWorkspace : UserControl
     private async void NewSession_Click(object sender, RoutedEventArgs e)
     {
         if (_vm is null) return;
-        var dialog = new NetworkConnectionWindow { Owner = Window.GetWindow(this) };
+        var picker = new NetworkTypeSelectionWindow { Owner = Window.GetWindow(this) };
+        if (picker.ShowDialog() != true || picker.Protocol is not { } protocol) return;
+        var dialog = new NetworkConnectionWindow(protocol) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() == true && dialog.Options is { } options) await _vm.CreateNetworkSessionAsync(options);
     }
-    private async void CloseSession_Click(object sender, RoutedEventArgs e)
+
+    private async void CloseSessionItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm?.SelectedSession is not { } session) return;
+        if (_vm is null || (sender as Button)?.Tag is not NetworkSessionViewModel session) return;
         if (new ConfirmationWindow("关闭网络会话", $"确定关闭“{session.Detail}”吗？连接及发送任务将停止。", "关闭会话") { Owner = Window.GetWindow(this) }.ShowDialog() == true)
         {
-            if (_vm.SelectedSession == session) await _vm.RemoveSelectedNetworkCommand.ExecuteAsync(null);
+            await _vm.RemoveNetworkSessionAsync(session);
         }
     }
     private void ToggleSessions_Click(object sender, RoutedEventArgs e)

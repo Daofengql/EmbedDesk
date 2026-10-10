@@ -157,13 +157,13 @@
                 <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Surface" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource SelectedBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
             </Style>
             <Style TargetType="TabItem">
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="Padding" Value="20,13" />
                 <Setter Property="Template"><Setter.Value>
                     <ControlTemplate TargetType="TabItem">
                         <Border x:Name="Tab" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter x:Name="Header" ContentSource="Header" VerticalAlignment="Center" TextElement.Foreground="{StaticResource MutedBrush}" /></Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True"><Setter TargetName="Header" Property="TextElement.Foreground" Value="{StaticResource AccentBrush}" /><Setter TargetName="Header" Property="TextElement.FontWeight" Value="SemiBold" /><Setter TargetName="Tab" Property="BorderBrush" Value="{StaticResource AccentBrush}" /></Trigger>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Tab" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value></Setter>

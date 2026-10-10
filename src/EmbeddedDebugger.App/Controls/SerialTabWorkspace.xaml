@@ -8,8 +8,11 @@
         <local:ConnectionStateBrushConverter x:Key="StateBrush" />
     </UserControl.Resources>
     <Grid Background="{StaticResource PanelBrush}">
-        <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,4">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="44" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border Padding="22,14" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+            <StackPanel><TextBlock Text="串口调试" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="多标签串口收发、Shell 和自动发送" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
+        </Border>
+        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,4">
             <DockPanel LastChildFill="True">
                 <Button DockPanel.Dock="Right" x:Name="NewSerialTab" Style="{StaticResource IconButton}" Command="{Binding AddSerialSessionCommand}" ToolTip="新建串口标签" Margin="6,0,0,0"><TextBlock Text="&#xE710;" Style="{StaticResource Icon}" /></Button>
                 <ScrollViewer x:Name="TabScroller" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="Tabs_MouseWheel">
@@ -38,6 +41,6 @@
                 </ScrollViewer>
             </DockPanel>
         </Border>
-        <Grid x:Name="SessionHost" Grid.Row="1" />
+        <Grid x:Name="SessionHost" Grid.Row="2" />
     </Grid>
 </UserControl>

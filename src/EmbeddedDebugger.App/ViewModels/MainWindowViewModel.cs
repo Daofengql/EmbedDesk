@@ -46,6 +46,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         ModeOptions = new ObservableCollection<string> { "客户端", "服务端" };
         BaudRateOptions = new ObservableCollection<int> { 110, 300, 600, 1200, 2400, 4800, 7200, 9600, 14400, 19200, 28800, 38400, 56000, 57600, 115200, 128000, 230400, 460800, 500000, 921600, 1000000, 1500000, 2000000 };
         Sessions = new ObservableCollection<NetworkSessionViewModel>();
+        NetworkTools = new ObservableCollection<NetworkToolViewModel>
+        {
+            new("MQTT 客户端", "发布 / 订阅", "\uE774", TransportProtocol.Mqtt, TransportMode.Client),
+            new("TCP 客户端", "主动连接远端", "\uE968", TransportProtocol.Tcp, TransportMode.Client),
+            new("TCP 服务器", "监听多个客户端", "\uE968", TransportProtocol.Tcp, TransportMode.Server),
+            new("UDP 客户端", "无连接数据报", "\uE968", TransportProtocol.Udp, TransportMode.Client),
+            new("UDP 服务器", "接收多个对端", "\uE968", TransportProtocol.Udp, TransportMode.Server),
+            new("HTTP 客户端", "TCP 请求诊断", "\uE774", TransportProtocol.Tcp, TransportMode.Client, true),
+            new("HTTP 服务器", "自动回复 HTTP 200", "\uE774", TransportProtocol.Tcp, TransportMode.Server, true)
+        };
+        SelectedNetworkTool = NetworkTools[1];
         SerialPorts = new ObservableCollection<SerialPortRowViewModel>();
         Logs = new ObservableCollection<LogEntryViewModel>();
 
@@ -65,6 +76,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<string> ModeOptions { get; }
     public ObservableCollection<int> BaudRateOptions { get; }
     public ObservableCollection<NetworkSessionViewModel> Sessions { get; }
+    public ObservableCollection<NetworkToolViewModel> NetworkTools { get; }
+    public NetworkToolViewModel? SelectedNetworkTool { get; set; }
     public ObservableCollection<SerialPortRowViewModel> SerialPorts { get; }
     public ObservableCollection<LogEntryViewModel> Logs { get; }
     public RemoteDebugWorkspaceViewModel? RemoteDebug { get; }
@@ -220,6 +233,25 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         await CreateNetworkSessionAsync(options, cancellationToken);
     }
 
+    public async Task<NetworkSessionViewModel?> CreateNetworkSessionFromToolAsync(NetworkToolViewModel tool, CancellationToken cancellationToken = default)
+    {
+        if (!tool.IsSupported || tool.Protocol is null || tool.Mode is null) return null;
+        var server = tool.Mode == TransportMode.Server;
+        var options = new TransportOptions
+        {
+            Protocol = tool.Protocol.Value,
+            Mode = tool.Mode.Value,
+            LocalHost = "0.0.0.0",
+            LocalPort = server ? 9000 : 0,
+            RemoteHost = "127.0.0.1",
+            RemotePort = tool.Protocol == TransportProtocol.Mqtt ? 1883 : 9000,
+            AutoReconnect = !server,
+            TreatAsHttp = tool.TreatAsHttp,
+            MqttTopic = "embedded-debugger"
+        };
+        return await CreateNetworkSessionAsync(options, cancellationToken);
+    }
+
     public async Task<NetworkSessionViewModel> CreateNetworkSessionAsync(TransportOptions options, CancellationToken cancellationToken = default)
     {
         var vm = new NetworkSessionViewModel(_transportService.CreateSession(options), AddLog);
@@ -240,9 +272,14 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private async Task RemoveSelectedNetworkAsync(CancellationToken cancellationToken = default)
     {
         if (SelectedSession is null) return;
-        var session = SelectedSession;
+        await RemoveNetworkSessionAsync(SelectedSession, cancellationToken);
+    }
+
+    public async Task RemoveNetworkSessionAsync(NetworkSessionViewModel session, CancellationToken cancellationToken = default)
+    {
+        if (!Sessions.Contains(session)) return;
         Sessions.Remove(session);
-        SelectedSession = Sessions.FirstOrDefault();
+        if (SelectedSession == session) SelectedSession = Sessions.FirstOrDefault();
         await session.DisposeAsync();
         AddLog("网络", $"已关闭 {session.Detail}", TransportEventKind.Disconnected);
     }

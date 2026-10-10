@@ -11,6 +11,7 @@
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="System.Management" />
     <PackageReference Include="SSH.NET" />
+    <PackageReference Include="MQTTnet" />
   </ItemGroup>
   <ItemGroup><PackageReference Include="BouncyCastle.Cryptography" /></ItemGroup>
 </Project>

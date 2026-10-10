@@ -44,6 +44,11 @@
                 <controls:NetworkWorkspace />
             </TabItem>
 
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="网络工具" /></StackPanel></TabItem.Header>
+                <controls:NetworkToolsWorkspace />
+            </TabItem>
+
         </TabControl>
 
         <Border Grid.Row="2" Visibility="{Binding RemoteDebug.IsTerminalFullscreen, Converter={StaticResource FullscreenChromeVisibility}}" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,7">

@@ -87,7 +87,7 @@
             <Grid>
                 <Grid x:Name="NormalWorkspace">
                     <Grid.Style><Style TargetType="Grid"><Style.Triggers><DataTrigger Binding="{Binding ShellMode}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-                    <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="110" /><RowDefinition Height="8" /><RowDefinition Height="130" MinHeight="85" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="110" /><RowDefinition Height="130" MinHeight="85" /></Grid.RowDefinitions>
                     <Grid>
                         <Grid.RowDefinitions><RowDefinition Height="38" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -101,17 +101,16 @@
                                 <Button Style="{StaticResource IconButton}" Command="{Binding Terminal.ClearCommand}" ToolTip="清空收发记录和计数"><TextBlock Text="&#xE74D;" Style="{StaticResource Icon}" /></Button>
                             </StackPanel>
                         </Grid>
-                        <TextBox x:Name="ReceiveText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="14" Padding="12,10" />
+                        <TextBox x:Name="ReceiveText" Grid.Row="1" MinHeight="80" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="14" Padding="12,10" />
                     </Grid>
-                    <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="{StaticResource LineBrush}" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" />
-                    <Grid Grid.Row="2">
+                    <Grid Grid.Row="1">
                         <Grid.RowDefinitions><RowDefinition Height="36" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Text="发送" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal"><CheckBox Content="HEX" IsChecked="{Binding SerialSendAsHex}" Margin="0,0,16,0" /><CheckBox Content="追加 CRLF" IsChecked="{Binding SerialAppendCrLf}"><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Style.Triggers><DataTrigger Binding="{Binding SerialSendAsHex}" Value="True"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox></StackPanel>
                         </Grid>
                         <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="90" /></Grid.ColumnDefinitions>
-                            <TextBox x:Name="SendEditor" Text="{Binding SerialSendText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="14" Padding="12,10" />
+                            <TextBox x:Name="SendEditor" MinHeight="45" Text="{Binding SerialSendText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="14" Padding="12,10" />
                             <Button Grid.Column="1" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}" Command="{Binding SendSelectedSerialCommand}" ToolTip="发送"><StackPanel><TextBlock Text="&#xE724;" Style="{StaticResource Icon}" Margin="0,0,0,7" /><TextBlock Text="发送" HorizontalAlignment="Center" /></StackPanel></Button>
                         </Grid>
                     </Grid>

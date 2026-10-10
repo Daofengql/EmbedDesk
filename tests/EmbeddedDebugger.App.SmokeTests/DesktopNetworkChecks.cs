@@ -12,6 +12,8 @@ using EmbeddedDebugger.App.Controls;
 using EmbeddedDebugger.App.ViewModels;
 using EmbeddedDebugger.Core.Models;
 using EmbeddedDebugger.Infrastructure.Remote;
+using MQTTnet;
+using MQTTnet.Server;
 
 namespace EmbeddedDebugger.App.SmokeTests;
 
@@ -27,6 +29,14 @@ internal static class DesktopNetworkChecks
             await Task.Delay(150);
             var network = Descendants<NetworkWorkspace>(window).Single();
             Require(((FrameworkElement)network.FindName("EmptyState")).IsVisible, "Network workspace starts with a useful empty state");
+            tabs.SelectedIndex = 3;
+            await Task.Delay(100);
+            var networkTools = Descendants<NetworkToolsWorkspace>(window).Single();
+            Require(Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Cidr")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Ping")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Iperf3")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Discovery")), "Network tools page exposes CIDR, Ping, iperf3 and discovery cards");
+            Require(network.FindName("ToolList") is null, "Network workspace keeps protocol choices inside the new-session picker");
+            await FileWorkspaceChecks.CaptureAsync(window, "embedded-debugger-network-tools.png");
+            tabs.SelectedIndex = 2;
+            await Task.Delay(100);
             var port = FreePort();
             var server = await vm.CreateNetworkSessionAsync(new TransportOptions { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = port, AutoReconnect = false });
             var client = await vm.CreateNetworkSessionAsync(new TransportOptions { LocalHost = "127.0.0.1", LocalPort = 0, RemoteHost = "127.0.0.1", RemotePort = port, AutoReconnect = false });
@@ -37,10 +47,27 @@ internal static class DesktopNetworkChecks
             await client.SendCommand.ExecuteAsync(null);
             await WaitAsync(() => server.Terminal.ReceivedBytes > 0);
             Require(server.Terminal.Entries.Any(e => e.DisplayText.Contains("TCP 回环测试")), "TCP Unicode text is received intact");
+            using var secondPeer = new TcpClient();
+            await secondPeer.ConnectAsync(IPAddress.Loopback, port);
+            await WaitAsync(() => server.PeerTargets.Count >= 3);
+            var secondPort = ((IPEndPoint)secondPeer.Client.LocalEndPoint!).Port;
+            var selectedSecond = server.PeerTargets.FirstOrDefault(peer => IPEndPoint.TryParse(peer.Endpoint, out var endpoint) && endpoint.Port == secondPort)
+                ?? throw new InvalidOperationException($"Expected peer port {secondPort}; peers: {string.Join(", ", server.PeerTargets.Select(peer => peer.Endpoint))}");
+            server.SelectedPeerTarget = selectedSecond;
+            var firstBytesBeforeTargeted = client.Terminal.ReceivedBytes;
+            server.SendText = "targeted client";
+            await server.SendCommand.ExecuteAsync(null);
+            var targetedBuffer = new byte[64];
+            var targetedRead = await secondPeer.GetStream().ReadAsync(targetedBuffer).AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+            Require(Encoding.UTF8.GetString(targetedBuffer, 0, targetedRead).Contains("targeted client", StringComparison.Ordinal) && client.Terminal.ReceivedBytes == firstBytesBeforeTargeted,
+                "TCP server can target one connected client without sending to the others");
+            server.SelectedPeerTarget = NetworkPeerTarget.Broadcast;
             server.SendText = "00 FF 01 7E"; server.SendAsHex = true;
             await server.SendCommand.ExecuteAsync(null);
             await WaitAsync(() => client.Terminal.ReceivedBytes == 4);
             Require(client.Terminal.Entries.Last().Data.SequenceEqual(new byte[] { 0, 255, 1, 126 }), "TCP server broadcasts exact HEX bytes");
+            secondPeer.Close();
+            await WaitAsync(() => server.PeerTargets.Count == 2);
             client.SendAsHex = true; client.SendText = "not hex";
             await client.SendCommand.ExecuteAsync(null);
             Require(client.Terminal.SentBytes == Encoding.UTF8.GetByteCount("串口与网络 · TCP 回环测试\r\n"), "Invalid HEX is rejected without writing to the socket");
@@ -92,6 +119,39 @@ internal static class DesktopNetworkChecks
             await WaitAsync(() => httpClient.HttpHeadersText.Contains("Embedded Debugger OK", StringComparison.Ordinal));
             Require(httpClient.HttpStartLine == "HTTP/1.1 200 OK", "HTTP diagnostics retain both headers and body from received bytes");
             await httpClient.StopAsync(); await httpServer.StopAsync();
+
+            var mqttPort = FreePort();
+            using var mqttServer = new MqttFactory().CreateMqttServer(new MqttServerOptionsBuilder().WithDefaultEndpoint().WithDefaultEndpointPort(mqttPort).Build());
+            await mqttServer.StartAsync();
+            var mqtt = await vm.CreateNetworkSessionAsync(new TransportOptions
+            {
+                Protocol = TransportProtocol.Mqtt,
+                Mode = TransportMode.Client,
+                RemoteHost = "127.0.0.1",
+                RemotePort = mqttPort,
+                MqttTopic = "embedded-debugger/smoke",
+                MqttClientId = $"smoke-{Guid.NewGuid():N}",
+                AutoReconnect = false
+            });
+            var mqttReceiver = await vm.CreateNetworkSessionAsync(new TransportOptions
+            {
+                Protocol = TransportProtocol.Mqtt,
+                Mode = TransportMode.Client,
+                RemoteHost = "127.0.0.1",
+                RemotePort = mqttPort,
+                MqttTopic = "embedded-debugger/smoke",
+                MqttClientId = $"smoke-{Guid.NewGuid():N}",
+                AutoReconnect = false
+            });
+            await WaitAsync(() => mqtt.CanSend && mqttReceiver.CanSend);
+            mqtt.SendText = "mqtt roundtrip";
+            await mqtt.SendCommand.ExecuteAsync(null);
+            await WaitAsync(() => mqttReceiver.Terminal.Entries.Any(entry => entry.DisplayText.Contains("mqtt roundtrip", StringComparison.Ordinal)));
+            Require(mqtt.Protocol == "MQTT", "MQTT client exposes its protocol in the network session");
+            Require(mqtt.Detail.Contains("embedded-debugger/smoke"), "MQTT session detail exposes the configured topic");
+            Require(mqttReceiver.Terminal.ReceivedBytes > 0, "MQTT clients subscribe and publish through the configured topic");
+            await mqtt.StopAsync(); await mqttReceiver.StopAsync(); await mqttServer.StopAsync();
+
             var failed = await vm.CreateNetworkSessionAsync(new TransportOptions { LocalPort = 0, RemoteHost = "127.0.0.1", RemotePort = FreePort(), AutoReconnect = false });
             await WaitAsync(() => failed.State == "连接失败");
             Require(failed.CanStart && !failed.CanSend, "Failed TCP without retry exposes failure and allows restart");

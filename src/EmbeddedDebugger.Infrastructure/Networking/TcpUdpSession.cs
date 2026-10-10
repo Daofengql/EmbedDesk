@@ -201,6 +201,36 @@ internal sealed class TcpUdpSession : ITransportSession
         }
     }
 
+    public async Task SendToAsync(ReadOnlyMemory<byte> data, string remoteEndpoint, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            await SendAsync(data, cancellationToken);
+            return;
+        }
+
+        if (_options.Protocol == TransportProtocol.Udp)
+        {
+            if (_udpClient is null) throw new InvalidOperationException("Session is not started.");
+            if (!IPEndPoint.TryParse(remoteEndpoint, out var target)) throw new FormatException("无效的 UDP 对端地址。");
+            cancellationToken.ThrowIfCancellationRequested();
+            await _udpClient.SendAsync(data.ToArray(), target);
+            Publish(TransportEventKind.Sent, target.ToString(), data, null, null);
+            return;
+        }
+
+        TcpClient? client;
+        lock (_gate)
+        {
+            client = _options.Mode == TransportMode.Client
+                ? _activeClient
+                : _clients.FirstOrDefault(item => string.Equals(item.Client?.RemoteEndPoint?.ToString(), remoteEndpoint, StringComparison.OrdinalIgnoreCase));
+        }
+        if (client is null) throw new InvalidOperationException($"客户端 {remoteEndpoint} 已断开。");
+        await client.GetStream().WriteAsync(data, cancellationToken);
+        Publish(TransportEventKind.Sent, client.Client?.RemoteEndPoint?.ToString(), data, null, null);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAsync();

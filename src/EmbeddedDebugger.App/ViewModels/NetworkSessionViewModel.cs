@@ -17,6 +17,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     private IPEndPoint? _probePeer;
     private string _state = "未启动", _lastMessage = "就绪", _httpStartLine = string.Empty, _httpHeadersText = string.Empty;
     private string _sendText = string.Empty, _interval = "1000", _jobStatus = "未运行";
+    private NetworkPeerTarget _selectedPeerTarget = NetworkPeerTarget.Broadcast;
     private bool _sendAsHex, _appendCrLf, _hexDisplay, _showTime = true, _showSent = true, _autoScroll = true, _queueRepeat, _isSending, _disposed;
     public NetworkSessionViewModel(ITransportSession session, Action<string, string, TransportEventKind> log)
     {
@@ -34,9 +35,27 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public string Protocol => _session.Options.Protocol.ToString().ToUpperInvariant();
     public string Mode => _session.Options.Mode == TransportMode.Client ? "客户端" : "服务端";
     public string Endpoint => _session.Options.Mode == TransportMode.Client ? $"{_session.Options.RemoteHost}:{_session.Options.RemotePort}" : LocalEndpoint;
-    public string Detail => $"{Protocol} · {Mode} · {Endpoint}";
+    public string Detail => _session.Options.Protocol == TransportProtocol.Mqtt
+        ? $"{Protocol} · {Endpoint} · {_session.Options.MqttTopic}"
+        : $"{Protocol} · {Mode} · {Endpoint}";
     public string LocalEndpoint => _session.BoundLocalEndpoint ?? $"{_session.Options.LocalHost}:{_session.Options.LocalPort}";
-    public string SendTargetHint => _session.Options.Mode == TransportMode.Client ? $"发送到 {Endpoint}" : _session.Options.Protocol == TransportProtocol.Tcp ? "广播到所有已连接的 TCP 客户端" : $"回复最近的 UDP 对端（尚未收到数据时发送到 {_session.Options.RemoteHost}:{_session.Options.RemotePort}）";
+    public string SendTargetHint => _session.Options.Mode == TransportMode.Client
+        ? _session.Options.Protocol == TransportProtocol.Mqtt ? $"发布到 MQTT 主题 {_session.Options.MqttTopic}" : $"发送到 {Endpoint}"
+        : SelectedPeerTarget.IsBroadcast
+            ? _session.Options.Protocol == TransportProtocol.Tcp ? "发送到全部已连接的 TCP 客户端" : $"发送到最近的 UDP 对端（尚未收到数据时使用 {_session.Options.RemoteHost}:{_session.Options.RemotePort}）"
+            : $"发送到客户端 {SelectedPeerTarget.DisplayName}";
+    public bool IsServer => _session.Options.Mode == TransportMode.Server;
+    public bool SupportsPeerTargeting => IsServer;
+    public ObservableCollection<NetworkPeerTarget> PeerTargets { get; } = [NetworkPeerTarget.Broadcast];
+    public NetworkPeerTarget SelectedPeerTarget
+    {
+        get => _selectedPeerTarget;
+        set
+        {
+            if (value is null || !SetProperty(ref _selectedPeerTarget, value)) return;
+            OnPropertyChanged(nameof(SendTargetHint));
+        }
+    }
     public string State { get => _state; private set => SetProperty(ref _state, value); }
     public string LastMessage { get => _lastMessage; private set => SetProperty(ref _lastMessage, value); }
     public string HttpStartLine { get => _httpStartLine; private set => SetProperty(ref _httpStartLine, value); }
@@ -83,7 +102,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     }
     private async Task SendCurrentAsync(CancellationToken ct)
     {
-        try { await SendAsync(SendPayload.Encode(SendText, SendAsHex, AppendCrLf), ct); }
+        try { await SendPayloadAsync(SendPayload.Encode(SendText, SendAsHex, AppendCrLf), ct); }
         catch (Exception ex) { ReportError(ex); }
     }
     private async Task RunJobAsync(bool queue, CancellationToken ct)
@@ -103,7 +122,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
                 {
                     ct.ThrowIfCancellationRequested();
                     if (!CanSend) throw new InvalidOperationException("连接已断开，发送任务已停止。");
-                    await SendAsync(payload, ct);
+                    await SendPayloadAsync(payload, ct);
                     JobStatus = $"已发送 {++count} 次";
                     await Task.Delay(interval, ct);
                 }
@@ -120,6 +139,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         SendCommand.NotifyCanExecuteChanged(); RepeatSendCommand.NotifyCanExecuteChanged(); RunQueueCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSend)); OnPropertyChanged(nameof(CanStart)); OnPropertyChanged(nameof(StartStopLabel)); OnPropertyChanged(nameof(StartStopGlyph));
         OnPropertyChanged(nameof(LocalEndpoint)); OnPropertyChanged(nameof(Endpoint)); OnPropertyChanged(nameof(Detail));
+        OnPropertyChanged(nameof(SendTargetHint));
     }
     private void ReportError(Exception ex) { LastMessage = ex.Message; _log("网络", ex.Message, TransportEventKind.Error); }
     private void OnMessageReceived(object? sender, TransportMessage message)
@@ -144,6 +164,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         }
         if (message.Kind is TransportEventKind.StateChanged or TransportEventKind.Connected or TransportEventKind.Disconnected || _session.Options.Protocol == TransportProtocol.Udp)
             UpdateNetworkTarget(message);
+        UpdatePeerTargets(message);
         if (!CanSend) StopSending();
         if (message.Kind is TransportEventKind.Received or TransportEventKind.Sent)
         {
@@ -197,6 +218,8 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
                 NetworkStatus.Track(new(peer.Address.ToString()), $"TCP 客户端 · {peer}（客户端源端口不能用于 TCPing）");
             else NetworkStatus.Stop(_tcpPeers.Count > 1 ? $"{_tcpPeers.Count} 个对端" : "等待对端");
         }
+        else if (options.Protocol == TransportProtocol.Mqtt)
+            NetworkStatus.Track(new(options.RemoteHost), $"MQTT 代理 · {Endpoint}");
         else if (options.Mode == TransportMode.Client)
             NetworkStatus.Track(new(options.RemoteHost), $"UDP 目标 · {Endpoint}");
         else
@@ -205,6 +228,31 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
             if (_probePeer is not null) NetworkStatus.Track(new(_probePeer.Address.ToString()), $"UDP 最近对端 · {_probePeer}");
             else NetworkStatus.Stop("等待对端");
         }
+    }
+
+    private void UpdatePeerTargets(TransportMessage message)
+    {
+        if (!SupportsPeerTargeting || string.IsNullOrWhiteSpace(message.RemoteEndPoint)) return;
+        var endpoint = message.RemoteEndPoint!;
+        if (message.Kind is TransportEventKind.Connected or TransportEventKind.Received)
+        {
+            if (PeerTargets.All(peer => peer.Endpoint != endpoint))
+                PeerTargets.Add(new NetworkPeerTarget(endpoint, endpoint));
+        }
+        else if (message.Kind == TransportEventKind.Disconnected)
+        {
+            var removed = PeerTargets.FirstOrDefault(peer => peer.Endpoint == endpoint);
+            if (removed is not null) PeerTargets.Remove(removed);
+            if (SelectedPeerTarget.Endpoint == endpoint) SelectedPeerTarget = NetworkPeerTarget.Broadcast;
+        }
+        OnPropertyChanged(nameof(PeerTargets));
+    }
+
+    private Task SendPayloadAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    {
+        return SupportsPeerTargeting && !SelectedPeerTarget.IsBroadcast
+            ? _session.SendToAsync(payload, SelectedPeerTarget.Endpoint, cancellationToken)
+            : SendAsync(payload, cancellationToken);
     }
     public async ValueTask DisposeAsync()
     {
@@ -215,4 +263,9 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         await _session.DisposeAsync();
         foreach (var task in new[] { RepeatSendCommand.ExecutionTask, RunQueueCommand.ExecutionTask }.OfType<Task>()) await task;
     }
+}
+
+public sealed record NetworkPeerTarget(string Endpoint, string DisplayName, bool IsBroadcast = false)
+{
+    public static NetworkPeerTarget Broadcast { get; } = new("*", "全部客户端", true);
 }

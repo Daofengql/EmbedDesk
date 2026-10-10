@@ -3,7 +3,8 @@ namespace EmbeddedDebugger.Core.Models;
 public enum TransportProtocol
 {
     Tcp,
-    Udp
+    Udp,
+    Mqtt
 }
 
 public enum TransportMode
@@ -55,6 +56,11 @@ public sealed class TransportOptions
     public string? ScheduledPayload { get; init; }
     public bool TreatAsHttp { get; init; }
     public bool UseCrLf { get; init; } = true;
+    public string MqttTopic { get; init; } = "embedded-debugger";
+    public string MqttClientId { get; init; } = string.Empty;
+    public string? MqttUsername { get; init; }
+    public string? MqttPassword { get; init; }
+    public bool MqttUseTls { get; init; }
 }
 
 public sealed record TransportMessage(
