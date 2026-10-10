@@ -16,6 +16,10 @@ public partial class NetworkToolsWorkspace : UserControl
             "Ping" => new NetworkProbeToolWindow(),
             "Iperf3" => new Iperf3Window(),
             "Discovery" => new NetworkDiscoveryWindow(),
+            "Nat" => new NatDetectionWindow(),
+            "Upnp" => new UpnpDiscoveryWindow(),
+            "Dns" => new DnsQueryWindow(),
+            "Trace" => new TracerouteWindow(),
             _ => throw new InvalidOperationException($"Unknown network tool: {tool}")
         };
         window.Owner = Window.GetWindow(this);

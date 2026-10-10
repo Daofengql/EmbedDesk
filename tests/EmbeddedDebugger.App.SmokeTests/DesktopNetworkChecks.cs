@@ -32,7 +32,16 @@ internal static class DesktopNetworkChecks
             tabs.SelectedIndex = 3;
             await Task.Delay(100);
             var networkTools = Descendants<NetworkToolsWorkspace>(window).Single();
-            Require(Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Cidr")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Ping")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Iperf3")) && Descendants<Button>(networkTools).Any(button => Equals(button.Tag, "Discovery")), "Network tools page exposes CIDR, Ping, iperf3 and discovery cards");
+            var networkToolTags = Descendants<Button>(networkTools).Select(button => button.Tag?.ToString()).ToHashSet(StringComparer.Ordinal);
+            Require(new[] { "Cidr", "Ping", "Iperf3", "Discovery", "Nat", "Upnp", "Dns", "Trace" }.All(networkToolTags.Contains), "Network tools page exposes CIDR, Ping, iperf3, discovery, NAT, UPnP, DNS and traceroute cards");
+            foreach (var toolWindow in new Window[] { new NatDetectionWindow(), new UpnpDiscoveryWindow(), new DnsQueryWindow(), new TracerouteWindow() })
+            {
+                toolWindow.Owner = window;
+                toolWindow.Show();
+                toolWindow.UpdateLayout();
+                toolWindow.Close();
+            }
+            Require(true, "NAT, UPnP, DNS and traceroute windows load successfully");
             Require(network.FindName("ToolList") is null, "Network workspace keeps protocol choices inside the new-session picker");
             await FileWorkspaceChecks.CaptureAsync(window, "embedded-debugger-network-tools.png");
             tabs.SelectedIndex = 2;
