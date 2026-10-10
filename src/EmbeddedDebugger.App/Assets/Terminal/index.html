@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="xterm.css">
+    <style>
+      html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202326}
+      /* FitAddon measures this element's height directly, including any padding.
+         Keep the measured host unpadded so every fitted row stays visible. */
+      #terminal{position:absolute;inset:12px 14px 18px;overflow:hidden;background:#202326}
+      #context-menu{position:fixed;display:none;z-index:1000;min-width:148px;padding:5px;background:#252a2f;border:1px solid #424a52;border-radius:4px;box-shadow:0 8px 22px rgba(0,0,0,.42);font:13px "Segoe UI",sans-serif}
+      #context-menu button{display:block;width:100%;border:0;background:transparent;color:#e4e7eb;text-align:left;padding:7px 10px;border-radius:3px;cursor:pointer}
+      #context-menu button:hover{background:#35424c}
+      #context-menu button:disabled{color:#737b82;cursor:default;background:transparent}
+      #context-menu .separator{height:1px;margin:4px 0;background:#3a4147}
+      #exit-fullscreen{position:fixed;right:8px;top:6px;z-index:999;border:1px solid #424a52;border-radius:4px;padding:5px 9px;background:#252a2f;color:#e4e7eb;cursor:pointer;opacity:.55}
+      #exit-fullscreen:hover,#exit-fullscreen:focus{opacity:1}
+    </style>
+</head>
+<body>
+<div id="terminal"></div>
+<button id="exit-fullscreen" hidden title="退出全屏（F11）" aria-label="退出全屏">退出全屏 · F11</button>
+<div id="context-menu" role="menu">
+  <button data-action="copy">复制</button>
+  <button data-action="paste">粘贴</button>
+  <button data-action="selectAll">全选</button>
+  <div class="separator"></div>
+  <button data-action="clear">清屏</button>
+  <button data-action="fullscreen" id="fullscreen-menu">终端全屏（F11）</button>
+</div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+let fontSize = 14;
+const terminal = new Terminal({fontFamily:'Cascadia Mono,Consolas,monospace',fontSize,scrollback:5000,cursorBlink:true,lineHeight:1.15,theme:{background:'#202326',foreground:'#e4e7eb',cursor:'#64d9c8'},convertEol:false});
+const fit = new FitAddon.FitAddon();
+terminal.loadAddon(fit);
+terminal.open(document.getElementById('terminal'));
+let lastCols=0,lastRows=0,resizeFrame=0;
+const notifyResize=()=>{
+  if(terminal.cols===lastCols && terminal.rows===lastRows) return;
+  lastCols=terminal.cols; lastRows=terminal.rows;
+  window.chrome.webview.postMessage(JSON.stringify({type:'resize',cols:terminal.cols,rows:terminal.rows}));
+};
+const fitTerminal=()=>{
+  resizeFrame=0;
+  const host=document.getElementById('terminal');
+  if(host.clientWidth<=0 || host.clientHeight<=0) return;
+  fit.fit();
+  notifyResize();
+};
+const scheduleFit=()=>{ if(!resizeFrame) resizeFrame=requestAnimationFrame(fitTerminal); };
+terminal.onResize(notifyResize);
+const sizeObserver=new ResizeObserver(scheduleFit);
+sizeObserver.observe(document.getElementById('terminal'));
+// Font measurement/rendering may finish after the first fit frame. Refit when
+// the rendered cells change size even though the outer host has not resized.
+sizeObserver.observe(terminal.element.querySelector('.xterm-screen'));
+window.addEventListener('resize',scheduleFit);
+document.fonts.ready.then(scheduleFit);
+document.fonts.addEventListener('loadingdone',scheduleFit);
+terminal.onData(data=>window.chrome.webview.postMessage(data));
+// Chromium/xterm normally handles the number row and numpad identically, but
+// WebView2 can omit numpad key events when NumLock is enabled. Forward those
+// literal keys explicitly so numeric entry works in shells and TUIs.
+const menu = document.getElementById('context-menu');
+const postContext = (action, text='') => window.chrome.webview.postMessage(JSON.stringify({type:'context',action,text}));
+document.getElementById('exit-fullscreen').addEventListener('click',()=>{ postContext('fullscreen'); terminal.focus(); });
+window.setTerminalFullscreen=active=>{
+  document.getElementById('exit-fullscreen').hidden=!active;
+  document.getElementById('fullscreen-menu').textContent=active?'退出全屏（F11）':'终端全屏（F11）';
+  scheduleFit();
+  terminal.focus();
+};
+const changeFontSize=(event,size)=>{
+  event.preventDefault();
+  event.stopPropagation();
+  fontSize=Math.max(9,Math.min(24,size));
+  terminal.options.fontSize=fontSize;
+  scheduleFit();
+  return false;
+};
+terminal.attachCustomKeyEventHandler(event=>{
+  if(event.type !== 'keydown') return true;
+  if(event.key==='F11') { event.preventDefault(); event.stopPropagation(); if(!event.repeat) postContext('fullscreen'); return false; }
+  if(event.ctrlKey && event.shiftKey && event.key.toLowerCase()==='c') { postContext('copy', terminal.getSelection()); return false; }
+  if(event.ctrlKey && event.shiftKey && event.key.toLowerCase()==='v') { postContext('paste'); return false; }
+  if(event.ctrlKey && !event.altKey && (event.key==='+' || event.key==='=')) return changeFontSize(event,fontSize+1);
+  if(event.ctrlKey && !event.altKey && event.key==='-') return changeFontSize(event,fontSize-1);
+  if(event.ctrlKey && !event.altKey && event.key==='0') return changeFontSize(event,14);
+  const code=event.code || '';
+  const numLock=event.getModifierState?.('NumLock') ?? false;
+  const digit=code.match(/^Numpad([0-9])$/);
+  if(digit && numLock){ window.chrome.webview.postMessage(digit[1]); return false; }
+  if(code==='NumpadDecimal' && numLock){ window.chrome.webview.postMessage('.'); return false; }
+  const symbols={NumpadAdd:'+',NumpadSubtract:'-',NumpadMultiply:'*',NumpadDivide:'/',NumpadEnter:'\r'};
+  if(Object.prototype.hasOwnProperty.call(symbols,code)){ window.chrome.webview.postMessage(symbols[code]); return false; }
+  return true;
+});
+document.addEventListener('contextmenu', event=>{
+  event.preventDefault();
+  const copy = menu.querySelector('[data-action="copy"]');
+  copy.disabled = !terminal.hasSelection();
+  menu.style.display = 'block';
+  menu.style.left = `${Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 6)}px`;
+  menu.style.top = `${Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 6)}px`;
+});
+document.addEventListener('mousedown', event=>{ if(!menu.contains(event.target)) menu.style.display='none'; });
+menu.addEventListener('click', event=>{
+  const action = event.target instanceof Element ? event.target.closest('button')?.dataset.action : undefined;
+  if(!action || event.target.disabled) return;
+  if(action==='copy') postContext('copy', terminal.getSelection()); else postContext(action);
+  menu.style.display='none';
+});
+// xterm writes parse asynchronously; queue resets behind pending writes too.
+let terminalOutput = Promise.resolve();
+window.writeTerminal = data=>{ terminalOutput=terminalOutput.then(()=>new Promise(resolve=>terminal.write(Uint8Array.from(atob(data),c=>c.charCodeAt(0)),resolve))); };
+window.resetTerminal = ()=>{ terminalOutput=terminalOutput.then(()=>terminal.reset()); };
+window.selectAllTerminal = ()=>terminal.selectAll();
+window.setTerminalViewport = (width,height)=>{
+  const host=document.getElementById('terminal');
+  host.style.width=Math.max(0,width-28)+'px';
+  host.style.height=Math.max(0,height-30)+'px';
+  fitTerminal();
+};
+fitTerminal();
+</script>
+</body>
+</html>

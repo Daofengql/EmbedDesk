@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><StartupObject>EmbeddedDebugger.App.SmokeTests.Program</StartupObject></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\..\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="..\..\src\EmbeddedDebugger.App\App.xaml" LogicalName="App.styles.xaml" /></ItemGroup>
+</Project>

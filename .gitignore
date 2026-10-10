@@ -1,0 +1,25 @@
+.vs/
+.idea/
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+artifacts/
+**/TestResults/
+**/__pycache__/
+*.py[cod]
+*.log
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+remote-profiles.json
+ssh-keys.json
+*.pem
+*.ppk
+id_rsa
+id_ecdsa
+id_ed25519

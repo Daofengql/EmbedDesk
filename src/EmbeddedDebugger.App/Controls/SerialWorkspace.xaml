@@ -1,0 +1,136 @@
+<UserControl x:Class="EmbeddedDebugger.App.Controls.SerialWorkspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:EmbeddedDebugger.App.Controls">
+    <UserControl.Resources>
+        <local:SerialOptionLabelConverter x:Key="OptionLabel" />
+        <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,7" /><Setter Property="FontSize" Value="12" /></Style>
+        <Style x:Key="ModeButton" TargetType="RadioButton">
+            <Setter Property="Padding" Value="12,6" /><Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+                <Border x:Name="Surface" Background="Transparent" CornerRadius="3" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center" /></Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter TargetName="Surface" Property="Background" Value="{StaticResource AccentStrongBrush}" />
+                        <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                        <Setter TargetName="Surface" Property="BorderThickness" Value="1" />
+                        <Setter Property="Foreground" Value="White" />
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </UserControl.Resources>
+    <Grid Background="{StaticResource PanelBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,18,22,14" Background="{StaticResource PanelBrush}">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="300" /><ColumnDefinition Width="96" /><ColumnDefinition Width="180" /><ColumnDefinition Width="112" /><ColumnDefinition Width="72" /></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,14,0">
+                    <TextBlock Text="串口设备" Style="{StaticResource FieldLabel}" />
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="34" /></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="PortSelector" Width="260" HorizontalAlignment="Left" ItemsSource="{Binding SerialPorts}" SelectedItem="{Binding SelectedSerialPort}" ToolTip="串口设备">
+                            <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding SelectionLabel}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <Button Grid.Column="1" Style="{StaticResource IconButton}" Command="{Binding ScanSerialPortsCommand}" ToolTip="刷新串口"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" /></Button>
+                    </Grid>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,14,0" IsEnabled="{Binding SelectedSerialPort.CanConfigure}">
+                    <TextBlock Text="波特率" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="BaudSelector" IsEditable="True" ItemsSource="{Binding BaudRateOptions}" Text="{Binding SelectedSerialPort.BaudRate, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}" ToolTip="波特率，可输入自定义值" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="0,0,14,0" IsEnabled="{Binding SelectedSerialPort.CanConfigure}">
+                    <TextBlock Text="数据位 / 校验 / 停止位" Style="{StaticResource FieldLabel}" />
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50" /><ColumnDefinition Width="*" /><ColumnDefinition Width="58" /></Grid.ColumnDefinitions>
+                        <ComboBox ItemsSource="{Binding DataBitsOptions}" SelectedItem="{Binding SelectedSerialPort.DataBits}" ToolTip="数据位" />
+                        <ComboBox Grid.Column="1" Margin="5,0" ItemsSource="{Binding ParityOptions}" SelectedItem="{Binding SelectedSerialPort.Parity}" ToolTip="校验位"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource OptionLabel}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                        <ComboBox Grid.Column="2" ItemsSource="{Binding StopBitsOptions}" SelectedItem="{Binding SelectedSerialPort.StopBits}" ToolTip="停止位"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource OptionLabel}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                    </Grid>
+                </StackPanel>
+                <StackPanel Grid.Column="3" Margin="0,0,14,0" IsEnabled="{Binding SelectedSerialPort.CanConfigure}">
+                    <TextBlock Text="流控" Style="{StaticResource FieldLabel}" />
+                    <ComboBox ItemsSource="{Binding HandshakeOptions}" SelectedItem="{Binding SelectedSerialPort.Handshake}" ToolTip="流控"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource OptionLabel}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                </StackPanel>
+                <Button Grid.Column="4" VerticalAlignment="Bottom" Height="34">
+                    <Button.Style><Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}"><Setter Property="Content" Value="连接" /><Setter Property="Command" Value="{Binding OpenSelectedSerialCommand}" /><Style.Triggers><DataTrigger Binding="{Binding SelectedSerialPort.IsOpen}" Value="True"><Setter Property="Content" Value="断开" /><Setter Property="Command" Value="{Binding CloseSelectedSerialCommand}" /><Setter Property="Background" Value="#A54949" /><Setter Property="BorderBrush" Value="#A54949" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                </Button>
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Margin="0,10,16,0" TextTrimming="CharacterEllipsis" Style="{StaticResource MutedText}" FontSize="12">
+                    <Run Text="{Binding SelectedSerialPort.Description, Mode=OneWay, TargetNullValue=未发现串口设备}" /><Run Text="   ·   " /><Run Text="{Binding SelectedSerialPort.Manufacturer, Mode=OneWay}" />
+                </TextBlock>
+                <TextBlock Grid.Row="1" Grid.Column="4" Margin="0,10,0,0" HorizontalAlignment="Center" FontSize="12" Text="{Binding SelectedSerialPort.Status, TargetNullValue=未连接}" Foreground="{StaticResource MutedBrush}" />
+            </Grid>
+        </Border>
+        <Grid Grid.Row="1" Margin="22,12,22,12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="3"><StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="NormalMode" Style="{StaticResource ModeButton}" IsChecked="True" Checked="NormalMode_Checked"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8A5;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="收发模式" /></StackPanel></RadioButton>
+                    <RadioButton x:Name="ShellModeButton" Style="{StaticResource ModeButton}" IsChecked="{Binding ShellMode}"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE756;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="Shell" /></StackPanel></RadioButton>
+                </StackPanel></Border>
+                <StackPanel Orientation="Horizontal" Margin="20,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="RX " Foreground="{StaticResource AccentBrush}" FontFamily="Consolas" /><TextBlock Text="{Binding SelectedSerialPort.Terminal.ReceivedBytes, TargetNullValue=0}" FontFamily="Consolas" /><TextBlock Text=" B" Style="{StaticResource MutedText}" />
+                    <TextBlock Text="TX " Foreground="#916C20" FontFamily="Consolas" Margin="18,0,0,0" /><TextBlock Text="{Binding SelectedSerialPort.Terminal.SentBytes, TargetNullValue=0}" FontFamily="Consolas" /><TextBlock Text=" B" Style="{StaticResource MutedText}" />
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Click="OpenBridge_Click" ToolTip="网络串口服务"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE774;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="网络串口服务" /></StackPanel></Button>
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="2" Margin="22,0,22,18">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Grid>
+                <Grid x:Name="NormalWorkspace">
+                    <Grid.Style><Style TargetType="Grid"><Style.Triggers><DataTrigger Binding="{Binding ShellMode}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Grid.Style>
+                    <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="160" /><RowDefinition Height="8" /><RowDefinition Height="150" MinHeight="105" /></Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="38" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="接收" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <CheckBox x:Name="HexDisplay" Content="HEX" Margin="0,0,16,0" Checked="DisplayOption_Changed" Unchecked="DisplayOption_Changed" />
+                                <CheckBox x:Name="ShowTime" Content="时间戳" Margin="0,0,16,0" Checked="DisplayOption_Changed" Unchecked="DisplayOption_Changed" />
+                                <CheckBox x:Name="ShowSent" Content="显示发送" Margin="0,0,16,0" Checked="DisplayOption_Changed" Unchecked="DisplayOption_Changed" />
+                                <CheckBox x:Name="AutoScroll" Content="自动滚动" IsChecked="True" Margin="0,0,8,0" />
+                                <Button Style="{StaticResource IconButton}" Click="SaveReceive_Click" ToolTip="保存收发记录"><TextBlock Text="&#xE74E;" Style="{StaticResource Icon}" /></Button>
+                                <Button Style="{StaticResource IconButton}" Command="{Binding SelectedSerialPort.Terminal.ClearCommand}" ToolTip="清空收发记录和计数"><TextBlock Text="&#xE74D;" Style="{StaticResource Icon}" /></Button>
+                            </StackPanel>
+                        </Grid>
+                        <TextBox x:Name="ReceiveText" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="14" Padding="12,10" />
+                    </Grid>
+                    <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="{StaticResource LineBrush}" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" />
+                    <Grid Grid.Row="2">
+                        <Grid.RowDefinitions><RowDefinition Height="36" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="发送" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal"><CheckBox Content="HEX" IsChecked="{Binding SerialSendAsHex}" Margin="0,0,16,0" /><CheckBox Content="追加 CRLF" IsChecked="{Binding SerialAppendCrLf}"><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Style.Triggers><DataTrigger Binding="{Binding SerialSendAsHex}" Value="True"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox></StackPanel>
+                        </Grid>
+                        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="90" /></Grid.ColumnDefinitions>
+                            <TextBox x:Name="SendEditor" Text="{Binding SerialSendText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="14" Padding="12,10" />
+                            <Button Grid.Column="1" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}" Command="{Binding SendSelectedSerialCommand}" ToolTip="发送"><StackPanel><TextBlock Text="&#xE724;" Style="{StaticResource Icon}" Margin="0,0,0,7" /><TextBlock Text="发送" HorizontalAlignment="Center" /></StackPanel></Button>
+                        </Grid>
+                    </Grid>
+                </Grid>
+                <Grid Visibility="{Binding ShellMode, Converter={StaticResource BooleanVisibility}}">
+                    <Grid.RowDefinitions><RowDefinition Height="36" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <DockPanel><TextBlock Text="终端" FontWeight="SemiBold" VerticalAlignment="Center" /><Button DockPanel.Dock="Right" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Command="{Binding SelectedSerialPort.Terminal.ClearCommand}" ToolTip="清空终端"><TextBlock Text="&#xE74D;" Style="{StaticResource Icon}" /></Button></DockPanel>
+                    <local:ShellTerminal x:Name="Shell" Grid.Row="1" Buffer="{Binding SelectedSerialPort.Terminal}" InputReceived="Shell_InputReceived" />
+                </Grid>
+            </Grid>
+            <Border Grid.Column="1" Width="290" Margin="20,0,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0" Padding="18,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="发送工具" FontWeight="SemiBold" Margin="0,10,0,18" />
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="108" /><ColumnDefinition Width="24" /></Grid.ColumnDefinitions><TextBlock Text="发送间隔" VerticalAlignment="Center" /><TextBox Grid.Column="1" Text="{Binding SerialIntervalMs, UpdateSourceTrigger=PropertyChanged}" /><TextBlock Grid.Column="2" Text="ms" VerticalAlignment="Center" HorizontalAlignment="Right" Style="{StaticResource MutedText}" /></Grid>
+                        <CheckBox Content="循环发送当前内容" IsChecked="{Binding SerialLoopEnabled}" Margin="0,16,0,16" />
+                        <Separator Background="{StaticResource LineBrush}" Margin="0,0,0,12" />
+                    </StackPanel>
+                    <Grid Grid.Row="1" Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="发送队列" VerticalAlignment="Center" FontWeight="SemiBold" /><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Style="{StaticResource IconButton}" Command="{Binding AddQueueItemCommand}" ToolTip="添加发送项"><TextBlock Text="&#xE710;" Style="{StaticResource Icon}" /></Button><Button Style="{StaticResource IconButton}" Command="{Binding RemoveQueueItemCommand}" ToolTip="移除选中项"><TextBlock Text="&#xE74D;" Style="{StaticResource Icon}" /></Button></StackPanel></Grid>
+                    <DataGrid Grid.Row="2" ItemsSource="{Binding SerialSendQueue}" SelectedItem="{Binding SelectedQueueItem}" RowHeight="40" BorderThickness="1" BorderBrush="{StaticResource LineBrush}"><DataGrid.Columns><DataGridCheckBoxColumn Header="启用" Binding="{Binding Enabled, UpdateSourceTrigger=PropertyChanged}" Width="48" /><DataGridTextColumn Header="内容" Binding="{Binding Payload, UpdateSourceTrigger=PropertyChanged}" Width="*" /></DataGrid.Columns></DataGrid>
+                    <StackPanel Grid.Row="3" Margin="0,12,0,0"><CheckBox Content="重复队列" IsChecked="{Binding QueueRepeat}" Margin="0,0,0,12" /><StackPanel Orientation="Horizontal"><Button Content="运行队列" Command="{Binding RunQueueCommand}" /><Button Style="{StaticResource IconButton}" Command="{Binding StopSerialJobCommand}" ToolTip="停止发送任务" Margin="8,0,0,0"><TextBlock Text="&#xE71A;" Style="{StaticResource Icon}" /></Button></StackPanel><TextBlock Text="{Binding SerialJobStatus}" Style="{StaticResource MutedText}" Margin="0,12,0,0" TextWrapping="Wrap" /></StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

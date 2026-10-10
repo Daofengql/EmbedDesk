@@ -1,0 +1,139 @@
+using System.IO.Ports;
+using System.Management;
+using System.Text.RegularExpressions;
+using EmbeddedDebugger.Core.Abstractions;
+using EmbeddedDebugger.Core.Models;
+
+namespace EmbeddedDebugger.Infrastructure.Serial;
+
+public sealed class SerialPortService : ISerialPortService
+{
+    public Task<IReadOnlyList<SerialPortDescriptor>> ScanAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.Run<IReadOnlyList<SerialPortDescriptor>>(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var descriptors = new Dictionary<string, SerialPortDescriptor>(StringComparer.OrdinalIgnoreCase);
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    using var searcher = new ManagementObjectSearcher("SELECT Name, Description, Manufacturer FROM Win32_PnPEntity WHERE PNPClass = 'Ports'");
+                    using var devices = searcher.Get();
+                    foreach (ManagementObject device in devices)
+                    {
+                        using (device)
+                        {
+                            var name = device["Name"]?.ToString() ?? string.Empty;
+                            var match = Regex.Match(name, @"\((COM\d+)\)", RegexOptions.IgnoreCase);
+                            if (match.Success)
+                            {
+                                var port = match.Groups[1].Value;
+                                descriptors[port] = new SerialPortDescriptor(port, name, device["Description"]?.ToString(), device["Manufacturer"]?.ToString());
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is ManagementException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+                {
+                    // Ports remain available even when device metadata cannot be queried.
+                }
+            }
+            return SerialPort.GetPortNames()
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Select(name => descriptors.GetValueOrDefault(name) ?? new SerialPortDescriptor(name, name, "本地串口", null))
+                .ToArray();
+        }, cancellationToken);
+    }
+
+    public ISerialPortChannel CreateChannel(SerialPortSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return new SerialPortChannel(settings);
+    }
+}
+
+internal sealed class SerialPortChannel : ISerialPortChannel
+{
+    private readonly SerialPort _port;
+    private int _disposed;
+
+    public SerialPortChannel(SerialPortSettings settings)
+    {
+        Settings = settings;
+        Id = Guid.NewGuid().ToString("N");
+        _port = new SerialPort(settings.PortName, settings.BaudRate, settings.Parity, settings.DataBits, settings.StopBits)
+        {
+            Handshake = settings.Handshake,
+            DtrEnable = settings.DtrEnable,
+            RtsEnable = settings.RtsEnable,
+            ReadBufferSize = settings.ReadBufferSize,
+            ReadTimeout = 500,
+            WriteTimeout = 500
+        };
+    }
+
+    public string Id { get; }
+    public SerialPortSettings Settings { get; }
+    public bool IsOpen => _port.IsOpen;
+    public event EventHandler<ReadOnlyMemory<byte>>? DataReceived;
+
+    public Task OpenAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_port.IsOpen)
+        {
+            _port.DataReceived += OnDataReceived;
+            _port.Open();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task CloseAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_port.IsOpen)
+        {
+            _port.DataReceived -= OnDataReceived;
+            _port.Close();
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_port.IsOpen) throw new InvalidOperationException("Serial port is not open.");
+        _port.Write(data.ToArray(), 0, data.Length);
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        await CloseAsync();
+        _port.Dispose();
+    }
+
+    private void OnDataReceived(object? sender, SerialDataReceivedEventArgs e)
+    {
+        try
+        {
+            var count = _port.BytesToRead;
+            if (count <= 0) return;
+            var buffer = new byte[count];
+            var read = _port.Read(buffer, 0, buffer.Length);
+            if (read > 0) DataReceived?.Invoke(this, buffer.AsMemory(0, read));
+        }
+        catch (InvalidOperationException)
+        {
+            // Port can be closed concurrently with a DataReceived callback.
+        }
+        catch (IOException)
+        {
+            // The bridge owns lifecycle; transient unplug errors are surfaced on the next operation.
+        }
+    }
+}

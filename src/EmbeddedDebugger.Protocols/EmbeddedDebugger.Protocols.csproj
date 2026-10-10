@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>EmbeddedDebugger.Protocols</RootNamespace>
+    <AssemblyName>EmbeddedDebugger.Protocols</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EmbeddedDebugger.Core\EmbeddedDebugger.Core.csproj" />
+  </ItemGroup>
+</Project>
