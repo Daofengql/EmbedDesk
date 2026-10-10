@@ -1,11 +1,13 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 
 namespace EmbeddedDebugger.Core.Models;
 
 public enum RemoteProtocol
 {
     Ssh,
-    Telnet
+    Telnet,
+    Rdp,
+    Vnc
 }
 
 public enum RemoteAuthenticationMode

@@ -4,6 +4,7 @@
              xmlns:controls="clr-namespace:EmbeddedDebugger.App.Controls" xmlns:vm="clr-namespace:EmbeddedDebugger.App.ViewModels">
     <UserControl.Resources>
         <controls:RemoteProtocolLabelConverter x:Key="RemoteProtocolLabel" />
+        <controls:ProfileGlyphConverter x:Key="ProfileGlyph" />
         <controls:RemoteAuthenticationLabelConverter x:Key="RemoteAuthenticationLabel" />
         <controls:InverseBooleanVisibilityConverter x:Key="InverseBooleanVisibility" />
         <controls:BooleanToGridLengthConverter x:Key="BooleanToGridLength" />
@@ -19,6 +20,9 @@
         <DataTemplate DataType="{x:Type vm:RemoteWorkspaceViewModel}">
             <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" ToolTip="{Binding HostPlatform}" /><TextBlock Text="{Binding DisplayTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:DesktopSessionViewModel}">
+            <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" /><TextBlock Text="{Binding DisplayTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Text="{Binding ProtocolLabel}" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:RemoteFileDocumentViewModel}">
             <StackPanel Orientation="Horizontal" ToolTip="{Binding Location}"><TextBlock Text="&#xE8A5;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="{Binding Title}" MaxWidth="170" TextTrimming="CharacterEllipsis" /></StackPanel>
         </DataTemplate>
@@ -31,7 +35,7 @@
         <DataTemplate x:Key="ProfileTemplate">
             <Grid Height="46" Margin="2">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <ContentControl Content="terminal" ContentTemplate="{StaticResource TerminalMark}" />
+                <TextBlock Style="{StaticResource Icon}" Text="{Binding Protocol, Converter={StaticResource ProfileGlyph}}" FontSize="17" Foreground="{StaticResource AccentBrush}" />
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                     <TextBlock Text="{Binding Host}" Style="{StaticResource MutedText}" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
@@ -47,7 +51,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="远程调试" FontSize="17" FontWeight="SemiBold" />
-                    <TextBlock Text="本地 Shell 与 SSH / Telnet 会话" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
+                    <TextBlock Text="本地 Shell · SSH / Telnet · RDP / VNC" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource IconButton}" Click="KeyManager_Click" ToolTip="SSH 密钥管理器"><TextBlock Text="&#xE7EF;" Style="{StaticResource Icon}" /></Button>
@@ -123,6 +127,11 @@
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate><DataTemplate><controls:RemoteWorkspace /></DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding DesktopSessions}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate><DataTemplate><controls:DesktopWorkspace /></DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <ContentControl Content="{Binding SelectedDocument}" Visibility="{Binding IsDocumentSelected, Converter={StaticResource BooleanVisibility}}">
                         <ContentControl.ContentTemplate><DataTemplate><controls:RemoteFileDocument /></DataTemplate></ContentControl.ContentTemplate>

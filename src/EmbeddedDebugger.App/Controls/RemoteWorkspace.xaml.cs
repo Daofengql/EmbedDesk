@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Globalization;
@@ -20,7 +20,7 @@ public sealed class InverseBooleanVisibilityConverter : IValueConverter
 
 public sealed class RemoteProtocolLabelConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is RemoteProtocol protocol ? protocol == RemoteProtocol.Ssh ? "SSH" : "Telnet" : value?.ToString() ?? string.Empty;
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is RemoteProtocol protocol ? protocol switch { RemoteProtocol.Ssh => "SSH", RemoteProtocol.Rdp => "RDP", RemoteProtocol.Vnc => "VNC", _ => "Telnet" } : value?.ToString() ?? string.Empty;
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }
 

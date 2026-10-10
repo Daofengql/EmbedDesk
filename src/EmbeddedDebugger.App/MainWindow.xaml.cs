@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using EmbeddedDebugger.App.ViewModels;
@@ -90,7 +90,8 @@ public partial class MainWindow : Window
             e.Handled = true;
             if (!e.IsRepeat)
             {
-                if (remote.IsLocalShellSelected) remote.IsLocalShellFullscreen = !remote.IsLocalShellFullscreen;
+                if (remote.SelectedDesktop is { } desktop) desktop.IsFullscreen = !desktop.IsFullscreen;
+                else if (remote.IsLocalShellSelected) remote.IsLocalShellFullscreen = !remote.IsLocalShellFullscreen;
                 else if (remote.SelectedSession is { IsWorkspaceReady: true } session)
                     session.IsTerminalFullscreen = !session.IsTerminalFullscreen;
             }

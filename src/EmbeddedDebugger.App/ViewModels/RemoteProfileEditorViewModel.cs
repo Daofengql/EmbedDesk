@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using EmbeddedDebugger.Core.Models;
 
 namespace EmbeddedDebugger.App.ViewModels;
@@ -20,16 +20,18 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
         set
         {
             if (Profile.Protocol == value) return;
-            var oldDefaultPort = Profile.Protocol == RemoteProtocol.Ssh ? 22 : 23;
+            var oldDefaultPort = DefaultPort(Profile.Protocol);
             Profile.Protocol = value;
             if (Profile.Port == oldDefaultPort)
             {
-                Profile.Port = value == RemoteProtocol.Ssh ? 22 : 23;
+                Profile.Port = DefaultPort(value);
                 OnPropertyChanged(nameof(Port));
                 OnPropertyChanged(nameof(Endpoint));
             }
             OnPropertyChanged();
             OnPropertyChanged(nameof(ProtocolLabel));
+            OnPropertyChanged(nameof(IsSsh));
+            OnPropertyChanged(nameof(IsVnc));
         }
     }
     public string Host { get => Profile.Host; set { if (Profile.Host == value) return; Profile.Host = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); } }
@@ -41,11 +43,16 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
     public string PrivateKeyPath { get => Profile.PrivateKeyPath; set { if (Profile.PrivateKeyPath == value) return; Profile.PrivateKeyPath = value; OnPropertyChanged(); } }
     public string PrivateKeyPassphrase { get => Profile.PrivateKeyPassphrase; set { if (Profile.PrivateKeyPassphrase == value) return; Profile.PrivateKeyPassphrase = value; OnPropertyChanged(); } }
     public string Endpoint => $"{Host}:{Port}";
-    public string ProtocolLabel => Protocol == RemoteProtocol.Ssh ? "SSH" : "Telnet";
+    public bool IsSsh => Protocol == RemoteProtocol.Ssh;
+    public bool IsVnc => Protocol == RemoteProtocol.Vnc;
+    public string ProtocolLabel => Protocol switch { RemoteProtocol.Ssh => "SSH", RemoteProtocol.Rdp => "RDP", RemoteProtocol.Vnc => "VNC", _ => "Telnet" };
+    public static int DefaultPort(RemoteProtocol protocol) => protocol switch { RemoteProtocol.Ssh => 22, RemoteProtocol.Rdp => 3389, RemoteProtocol.Vnc => 5900, _ => 23 };
 
     public void NotifyEndpointChanged()
     {
         OnPropertyChanged(nameof(Endpoint));
         OnPropertyChanged(nameof(ProtocolLabel));
+            OnPropertyChanged(nameof(IsSsh));
+            OnPropertyChanged(nameof(IsVnc));
     }
 }

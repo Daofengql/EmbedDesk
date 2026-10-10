@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -197,6 +197,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             ScheduledPayload = ScheduledSendEnabled ? ScheduledPayload : null
         };
 
+        await CreateNetworkSessionAsync(options, cancellationToken);
+    }
+
+    public async Task<NetworkSessionViewModel> CreateNetworkSessionAsync(TransportOptions options, CancellationToken cancellationToken = default)
+    {
         var vm = new NetworkSessionViewModel(_transportService.CreateSession(options), AddLog);
         Sessions.Add(vm);
         SelectedSession = vm;
@@ -209,6 +214,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             AddLog("网络", $"启动失败: {ex.Message}", TransportEventKind.Error);
         }
+        return vm;
     }
 
     private async Task RemoveSelectedNetworkAsync(CancellationToken cancellationToken = default)
@@ -515,4 +521,3 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         NotifyBridgeState();
     });
 }
-

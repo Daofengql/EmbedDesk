@@ -1,0 +1,22 @@
+<Window x:Class="EmbeddedDebugger.App.NetworkConnectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="新建网络会话" Icon="Assets/embedded-debugger.ico" Width="540" Height="570" ResizeMode="NoResize" WindowStartupLocation="CenterOwner">
+    <Grid Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,20"><TextBlock Text="新建网络会话" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="设置连接端点，收发内容和发送任务在工作区中管理。" Style="{StaticResource MutedText}" FontSize="12" Margin="0,6,0,0" /></StackPanel>
+        <StackPanel Grid.Row="1">
+            <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="协议" Margin="0,0,0,6" Style="{StaticResource MutedText}" /><ComboBox x:Name="ProtocolBox" SelectedIndex="0" SelectionChanged="OptionsChanged"><ComboBoxItem Content="TCP" /><ComboBoxItem Content="UDP" /></ComboBox></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="模式" Margin="0,0,0,6" Style="{StaticResource MutedText}" /><ComboBox x:Name="ModeBox" SelectedIndex="0" SelectionChanged="OptionsChanged"><ComboBoxItem Content="客户端" /><ComboBoxItem Content="服务端" /></ComboBox></StackPanel>
+            </Grid>
+            <TextBlock Text="本地绑定" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBox x:Name="LocalHostBox" Text="0.0.0.0" ToolTip="本地网卡地址；0.0.0.0 监听所有网卡" /><TextBox Grid.Column="2" x:Name="LocalPortBox" Text="0" ToolTip="本地端口，0 表示由系统分配" /></Grid>
+            <TextBlock Text="端口 0 表示自动分配；服务端通常指定固定端口。" Style="{StaticResource MutedText}" FontSize="11" Margin="0,6,0,18" />
+            <StackPanel x:Name="RemoteFields"><TextBlock x:Name="RemoteLabel" Text="目标地址" FontWeight="SemiBold" Margin="0,0,0,8" /><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="14" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBox x:Name="RemoteHostBox" Text="127.0.0.1" ToolTip="目标 IP 或域名" /><TextBox Grid.Column="2" x:Name="RemotePortBox" Text="9000" ToolTip="目标端口" /></Grid></StackPanel>
+            <StackPanel Margin="0,20,0,0"><CheckBox x:Name="ReconnectBox" Content="连接中断后自动重连" IsChecked="True" Margin="0,0,0,12" /><CheckBox x:Name="HttpBox" Content="启用 HTTP 诊断" /><TextBlock x:Name="HttpHint" Text="TCP 服务端启用后会自动回复 HTTP 200。" Style="{StaticResource MutedText}" FontSize="11" Margin="0,6,0,0" /></StackPanel>
+            <TextBlock x:Name="ErrorText" Foreground="#F0A4A4" TextWrapping="Wrap" Margin="0,14,0,0" />
+        </StackPanel>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="取消" IsCancel="True" Margin="0,0,8,0" /><Button Content="创建并启动" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="Create_Click" /></StackPanel>
+    </Grid>
+</Window>

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using EmbeddedDebugger.Core.Abstractions;
@@ -20,6 +20,7 @@ internal sealed class TcpUdpSession : ITransportSession
     private Task? _worker;
     private Task? _scheduledSender;
     private TransportSessionState _state = TransportSessionState.Created;
+    public string? BoundLocalEndpoint { get; private set; }
 
     public TcpUdpSession(TransportOptions options)
     {
@@ -45,6 +46,7 @@ internal sealed class TcpUdpSession : ITransportSession
                 return;
             }
             _state = TransportSessionState.Starting;
+            BoundLocalEndpoint = null;
             _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         }
         Publish(TransportEventKind.StateChanged, null, ReadOnlyMemory<byte>.Empty, null, null);
@@ -58,6 +60,7 @@ internal sealed class TcpUdpSession : ITransportSession
                     var endpoint = new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort);
                     _listener = new TcpListener(endpoint);
                     _listener.Start();
+                    BoundLocalEndpoint = _listener.LocalEndpoint.ToString();
                     SetState(TransportSessionState.Listening);
                     _worker = AcceptTcpClientsAsync(_lifetime.Token);
                 }
@@ -71,6 +74,7 @@ internal sealed class TcpUdpSession : ITransportSession
             {
                 var endpoint = new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort);
                 _udpClient = new UdpClient(endpoint);
+                BoundLocalEndpoint = _udpClient.Client.LocalEndPoint?.ToString();
                 if (_options.Mode == TransportMode.Client)
                 {
                     _udpClient.Connect(_options.RemoteHost, _options.RemotePort);
@@ -193,7 +197,7 @@ internal sealed class TcpUdpSession : ITransportSession
         foreach (var client in clients)
         {
             await client.GetStream().WriteAsync(data, cancellationToken);
-            Publish(TransportEventKind.Sent, client.Client.RemoteEndPoint?.ToString(), data, null, null);
+            Publish(TransportEventKind.Sent, client.Client?.RemoteEndPoint?.ToString(), data, null, null);
         }
     }
 
@@ -218,7 +222,7 @@ internal sealed class TcpUdpSession : ITransportSession
                 client.NoDelay = true;
                 lock (_gate) _clients.Add(client);
                 SetState(TransportSessionState.Connected);
-                Publish(TransportEventKind.Connected, client.Client.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, null, null);
+                Publish(TransportEventKind.Connected, client.Client?.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, null, null);
                 _ = HandleTcpClientAsync(client, cancellationToken);
             }
         }
@@ -244,11 +248,12 @@ internal sealed class TcpUdpSession : ITransportSession
             var shouldReconnect = false;
             try
             {
-                using var client = new TcpClient { NoDelay = true };
+                using var client = new TcpClient(new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort)) { NoDelay = true };
                 await client.ConnectAsync(_options.RemoteHost, _options.RemotePort, cancellationToken);
+                BoundLocalEndpoint = client.Client.LocalEndPoint?.ToString();
                 lock (_gate) _activeClient = client;
                 SetState(TransportSessionState.Connected);
-                Publish(TransportEventKind.Connected, client.Client.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, null, null);
+                Publish(TransportEventKind.Connected, client.Client?.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, null, null);
                 await ReadTcpStreamAsync(client, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -264,8 +269,8 @@ internal sealed class TcpUdpSession : ITransportSession
                 lock (_gate) _activeClient = null;
                 if (!cancellationToken.IsCancellationRequested)
                 {
-                    SetState(TransportSessionState.Connecting);
                     shouldReconnect = _options.AutoReconnect;
+                    SetState(shouldReconnect ? TransportSessionState.Connecting : TransportSessionState.Faulted);
                     if (shouldReconnect)
                     {
                         try { await Task.Delay(_options.ReconnectDelay, cancellationToken); }
@@ -292,12 +297,13 @@ internal sealed class TcpUdpSession : ITransportSession
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
-            Publish(TransportEventKind.Error, client.Client.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, ex.Message, ex);
+            Publish(TransportEventKind.Error, client.Client?.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, ex.Message, ex);
         }
         finally
         {
             lock (_gate) _clients.Remove(client);
-            var endpoint = client.Client.RemoteEndPoint?.ToString();
+            string? endpoint = null;
+            try { endpoint = client.Client?.RemoteEndPoint?.ToString(); } catch (ObjectDisposedException) { }
             client.Dispose();
             Publish(TransportEventKind.Disconnected, endpoint, ReadOnlyMemory<byte>.Empty, null, null);
             if (State == TransportSessionState.Connected && _clients.Count == 0)
@@ -329,7 +335,7 @@ internal sealed class TcpUdpSession : ITransportSession
                     await SendHttpResponseAsync(client, cancellationToken);
                 }
             }
-            Publish(TransportEventKind.Received, client.Client.RemoteEndPoint?.ToString(), data, text, null);
+            Publish(TransportEventKind.Received, client.Client?.RemoteEndPoint?.ToString(), data, text, null);
         }
     }
 
@@ -346,7 +352,7 @@ internal sealed class TcpUdpSession : ITransportSession
         var response = $"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: keep-alive\r\nX-Embedded-Debugger: true\r\n\r\n{body}";
         var bytes = Encoding.UTF8.GetBytes(response);
         await client.GetStream().WriteAsync(bytes, cancellationToken);
-        Publish(TransportEventKind.Sent, client.Client.RemoteEndPoint?.ToString(), bytes, response, null);
+        Publish(TransportEventKind.Sent, client.Client?.RemoteEndPoint?.ToString(), bytes, response, null);
     }
     private async Task ReceiveUdpAsync(CancellationToken cancellationToken)
     {

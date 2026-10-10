@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,6 +24,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     private bool _isSessionPaneExpanded = true;
     private double _sessionPaneWidth = 236;
     private RemoteFileDocumentViewModel? _selectedDocument;
+    private DesktopSessionViewModel? _selectedDesktop;
 
     public RemoteDebugWorkspaceViewModel(IRemoteDebugService service, string? settingsDirectory = null)
     {
@@ -38,6 +39,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         Tabs.Add(LocalShell);
         Sessions.CollectionChanged += (_, _) => SyncTabs();
         Documents.CollectionChanged += (_, _) => SyncTabs();
+        DesktopSessions.CollectionChanged += (_, _) => SyncTabs();
         ProtocolOptions = Enum.GetValues<RemoteProtocol>();
 
         OpenProfileCommand = new AsyncRelayCommand(OpenProfileAsync, () => SelectedProfile is not null && !IsBusy);
@@ -47,7 +49,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         CloseSessionCommand = new AsyncRelayCommand<RemoteWorkspaceViewModel>(CloseSessionAsync);
         ShowManagerCommand = new RelayCommand(() => IsManagerView = true);
         SelectSessionCommand = new RelayCommand<RemoteWorkspaceViewModel>(SelectSession);
-        SelectLocalShellCommand = new RelayCommand(() => { SelectedDocument = null; SelectedSession = null; IsManagerView = false; });
+        SelectLocalShellCommand = new RelayCommand(() => { SelectedDesktop = null; SelectedDocument = null; SelectedSession = null; IsManagerView = false; });
         SelectDocumentCommand = new RelayCommand<RemoteFileDocumentViewModel>(document => { if (document is not null) { IsLocalShellFullscreen = false; SelectedDocument = document; } });
         ToggleSessionPaneCommand = new RelayCommand(() => IsSessionPaneExpanded = !IsSessionPaneExpanded);
         SelectedProfile = Profiles.FirstOrDefault();
@@ -58,6 +60,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public ObservableCollection<RemoteWorkspaceViewModel> Sessions { get; }
     public ObservableCollection<RemoteFileDocumentViewModel> Documents { get; } = [];
     public ObservableCollection<object> Tabs { get; } = [];
+    public ObservableCollection<DesktopSessionViewModel> DesktopSessions { get; } = [];
     public ObservableCollection<string> SshKeys { get; }
     public LocalShellViewModel LocalShell { get; }
     public IReadOnlyList<RemoteProtocol> ProtocolOptions { get; }
@@ -107,6 +110,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         get => _selectedSession;
         set
         {
+            if (value is not null) SelectedDesktop = null;
             if (ReferenceEquals(_selectedSession, value)) return;
             if (_selectedSession is not null)
             {
@@ -128,6 +132,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         get => _selectedDocument;
         set
         {
+            if (value is not null) SelectedDesktop = null;
             if (!SetProperty(ref _selectedDocument, value)) return;
             OnPropertyChanged(nameof(IsDocumentSelected));
             OnPropertyChanged(nameof(IsLocalShellSelected));
@@ -141,13 +146,54 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
             NotifyFullscreenLayout();
         }
     }
+    public DesktopSessionViewModel? SelectedDesktop
+    {
+        get => _selectedDesktop;
+        set
+        {
+            if (ReferenceEquals(value, _selectedDesktop)) return;
+            if (_selectedDesktop is not null) _selectedDesktop.IsFullscreen = false;
+            SetProperty(ref _selectedDesktop, value);
+            OnPropertyChanged(nameof(IsLocalShellSelected));
+            OnPropertyChanged(nameof(IsRemoteSessionSelected));
+            OnPropertyChanged(nameof(ActiveTab));
+            NotifyFullscreenLayout();
+        }
+    }
+    public void OpenDesktop(RemoteConnectionProfile profile)
+    {
+        IsLocalShellFullscreen = false;
+        SelectedDocument = null;
+        SelectedSession = null;
+        var desktop = new DesktopSessionViewModel(Clone(profile));
+        desktop.PropertyChanged += DesktopChanged;
+        DesktopSessions.Add(desktop);
+        SelectedDesktop = desktop;
+        IsManagerView = false;
+        Status = $"正在打开 {desktop.ProtocolLabel} · {desktop.DisplayTitle}";
+    }
+    private void DesktopChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DesktopSessionViewModel.IsFullscreen)) NotifyFullscreenLayout();
+        if (sender is DesktopSessionViewModel desktop && ReferenceEquals(SelectedDesktop, desktop)
+            && e.PropertyName == nameof(DesktopSessionViewModel.ConnectionStatus))
+            Status = $"{desktop.ProtocolLabel} · {desktop.DisplayTitle} · {desktop.ConnectionStatus}";
+    }
+    public void CloseDesktop(DesktopSessionViewModel desktop)
+    {
+        desktop.Dispose();
+        desktop.PropertyChanged -= DesktopChanged;
+        DesktopSessions.Remove(desktop);
+        if (SelectedDesktop == desktop) SelectedDesktop = DesktopSessions.LastOrDefault();
+    }
     public bool IsDocumentSelected => SelectedDocument is not null;
-    public object ActiveTab => (object?)SelectedDocument ?? (object?)SelectedSession ?? LocalShell;
-    public bool IsLocalShellSelected => SelectedSession is null && SelectedDocument is null;
-    public bool IsRemoteSessionSelected => SelectedSession is not null && SelectedDocument is null;
+    public object ActiveTab => (object?)SelectedDesktop ?? (object?)SelectedDocument ?? (object?)SelectedSession ?? LocalShell;
+    public bool IsLocalShellSelected => SelectedDesktop is null && SelectedSession is null && SelectedDocument is null;
+    public bool IsRemoteSessionSelected => SelectedDesktop is null && SelectedSession is not null && SelectedDocument is null;
     public void SelectTab(object tab)
     {
-        if (tab is RemoteWorkspaceViewModel session) SelectSession(session);
+        if (tab is DesktopSessionViewModel desktop) { IsLocalShellFullscreen = false; SelectedDocument = null; SelectedSession = null; SelectedDesktop = desktop; }
+        else if (tab is RemoteWorkspaceViewModel session) SelectSession(session);
         else if (tab is RemoteFileDocumentViewModel document) SelectDocumentCommand.Execute(document);
         else if (ReferenceEquals(tab, LocalShell)) SelectLocalShellCommand.Execute(null);
     }
@@ -161,9 +207,9 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     }
     private void SyncTabs()
     {
-        var current = new HashSet<object>(Sessions.Cast<object>().Concat(Documents)) { LocalShell };
+        var current = new HashSet<object>(Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions)) { LocalShell };
         foreach (var removed in Tabs.Where(tab => !current.Contains(tab)).ToArray()) Tabs.Remove(removed);
-        foreach (var added in Sessions.Cast<object>().Concat(Documents).Where(tab => !Tabs.Contains(tab))) Tabs.Add(added);
+        foreach (var added in Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions).Where(tab => !Tabs.Contains(tab))) Tabs.Add(added);
     }
     public GridLength SessionPaneWidth
     {
@@ -200,7 +246,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         }
     }
     public bool IsTerminalFullscreen => IsLocalShellSelected ? IsLocalShellFullscreen
-        : IsRemoteSessionSelected && SelectedSession!.IsTerminalFullscreen;
+        : SelectedDesktop is not null ? SelectedDesktop.IsFullscreen : IsRemoteSessionSelected && SelectedSession!.IsTerminalFullscreen;
     public bool IsSessionPaneVisible => !IsTerminalFullscreen && IsSessionPaneExpanded;
     public string SessionPaneToggleTooltip => IsSessionPaneExpanded ? "收起会话列表" : "显示会话列表";
     public string SessionPaneToggleGlyph => IsSessionPaneExpanded ? "\uE76B" : "\uE76C";
@@ -235,6 +281,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     private async Task OpenProfileAsync()
     {
         if (SelectedProfile is null || IsBusy) return;
+        if (SelectedProfile.Protocol is RemoteProtocol.Rdp or RemoteProtocol.Vnc) { SaveProfiles(); OpenDesktop(SelectedProfile); return; }
         SaveProfiles();
         IsBusy = true;
         OnPropertyChanged(nameof(IsBusy));
@@ -322,6 +369,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
 
     public async Task OpenProfileInNewTabAsync(RemoteConnectionProfile profile)
     {
+        if (profile.Protocol is RemoteProtocol.Rdp or RemoteProtocol.Vnc) { SaveProfiles(); OpenDesktop(profile); return; }
         IsLocalShellFullscreen = false;
         SaveProfiles();
         var session = CreateSession(profile);
@@ -422,7 +470,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
                 Name = string.IsNullOrWhiteSpace(record.Name) ? record.Host : record.Name,
                 Protocol = record.Protocol,
                 Host = record.Host,
-                Port = record.Port is > 0 and <= 65535 ? record.Port : record.Protocol == RemoteProtocol.Ssh ? 22 : 23,
+                Port = record.Port is > 0 and <= 65535 ? record.Port : RemoteProfileEditorViewModel.DefaultPort(record.Protocol),
                 Username = record.Username,
                 AcceptUnknownHostKey = record.AcceptUnknownHostKey,
                 AuthenticationMode = record.AuthenticationMode,
@@ -450,6 +498,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
 
     public async ValueTask DisposeAsync()
     {
+        foreach (var desktop in DesktopSessions.ToArray()) CloseDesktop(desktop);
         foreach (var session in Sessions.ToArray()) await session.DisposeAsync();
         Documents.Clear();
         SelectedDocument = null;

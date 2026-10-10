@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -35,6 +35,9 @@ public partial class RemoteDebugWorkspace : UserControl
     {
         if (sender is FrameworkElement { DataContext: RemoteWorkspaceViewModel }) CloseSession_Click(sender, e);
         else if (sender is FrameworkElement { DataContext: RemoteFileDocumentViewModel }) CloseDocument_Click(sender, e);
+        else if (sender is FrameworkElement { DataContext: DesktopSessionViewModel desktop } && _viewModel is not null
+            && new ConfirmationWindow("关闭会话", $"确定关闭“{desktop.DisplayTitle}”并断开远程桌面吗？", "关闭会话") { Owner = Window.GetWindow(this) }.ShowDialog() == true)
+            _viewModel.CloseDesktop(desktop);
     }
     private void Tab_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -120,7 +123,8 @@ public partial class RemoteDebugWorkspace : UserControl
     }
     private async void Profile_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (_viewModel?.SelectedProfile is { } profile) await _viewModel.OpenProfileInNewTabAsync(profile);
+        if (sender is ListBox list && ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListBoxItem { DataContext: RemoteConnectionProfile profile } && _viewModel is not null)
+            await _viewModel.OpenProfileInNewTabAsync(profile);
     }
     private void CloseDocument_Click(object sender, RoutedEventArgs e)
     {
@@ -203,9 +207,9 @@ public sealed class ConnectionStateBrushConverter : IValueConverter
     {
         return value?.ToString() switch
         {
-            "已连接" => "#4CC9B0",
+            "已连接" or "监听中" => "#4CC9B0",
             "连接中" => "#E0B15A",
-            "连接失败" => "#E36D78",
+            "连接失败" or "已断开" => "#E36D78",
             _ => "#7F8992"
         };
     }
@@ -249,5 +253,11 @@ public sealed class HostPlatformIconConverter : IValueConverter
         return Icons[icon];
     }
 
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
+public sealed class ProfileGlyphConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is RemoteProtocol.Rdp or RemoteProtocol.Vnc ? "\uE7F4" : "\uE756";
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
 }

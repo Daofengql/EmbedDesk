@@ -24,9 +24,11 @@ NuGet restores these dependencies during the build. Direct versions are recorded
 | [Microsoft.Extensions.Logging.Abstractions](https://www.nuget.org/packages/Microsoft.Extensions.Logging.Abstractions/8.0.3) | MIT |
 | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports/8.0.0), [System.Management](https://www.nuget.org/packages/System.Management/8.0.0), and System.CodeDom | MIT |
 | [SSH.NET](https://www.nuget.org/packages/SSH.NET/2026.0.0) | MIT |
-| [BouncyCastle.Cryptography](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0) (SSH.NET dependency) | MIT |
+| [BouncyCastle.Cryptography](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0) (SSH.NET and standard VNC password authentication) | MIT |
 | [Microsoft.Web.WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4191.47) | BSD-3-Clause; see [LICENSE](docs/licenses/WebView2-LICENSE.txt) and [NOTICE](docs/licenses/WebView2-NOTICE.txt) from the package |
 
 The separately installed Microsoft Edge WebView2 Runtime is governed by its own distribution terms; it is not bundled in the single-EXE output. The self-contained publish profile bundles the .NET runtime; retain its applicable licenses and third-party notices when distributing binaries. This dependency overview does not replace the notices supplied by individual packages.
+
+RDP integration uses the MSTSC ActiveX control supplied by Windows (`mstscax.dll`). This Windows component is loaded from the operating system and is not redistributed with this project. The VNC RFB protocol client is original project code; it does not bundle a third-party VNC viewer.
 
 Test dependencies include Microsoft.NET.Test.Sdk, xUnit, and its Visual Studio runner, under their respective package licenses. The optional Python SSH regression harness requires Paramiko, which is installed separately and is not bundled with the application.

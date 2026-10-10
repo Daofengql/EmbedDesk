@@ -3,14 +3,17 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RootNamespace>EmbeddedDebugger.App</RootNamespace>
     <AssemblyName>EmbeddedDebugger.App</AssemblyName>
     <ApplicationIcon>Assets\embedded-debugger.ico</ApplicationIcon>
     <StartupObject>EmbeddedDebugger.App.Program</StartupObject>
-    <PublishProfile Condition="'$(Configuration)' == 'Release' and '$(PublishProfile)' == ''">SingleFile</PublishProfile>
+    <PublishProfile Condition="'$(Configuration)' == 'Release' and '$(PublishProfile)' == ''">Compact</PublishProfile>
   </PropertyGroup>
   <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
     <ProjectReference Include="..\EmbeddedDebugger.Core\EmbeddedDebugger.Core.csproj" />
     <ProjectReference Include="..\EmbeddedDebugger.Infrastructure\EmbeddedDebugger.Infrastructure.csproj" />
     <PackageReference Include="CommunityToolkit.Mvvm" />

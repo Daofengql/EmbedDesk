@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Net.Sockets;
@@ -65,6 +65,7 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
     public ObservableCollection<RemoteDirectoryEntryViewModel> DirectoryEntries { get; }
     public IReadOnlyList<RemoteProtocol> ProtocolOptions { get; }
     public TerminalBufferViewModel Terminal { get; } = new();
+    public NetworkStatusViewModel NetworkStatus { get; } = new();
     public IAsyncRelayCommand ConnectCommand { get; }
     public IAsyncRelayCommand DisconnectCommand { get; }
     public IAsyncRelayCommand RefreshDirectoryCommand { get; }
@@ -367,6 +368,8 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
     private void OnStateChanged(object? sender, RemoteSessionState state) => RunOnUi(() =>
     {
         if (!ReferenceEquals(sender, _session)) return;
+        if (state == RemoteSessionState.Connected) NetworkStatus.Track(new(Host, Port), $"{ProtocolLabel} · {Host}:{Port}");
+        else NetworkStatus.Stop(state == RemoteSessionState.Connecting ? "等待连接" : "探测已停止");
         SetWorkspaceInitialized(state == RemoteSessionState.Connected);
         if (state == RemoteSessionState.Connected) PerformanceSource = Protocol == RemoteProtocol.Ssh ? "正在采样…" : "Telnet 不支持性能采集";
         OnPropertyChanged(nameof(IsConnected));
@@ -388,6 +391,7 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
 
     private async Task DisposeSessionAsync()
     {
+        NetworkStatus.Stop("探测已停止");
         if (_session is null) return;
         _session.ConnectionLogReceived -= OnConnectionLogReceived;
         _session.TextReceived -= OnTextReceived;
@@ -428,6 +432,7 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
 
     public async ValueTask DisposeAsync()
     {
+        NetworkStatus.Dispose();
         _fileOperations.Cancel();
         await _previewGate.WaitAsync();
         try

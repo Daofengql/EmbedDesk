@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
@@ -10,7 +10,8 @@ namespace EmbeddedDebugger.Infrastructure.Remote;
 
 public sealed class RemoteDebugService : IRemoteDebugService
 {
-    public IRemoteDebugSession CreateSession(RemoteConnectionProfile profile) => new RemoteDebugSession(profile);
+    public IRemoteDebugSession CreateSession(RemoteConnectionProfile profile) => profile.Protocol is RemoteProtocol.Ssh or RemoteProtocol.Telnet
+        ? new RemoteDebugSession(profile) : throw new NotSupportedException("图形远程桌面通过桌面会话打开。");
 }
 
 internal sealed class RemoteDebugSession : IRemoteDebugSession

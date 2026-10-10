@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -47,6 +47,18 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--network-quality-check"))
+            {
+                await NetworkQualityChecks.RunAsync();
+                Shutdown(0);
+                return;
+            }
+            if (e.Args.Contains("--desktop-network-check"))
+            {
+                await DesktopNetworkChecks.RunAsync(viewModel);
+                Shutdown(0);
+                return;
+            }
             if (e.Args.Contains("--packaging-check"))
             {
                 await SingleFilePackagingChecks.RunAsync(viewModel);
