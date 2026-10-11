@@ -50,12 +50,11 @@
     <Grid Background="{StaticResource PanelBrush}">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
         <Border Padding="16,12" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
-            <StackPanel><TextBlock Text="网络工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="网络诊断、设备发现与嵌入式数据工具" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
+            <StackPanel><TextBlock Text="网络工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="网络诊断、连通性、性能与设备发现" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
         </Border>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <Grid Margin="12,16" VerticalAlignment="Top">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,20">
                     <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="地址与证书" FontSize="12" FontWeight="SemiBold" /></Border>
                     <UniformGrid Columns="3" Rows="1">
@@ -79,7 +78,7 @@
                         </Button>
                     </UniformGrid>
                 </StackPanel>
-                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,20">
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,20">
                     <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="连通与性能" FontSize="12" FontWeight="SemiBold" /></Border>
                     <UniformGrid Columns="3" Rows="1">
                         <Button Tag="Ping" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="Ping / 路由追踪" ToolTip="ICMP、TCP 与逐跳诊断">
@@ -102,7 +101,7 @@
                         </Button>
                     </UniformGrid>
                 </StackPanel>
-                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,20">
+                <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,0,20">
                     <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="发现与 NAT" FontSize="12" FontWeight="SemiBold" /></Border>
                     <UniformGrid Columns="3" Rows="1">
                         <Button Tag="Discovery" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="内网扫描" ToolTip="发现设备、地址与主机名">
@@ -121,23 +120,6 @@
                             <StackPanel>
                                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE701;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="UPnP 发现" Style="{StaticResource ToolTitle}" /></Grid>
                                 <TextBlock Text="设备信息与端口映射" Style="{StaticResource ToolDescription}" />
-                            </StackPanel>
-                        </Button>
-                    </UniformGrid>
-                </StackPanel>
-                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,20">
-                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="嵌入式与数据" FontSize="12" FontWeight="SemiBold" /></Border>
-                    <UniformGrid Columns="3" Rows="1">
-                        <Button Tag="Checksum" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="CRC / 校验和" ToolTip="报文、固件与文件指纹">
-                            <StackPanel>
-                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE9D5;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="CRC / 校验和" Style="{StaticResource ToolTitle}" /></Grid>
-                                <TextBlock Text="报文、固件与文件指纹" Style="{StaticResource ToolDescription}" />
-                            </StackPanel>
-                        </Button>
-                        <Button Tag="Codec" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="HEX / 文本" ToolTip="字节、编码与 Base64 互转">
-                            <StackPanel>
-                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE8AB;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="HEX / 文本" Style="{StaticResource ToolTitle}" /></Grid>
-                                <TextBlock Text="字节、编码与 Base64 互转" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>

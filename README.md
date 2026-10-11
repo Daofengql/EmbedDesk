@@ -16,7 +16,7 @@
 
 网络工具中的 **DNS 查询**使用内置 UDP / TCP / DoH 客户端，不依赖 `nslookup` 或其他外部程序。可指定 DNS 服务器（IPv4 / IPv6）、端口、记录类型、IN / CH / HS 查询类、递归、超时及重试；支持 A、AAAA、CNAME、MX、TXT、NS、SOA、PTR、SRV、CAA、DNAME、NAPTR、ANY 和 `TYPE数字`（不支持 AXFR / IXFR 区域传送）。UDP 截断时自动转 TCP；结果保留 TTL、应答 / 权威 / 附加区段和响应码，可复制完整响应。自动模式对域名查询 A，对 IP 地址查询 PTR。 DoH 使用 RFC 8484 HTTPS POST，支持阿里、腾讯、Cloudflare、Google 预设和自定义 HTTPS URL，正常验证 HTTPS 证书；查询内容通过加密连接发送，DoH 服务域名仍由系统解析。
 
-网络工具按「地址与证书」「连通与性能」「发现与 NAT」「嵌入式与数据」分类，新增工具均为 .NET 内部实现，不调用外部可执行文件：
+网络工具按「地址与证书」「连通与性能」「发现与 NAT」分类，网络工具页不混入固件和介质操作；新增工具均为 .NET 内部实现，不调用外部可执行文件：
 
 - **CRC / 校验和**：CRC-16/MODBUS、CRC-16/CCITT-FALSE、CRC-32/ISO-HDLC、SUM-8、XOR-8、SHA-256、MD5；显示算法参数与 CRC 低字节在前的发送顺序。支持 HEX、文本、Base64 或原始文件（最多 16 MiB）。
 - **HEX / 文本编解码**：HEX、Base64、UTF-8、ASCII、UTF-16 LE 互转，严格报告无效输入；可读取最多 1 MiB 的文件，不自动添加 BOM 或换行。

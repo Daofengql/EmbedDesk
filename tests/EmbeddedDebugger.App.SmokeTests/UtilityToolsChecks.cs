@@ -138,7 +138,7 @@ internal static class UtilityToolsChecks
             await FileWorkspaceChecks.CaptureAsync(main, "embedded-debugger-tools-expanded-small.png");
             var gallery = Descendants<NetworkToolsWorkspace>(main).Single();
             var buttons = Descendants<Button>(gallery).Where(b => b.Tag is string).ToArray();
-            Require(buttons.Length == 11, "Gallery contains all eleven classified tools");
+            Require(buttons.Length == 9, "Network gallery contains only network tools");
             foreach (var button in buttons)
             {
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -146,6 +146,12 @@ internal static class UtilityToolsChecks
                 Require(dialog.Title.Length > 0, "Gallery opens " + button.Tag);
                 dialog.Close();
             }
+            tabs.SelectedIndex = 4;
+            await Task.Delay(40);
+            main.UpdateLayout();
+            var embedded = Descendants<EmbeddedToolsWorkspace>(main).Single();
+            var embeddedButtons = Descendants<Button>(embedded).Where(b => b.Tag is string).ToArray();
+            Require(embeddedButtons.Length == 7, "Embedded gallery owns firmware, media, adapter and data tools");
         }
         finally { main.Close(); }
     }
