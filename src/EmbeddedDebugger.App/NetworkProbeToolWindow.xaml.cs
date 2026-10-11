@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Windows;
 using System.Windows.Controls;
 using EmbeddedDebugger.Core.Abstractions;
@@ -9,30 +11,32 @@ using EmbeddedDebugger.Infrastructure.Networking;
 
 namespace EmbeddedDebugger.App;
 
-public enum NetworkProbeToolMode { Icmp, Tcping }
-
+public enum NetworkProbeToolMode { Icmp, Tcping, Traceroute }
 public sealed record NetworkProbeSample(string Time, string Outcome, string Latency, string Detail);
+public sealed record TracerouteHop(int Hop, string Address, string HostName, string Latency, string Status);
 
 public partial class NetworkProbeToolWindow : Window, IDisposable
 {
     private readonly NetworkProbe _probe = new();
     private CancellationTokenSource? _lifetime;
-    private Task? _worker;
+    private bool _closed;
     private int _total;
     private int _failed;
+    private int _pingInterfaceIndex;
 
     public NetworkProbeToolWindow(NetworkProbeToolMode mode = NetworkProbeToolMode.Icmp)
     {
         InitializeComponent();
         DataContext = this;
-        ModeBox.SelectedIndex = mode == NetworkProbeToolMode.Tcping ? 1 : 0;
         FamilyBox.SelectedIndex = 0;
         PopulateInterfaces();
+        ModeBox.SelectedIndex = (int)mode;
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
     }
 
     public ObservableCollection<NetworkProbeSample> Samples { get; } = [];
+    public ObservableCollection<TracerouteHop> Hops { get; } = [];
 
     private void PopulateInterfaces()
     {
@@ -40,126 +44,173 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
         try
         {
             foreach (var network in NetworkInterface.GetAllNetworkInterfaces().Where(item => item.OperationalStatus == OperationalStatus.Up))
-            {
                 foreach (var address in network.GetIPProperties().UnicastAddresses.Select(item => item.Address)
-                             .Where(item => item.AddressFamily is System.Net.Sockets.AddressFamily.InterNetwork or System.Net.Sockets.AddressFamily.InterNetworkV6)
-                             .Distinct())
+                             .Where(item => item.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6).Distinct())
                     choices.Add(new($"{network.Name} · {address}", address.ToString()));
-            }
         }
         catch (NetworkInformationException) { }
         InterfaceBox.ItemsSource = choices;
         InterfaceBox.SelectedIndex = 0;
     }
 
+    private bool IsTrace => ModeBox.SelectedIndex == 2;
+
     private void Mode_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (PortBox is null) return;
-        var tcp = ModeBox.SelectedIndex == 1;
-        PortBox.IsEnabled = tcp;
-        PacketSizeBox.IsEnabled = !tcp;
-        FamilyBox.IsEnabled = true;
-        InterfaceBox.IsEnabled = true;
+        if (TraceOptions is null) return;
+        if (IsTrace)
+        {
+            _pingInterfaceIndex = InterfaceBox.SelectedIndex;
+            InterfaceBox.SelectedIndex = 0;
+        }
+        else InterfaceBox.SelectedIndex = _pingInterfaceIndex;
+        UpdateControls();
+        SummaryText.Text = "";
+        StatusText.Text = "未开始";
+    }
+
+    private void UpdateControls()
+    {
+        var idle = _lifetime is null;
+        StartButton.IsEnabled = idle; StopButton.IsEnabled = !idle;
+        HostBox.IsEnabled = ModeBox.IsEnabled = FamilyBox.IsEnabled = idle;
+        InterfaceBox.IsEnabled = idle && !IsTrace;
+        InterfaceLabel.Text = IsTrace ? "网络出口 · 路由追踪使用系统路由" : "网络出口";
+        PortBox.IsEnabled = idle && ModeBox.SelectedIndex == 1;
+        PacketSizeBox.IsEnabled = idle && ModeBox.SelectedIndex != 1;
+        CountBox.IsEnabled = IntervalBox.IsEnabled = MaxHopsBox.IsEnabled = TimeoutBox.IsEnabled = ResolveNamesBox.IsEnabled = idle;
+        PingOptions.Visibility = PingResults.Visibility = IsTrace ? Visibility.Collapsed : Visibility.Visible;
+        TraceOptions.Visibility = TraceResults.Visibility = IsTrace ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        await StopAsync();
+        if (_lifetime is not null || _closed) return;
         var host = HostBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(host)) { StatusText.Text = "请输入主机地址。"; return; }
-        if (!int.TryParse(IntervalBox.Text, out var interval) || interval is < 100 or > 60000) { StatusText.Text = "间隔应为 100–60000 毫秒。"; return; }
-        if (!int.TryParse(CountBox.Text, out var count) || count is < 0 or > 1_000_000) { StatusText.Text = "循环次数应为 0–1000000，0 表示持续运行。"; return; }
-        if (!int.TryParse(PacketSizeBox.Text, out var packetSize) || packetSize is < 0 or > 65500) { StatusText.Text = "包大小应为 0–65500 字节。"; return; }
+        if (host.Length == 0) { StatusText.Text = "请输入主机地址。"; return; }
+        var interval = 1000; var count = 0; var packetSize = 32; var maxHops = 30; var timeout = 1000;
+        var trace = IsTrace;
         int? port = null;
+        if (!trace)
+        {
+            if (!int.TryParse(IntervalBox.Text, out interval) || interval is < 100 or > 60000) { StatusText.Text = "间隔应为 100–60000 毫秒。"; return; }
+            if (!int.TryParse(CountBox.Text, out count) || count is < 0 or > 1_000_000) { StatusText.Text = "循环次数应为 0–1000000。"; return; }
+        }
+        else
+        {
+            if (!int.TryParse(MaxHopsBox.Text, out maxHops) || maxHops is < 1 or > 255) { StatusText.Text = "最大跳数应为 1–255。"; return; }
+            if (!int.TryParse(TimeoutBox.Text, out timeout) || timeout is < 100 or > 10000) { StatusText.Text = "每跳超时应为 100–10000 毫秒。"; return; }
+        }
         if (ModeBox.SelectedIndex == 1)
         {
             if (!int.TryParse(PortBox.Text, out var parsedPort) || parsedPort is < 1 or > 65535) { StatusText.Text = "TCP 端口应为 1–65535。"; return; }
             port = parsedPort;
         }
+        else if (!int.TryParse(PacketSizeBox.Text, out packetSize) || packetSize is < 0 or > 65500)
+        { StatusText.Text = "包大小应为 0–65500 字节。"; return; }
         var family = FamilyBox.SelectedIndex switch
         {
             1 => NetworkProbeAddressFamily.IPv4,
             2 => NetworkProbeAddressFamily.IPv6,
             _ => NetworkProbeAddressFamily.Any
         };
-        var localAddress = (InterfaceBox.SelectedItem as NetworkInterfaceChoice)?.Address;
-        Samples.Clear(); _total = 0; _failed = 0;
-        var lifetime = new CancellationTokenSource();
+        var local = (InterfaceBox.SelectedItem as NetworkInterfaceChoice)?.Address;
+        using var lifetime = new CancellationTokenSource();
         _lifetime = lifetime;
-        StartButton.IsEnabled = false; StopButton.IsEnabled = true; HostBox.IsEnabled = false; ModeBox.IsEnabled = false;
-        FamilyBox.IsEnabled = false; InterfaceBox.IsEnabled = false; CountBox.IsEnabled = false; IntervalBox.IsEnabled = false; PortBox.IsEnabled = false; PacketSizeBox.IsEnabled = false;
-        StatusText.Text = $"正在探测 {host}{(port.HasValue ? $":{port}" : string.Empty)}";
-        var target = new NetworkProbeTarget(host, port, family, localAddress, packetSize);
-        _worker = MonitorAsync(target, interval, count, lifetime.Token);
-        try { await _worker; }
-        finally
-        {
-            var completed = ReferenceEquals(_lifetime, lifetime);
-            if (completed)
-            {
-                _lifetime = null;
-                var canceled = lifetime.IsCancellationRequested;
-                lifetime.Dispose();
-                StatusText.Text = canceled ? "已停止" : count == 0 ? "已停止" : "已完成";
-            }
-            SetIdle();
-            _worker = null;
-        }
-    }
-
-    private async void Stop_Click(object sender, RoutedEventArgs e) => await StopAsync();
-
-    private async Task StopAsync()
-    {
-        var lifetime = _lifetime;
-        if (lifetime is null) return;
-        _lifetime = null;
-        lifetime.Cancel();
-        if (_worker is not null)
-        {
-            try { await _worker; } catch (OperationCanceledException) { }
-        }
-        lifetime.Dispose();
-        _worker = null;
-        SetIdle();
-        StatusText.Text = "已停止";
-    }
-
-    private void SetIdle()
-    {
-        StartButton.IsEnabled = true; StopButton.IsEnabled = false; HostBox.IsEnabled = true; ModeBox.IsEnabled = true;
-        FamilyBox.IsEnabled = true; InterfaceBox.IsEnabled = true; CountBox.IsEnabled = true; IntervalBox.IsEnabled = true;
-        Mode_Changed(this, null!);
-    }
-
-    private async Task MonitorAsync(NetworkProbeTarget target, int interval, int count, CancellationToken cancellationToken)
-    {
+        UpdateControls();
+        SummaryText.Text = "";
+        StatusText.Text = $"正在{(trace ? "追踪" : "探测")} {host}…";
         try
         {
-            while (count == 0 || _total < count)
+            if (trace)
             {
-                var result = await _probe.ProbeAsync(target, cancellationToken);
-                _total++;
-                if (result.Outcome != NetworkProbeOutcome.Success) _failed++;
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    var latency = result.Milliseconds is double ms ? $"{ms:0.0} ms" : "—";
-                    Samples.Insert(0, new NetworkProbeSample(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture), result.Outcome == NetworkProbeOutcome.Success ? "成功" : result.Outcome == NetworkProbeOutcome.NoReply ? "无响应" : "不可用", latency, result.Detail));
-                    while (Samples.Count > 200) Samples.RemoveAt(Samples.Count - 1);
-                    SummaryText.Text = $"共 {_total} 次 · 失败 {_failed} 次";
-                });
-                if (count == 0 || _total < count) await Task.Delay(interval, cancellationToken);
+                Hops.Clear();
+                await TraceAsync(host, family, packetSize, maxHops, timeout, ResolveNamesBox.IsChecked == true, lifetime.Token);
+            }
+            else
+            {
+                Samples.Clear(); _total = _failed = 0;
+                await MonitorAsync(new(host, port, family, local, packetSize), interval, count, lifetime.Token);
+                StatusText.Text = "已完成";
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { StatusText.Text = "已停止"; }
+        catch (Exception ex) when (ex is SocketException or PingException or ArgumentException or TimeoutException)
+        { StatusText.Text = $"探测失败：{ex.Message}"; }
+        finally { _lifetime = null; UpdateControls(); }
+    }
+
+    private void Stop_Click(object sender, RoutedEventArgs e) => _lifetime?.Cancel();
+
+    private async Task MonitorAsync(NetworkProbeTarget target, int interval, int count, CancellationToken token)
+    {
+        while (count == 0 || _total < count)
+        {
+            var result = await _probe.ProbeAsync(target, token);
+            token.ThrowIfCancellationRequested();
+            _total++;
+            if (result.Outcome != NetworkProbeOutcome.Success) _failed++;
+            var latency = result.Milliseconds is double ms ? $"{ms:0.0} ms" : "—";
+            Samples.Insert(0, new(DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture),
+                result.Outcome == NetworkProbeOutcome.Success ? "成功" : result.Outcome == NetworkProbeOutcome.NoReply ? "无响应" : "不可用", latency, result.Detail));
+            while (Samples.Count > 200) Samples.RemoveAt(Samples.Count - 1);
+            SummaryText.Text = $"共 {_total} 次 · 失败 {_failed} 次";
+            if (count == 0 || _total < count) await Task.Delay(interval, token);
+        }
+    }
+
+    private async Task TraceAsync(string host, NetworkProbeAddressFamily family, int packetSize, int maxHops, int timeout, bool resolveNames, CancellationToken token)
+    {
+        var addresses = await Dns.GetHostAddressesAsync(host, token).WaitAsync(TimeSpan.FromSeconds(5), token);
+        var destination = addresses.Where(a => family switch
+        {
+            NetworkProbeAddressFamily.IPv4 => a.AddressFamily == AddressFamily.InterNetwork,
+            NetworkProbeAddressFamily.IPv6 => a.AddressFamily == AddressFamily.InterNetworkV6,
+            _ => true
+        }).OrderBy(a => a.AddressFamily != AddressFamily.InterNetwork).FirstOrDefault()
+            ?? throw new ArgumentException("目标没有符合所选地址族的地址。");
+        if (destination.Equals(IPAddress.Any) || destination.Equals(IPAddress.IPv6Any) || destination.IsIPv6Multicast ||
+            destination.AddressFamily == AddressFamily.InterNetwork && destination.GetAddressBytes()[0] >= 224)
+            throw new ArgumentException("请输入单播目标地址。");
+        var names = new Dictionary<IPAddress, string>();
+        using var ping = new Ping();
+        for (var hop = 1; hop <= maxHops; hop++)
+        {
+            token.ThrowIfCancellationRequested();
+            StatusText.Text = $"正在追踪 {destination} · 第 {hop} 跳";
+            var started = Stopwatch.GetTimestamp();
+            var reply = await ping.SendPingAsync(destination, TimeSpan.FromMilliseconds(timeout), new byte[packetSize], new PingOptions(hop, false), token);
+            var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            var address = reply.Status == IPStatus.TimedOut || reply.Address is null ||
+                reply.Address.Equals(IPAddress.Any) || reply.Address.Equals(IPAddress.IPv6Any) ? null : reply.Address;
+            var name = "—";
+            if (resolveNames && address is not null && !names.TryGetValue(address, out name))
+            {
+                try { name = (await Dns.GetHostEntryAsync(address).WaitAsync(TimeSpan.FromMilliseconds(800), token)).HostName; }
+                catch (Exception ex) when (ex is SocketException or TimeoutException) { name = "—"; }
+                names[address] = name;
+            }
+            token.ThrowIfCancellationRequested();
+            var state = reply.Status switch
+            {
+                IPStatus.Success => "到达目标",
+                IPStatus.TtlExpired or IPStatus.TimeExceeded => "TTL 到期",
+                IPStatus.TimedOut => "超时",
+                _ => reply.Status.ToString()
+            };
+            Hops.Add(new(hop, address?.ToString() ?? "*", name ?? "—", address is null ? "*" : $"{elapsed:0.0} ms", state));
+            SummaryText.Text = $"已探测 {hop} 跳";
+            if (reply.Status == IPStatus.Success) { StatusText.Text = $"已到达 {destination} · 共 {hop} 跳"; return; }
+            if (reply.Status is not (IPStatus.TtlExpired or IPStatus.TimeExceeded or IPStatus.TimedOut))
+            { StatusText.Text = $"追踪停止：{state}"; return; }
+        }
+        StatusText.Text = $"已达最大跳数 {maxHops}，尚未到达目标。";
     }
 
     public void Dispose()
     {
-        var lifetime = _lifetime;
-        _lifetime = null;
-        lifetime?.Cancel();
-        lifetime?.Dispose();
+        _closed = true;
+        _lifetime?.Cancel();
         GC.SuppressFinalize(this);
     }
 

@@ -33,8 +33,8 @@ internal static class DesktopNetworkChecks
             await Task.Delay(100);
             var networkTools = Descendants<NetworkToolsWorkspace>(window).Single();
             var networkToolTags = Descendants<Button>(networkTools).Select(button => button.Tag?.ToString()).ToHashSet(StringComparer.Ordinal);
-            Require(new[] { "Cidr", "Ping", "Iperf3", "Discovery", "Nat", "Upnp", "Dns", "Trace" }.All(networkToolTags.Contains), "Network tools page exposes CIDR, Ping, iperf3, discovery, NAT, UPnP, DNS and traceroute cards");
-            foreach (var toolWindow in new Window[] { new NatDetectionWindow(), new UpnpDiscoveryWindow(), new DnsQueryWindow(), new TracerouteWindow() })
+            Require(new[] { "Cidr", "Ping", "Iperf3", "Discovery", "Nat", "Upnp", "Dns" }.All(networkToolTags.Contains) && !networkToolTags.Contains("Trace"), "Network tools merge traceroute into Ping");
+            foreach (var toolWindow in new Window[] { new NatDetectionWindow(), new UpnpDiscoveryWindow(), new DnsQueryWindow(), new NetworkProbeToolWindow(NetworkProbeToolMode.Traceroute) })
             {
                 toolWindow.Owner = window;
                 toolWindow.Show();

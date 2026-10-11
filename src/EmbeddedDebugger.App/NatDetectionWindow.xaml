@@ -1,12 +1,40 @@
 <Window x:Class="EmbeddedDebugger.App.NatDetectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="STUN / NAT 检测" Icon="Assets/embedded-debugger.ico" Width="760" Height="560" MinWidth="680" WindowStartupLocation="CenterOwner">
+        Title="STUN / NAT 检测" Icon="Assets/embedded-debugger.ico" Width="880" Height="710" MinWidth="760" MinHeight="620" WindowStartupLocation="CenterOwner">
     <Grid Margin="24">
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <StackPanel><TextBlock Text="STUN / NAT 检测" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="向多个 STUN 服务发送标准 Binding Request，比较公网映射地址和端口。" Style="{StaticResource MutedText}" FontSize="12" Margin="0,6,0,0" /></StackPanel>
-        <Grid Grid.Row="1" Margin="0,20,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="ServersBox" Text="stun.l.google.com:19302;stun.cloudflare.com:3478" ToolTip="多个服务器用分号分隔" /><Button Grid.Column="1" Content="检测" Style="{StaticResource PrimaryButton}" Click="Start_Click" Margin="10,0,8,0" /><Button Grid.Column="2" x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" /></Grid>
-        <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions><Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="14" CornerRadius="4"><StackPanel><TextBlock Text="NAT 判断" Style="{StaticResource MutedText}" FontSize="11" /><TextBlock x:Name="NatTypeText" Text="未检测" FontSize="19" FontWeight="SemiBold" Margin="0,5,0,0" /><TextBlock x:Name="SummaryText" Text="" Style="{StaticResource MutedText}" Margin="0,5,0,0" TextWrapping="Wrap" /></StackPanel></Border><ListView Grid.Row="1" ItemsSource="{Binding Results}" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" Margin="0,12,0,0"><ListView.View><GridView><GridViewColumn Header="STUN 服务" DisplayMemberBinding="{Binding Server}" Width="260" /><GridViewColumn Header="公网映射" DisplayMemberBinding="{Binding MappedEndpoint}" Width="180" /><GridViewColumn Header="延迟" DisplayMemberBinding="{Binding Latency}" Width="100" /><GridViewColumn Header="状态" DisplayMemberBinding="{Binding Status}" Width="140" /></GridView></ListView.View></ListView></Grid>
-        <Grid Grid.Row="3" Margin="0,12,0,0"><TextBlock x:Name="StatusText" Text="未开始" Style="{StaticResource MutedText}" /></Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="STUN / NAT 检测" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Text="国内节点优先，结合多节点映射与备用来源响应，综合判断 IPv4 NAT 类型。" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0" />
+        </StackPanel>
+        <Grid Grid.Row="1" Margin="0,16,0,14">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="STUN 节点 · 每行一个，也可用分号分隔，可自行编辑" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" />
+                <TextBox x:Name="ServersBox" Height="100" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="12,21,0,0">
+                <Button x:Name="StartButton" Content="检测" Style="{StaticResource PrimaryButton}" Click="Start_Click" />
+                <Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Margin="0,8,0,0" />
+            </StackPanel>
+        </Grid>
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="14" CornerRadius="4" Margin="0,0,12,12">
+            <StackPanel>
+                <TextBlock Text="综合判断" Style="{StaticResource MutedText}" FontSize="11" />
+                <TextBlock x:Name="NatTypeText" Text="未检测 / Not tested" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0" TextWrapping="Wrap" />
+                <TextBlock x:Name="SummaryText" Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="全锥形 / Full Cone · 受限锥形 / Restricted Cone&#10;端口受限锥形 / Port Restricted Cone · 对称型 / Symmetric" Style="{StaticResource MutedText}" FontSize="11" Margin="0,10,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+        <DataGrid Grid.Row="3" ItemsSource="{Binding Results}" IsReadOnly="True" AutoGenerateColumns="False" CanUserResizeRows="False">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="STUN 节点" Binding="{Binding Server}" Width="240" />
+                <DataGridTextColumn Header="公网映射" Binding="{Binding MappedEndpoint}" Width="165" />
+                <DataGridTextColumn Header="延迟" Binding="{Binding Latency}" Width="85" />
+                <DataGridTextColumn Header="检测详情" Binding="{Binding Detail}" Width="*" MinWidth="150" />
+            </DataGrid.Columns>
+        </DataGrid>
+        <TextBlock Grid.Row="4" x:Name="StatusText" Text="公共节点可用性因网络而异；证据不足时保留未确定结论。" TextWrapping="Wrap" Style="{StaticResource MutedText}" Margin="0,12,0,0" />
     </Grid>
 </Window>

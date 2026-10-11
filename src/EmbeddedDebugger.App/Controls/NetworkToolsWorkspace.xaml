@@ -8,29 +8,26 @@
         </Border>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <WrapPanel Margin="22" HorizontalAlignment="Left">
-                <Button Tag="Cidr" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⌘" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="CIDR 计算" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="网络地址、掩码、广播地址和可用主机范围" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Cidr" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="⌘" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="CIDR 计算" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="网络地址、掩码、广播地址和可用主机范围" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Ping" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="◌" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="Ping 探测" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="ICMPing 与 TCPing、包大小、次数、IPv4/IPv6 和网络出口" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Ping" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="◌" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="Ping / 路由追踪" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="ICMPing、TCPing 和逐跳路由追踪，支持地址族与网络出口" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Iperf3" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⚡" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="iperf3" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="启动客户端或服务端进行吞吐量测试" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Iperf3" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="⚡" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="iperf3" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="启动客户端或服务端进行吞吐量测试" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Discovery" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⌕" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="内网扫描" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="轮询 Ping 并结合 ARP 查找在线设备和主机名" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Discovery" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="⌕" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="内网扫描" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="轮询 Ping 并结合 ARP 查找在线设备和主机名" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Nat" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⇆" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="STUN / NAT" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="检测公网映射地址并判断 NAT 映射特征" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Nat" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="⇆" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="STUN / NAT" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="检测公网映射地址并综合判断 NAT 类型" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Upnp" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="▣" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="UPnP 发现" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="发现路由器、网关和局域网 UPnP 设备" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Upnp" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="▣" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="UPnP 发现" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="发现路由器、网关和局域网 UPnP 设备" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
-                <Button Tag="Dns" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⌁" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="DNS 查询" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="正向和反向解析，显示地址与主机名" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Trace" Click="OpenTool_Click" Width="238" Height="170" Margin="0,0,14,14" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="20"><TextBlock Text="⇢" FontSize="32" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="路由追踪" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,0" /><TextBlock Text="通过递增 TTL 查看逐跳路径和延迟" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
+                <Button Tag="Dns" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
+                    <StackPanel Margin="14"><TextBlock Text="⌁" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="DNS 查询" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="正向和反向解析，显示地址与主机名" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
                 </Button>
             </WrapPanel>
         </ScrollViewer>
