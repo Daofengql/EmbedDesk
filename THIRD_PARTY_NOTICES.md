@@ -13,6 +13,10 @@ Embedded Debugger's original code is licensed under GPL-3.0-only. Third-party co
 
 The [platform icon notice](src/EmbeddedDebugger.App/Assets/Platforms/NOTICE.md) records upstream revisions, rendering changes, and regeneration instructions. Logos identify the connected systems; trademarks belong to their respective owners.
 
+## Design references
+
+[ESPConnect](https://github.com/thelastoutpostworkshop/ESPConnect) is a separate MIT-licensed project whose information architecture inspired the ESP32 workspace grouping (device information, flashing, serial monitor, and session log). The ESP ROM transport in this repository is an independent C# implementation and does not bundle ESPConnect source, JavaScript, or assets.
+
 ## Application dependencies
 
 NuGet restores these dependencies during the build. Direct versions are recorded in [Directory.Packages.props](Directory.Packages.props); restored package metadata also records transitive dependencies and their licenses.

@@ -15,6 +15,7 @@ public partial class EmbeddedToolsWorkspace : UserControl
         Window? window = tool switch
         {
             "Firmware" => new FirmwareToolWindow((DataContext as MainWindowViewModel)?.SerialPortService ?? throw new InvalidOperationException("串口服务不可用。")),
+            "EspConnect" => new EspConnectToolWindow((DataContext as MainWindowViewModel)?.SerialPortService ?? throw new InvalidOperationException("串口服务不可用。")),
             "Image" => new ImageWriterWindow(),
             "Checksum" => new ByteToolWindow(checksum: true),
             "Codec" => new ByteToolWindow(),

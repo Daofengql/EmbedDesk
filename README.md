@@ -12,7 +12,7 @@
 - **远端状态**：Linux CPU、内存、负载、网络计数和运行时间；CPU、内存和负载以进度条显示。
 - **网络质量**：SSH / Telnet、RDP / VNC 和 TCP 客户端在连接成功后，每 10 秒通过 TCPing 测量目标服务端口的握手耗时；状态栏显示延迟和信号条，悬停查看最近 20 次探测的平均值、峰值、抖动和未成功比例。右键可切换 ICMP Ping 或关闭探测。UDP 使用 ICMP；TCP 服务端仅在有一个对端时探测该主机，UDP 服务端跟随最近对端。探测失败不改变会话连接状态。
 - **网络调试**：统一的暗色工作区，可收起和调整宽度的会话列表、独立收发区、常驻发送侧栏和流量计数。支持 TCP / UDP 客户端和服务端、HEX、循环发送、发送队列、自动重连及 HTTP 接收片段诊断；发送内容和任务按会话独立保存于内存。TCP 服务端向所有客户端广播，UDP 服务端向最近的对端回发数据。
-- **嵌入式工具**：独立页面提供固件分析、STM32 USART 系统 Bootloader 烧录、SD / USB 原始镜像写入、FAT32 格式化和 HEX / CRC 工具。固件分析支持 BIN、Intel HEX 与 Motorola S-Record，烧录前校验地址、记录校验和与 SHA-256；STM32 写入按块回读验证。镜像写入会核对目标磁盘身份、锁定并卸载卷，写完回读 SHA-256；格式化和写盘都要求二次确认。C51 和 CH347T 预留独立协议入口，按具体 MCU / SPI NAND 型号启用对应时序和 ECC / 坏块策略。
+- **嵌入式工具**：独立页面提供固件分析、STM32 USART 系统 Bootloader 烧录、ESPConnect 风格的 ESP32 / ESP8266 ROM 烧录与串口监视器、SD / USB 原始镜像写入、FAT32 格式化和 HEX / CRC 工具。固件分析支持 BIN、Intel HEX 与 Motorola S-Record，烧录前校验地址、记录校验和与 SHA-256；STM32 写入按块回读验证，ESP ROM 工具内置 SLIP 握手、地址烧录、目标区域擦除、进度和响应状态校验。镜像写入会核对目标磁盘身份、锁定并卸载卷，写完回读 SHA-256；格式化和写盘都要求二次确认。C51 和 CH347T 预留独立协议入口，按具体 MCU / SPI NAND 型号启用对应时序和 ECC / 坏块策略。
 
 网络工具中的 **DNS 查询**使用内置 UDP / TCP / DoH 客户端，不依赖 `nslookup` 或其他外部程序。可指定 DNS 服务器（IPv4 / IPv6）、端口、记录类型、IN / CH / HS 查询类、递归、超时及重试；支持 A、AAAA、CNAME、MX、TXT、NS、SOA、PTR、SRV、CAA、DNAME、NAPTR、ANY 和 `TYPE数字`（不支持 AXFR / IXFR 区域传送）。UDP 截断时自动转 TCP；结果保留 TTL、应答 / 权威 / 附加区段和响应码，可复制完整响应。自动模式对域名查询 A，对 IP 地址查询 PTR。 DoH 使用 RFC 8484 HTTPS POST，支持阿里、腾讯、Cloudflare、Google 预设和自定义 HTTPS URL，正常验证 HTTPS 证书；查询内容通过加密连接发送，DoH 服务域名仍由系统解析。
 

@@ -151,7 +151,7 @@ internal static class UtilityToolsChecks
             main.UpdateLayout();
             var embedded = Descendants<EmbeddedToolsWorkspace>(main).Single();
             var embeddedButtons = Descendants<Button>(embedded).Where(b => b.Tag is string).ToArray();
-            Require(embeddedButtons.Length == 7, "Embedded gallery owns firmware, media, adapter and data tools");
+            Require(embeddedButtons.Length == 8, "Embedded gallery owns ESP, firmware, media, adapter and data tools");
         }
         finally { main.Close(); }
     }
