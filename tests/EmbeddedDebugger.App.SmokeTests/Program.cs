@@ -53,6 +53,19 @@ internal sealed class SmokeApplication : Application
                 Shutdown(0);
                 return;
             }
+            if (e.Args.Contains("--network-tools-check"))
+            {
+                await NetworkToolsChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--live-nat-check"))
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                var report = await new NatDetector().DetectAsync(NatDetector.DefaultServers,
+                    new Progress<NatObservation>(o => Console.WriteLine($"{o.Server} | {o.MappedEndpoint} | {o.Detail}")), timeout.Token);
+                Console.WriteLine(report.Label + " · " + report.Evidence);
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--connection-layout-check"))
             {
                 await ConnectionLayoutChecks.RunAsync(viewModel.RemoteDebug!);

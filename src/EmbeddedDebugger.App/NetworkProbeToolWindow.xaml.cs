@@ -23,6 +23,7 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
     private int _total;
     private int _failed;
     private int _pingInterfaceIndex;
+    private bool _wasTrace;
 
     public NetworkProbeToolWindow(NetworkProbeToolMode mode = NetworkProbeToolMode.Icmp)
     {
@@ -58,12 +59,13 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
     private void Mode_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (TraceOptions is null) return;
-        if (IsTrace)
+        if (IsTrace && !_wasTrace)
         {
             _pingInterfaceIndex = InterfaceBox.SelectedIndex;
             InterfaceBox.SelectedIndex = 0;
         }
-        else InterfaceBox.SelectedIndex = _pingInterfaceIndex;
+        else if (!IsTrace && _wasTrace) InterfaceBox.SelectedIndex = _pingInterfaceIndex;
+        _wasTrace = IsTrace;
         UpdateControls();
         SummaryText.Text = "";
         StatusText.Text = "未开始";
@@ -75,7 +77,8 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
         StartButton.IsEnabled = idle; StopButton.IsEnabled = !idle;
         HostBox.IsEnabled = ModeBox.IsEnabled = FamilyBox.IsEnabled = idle;
         InterfaceBox.IsEnabled = idle && !IsTrace;
-        InterfaceLabel.Text = IsTrace ? "网络出口 · 路由追踪使用系统路由" : "网络出口";
+        InterfaceBox.Visibility = IsTrace ? Visibility.Collapsed : Visibility.Visible;
+        TraceRouteSource.Visibility = IsTrace ? Visibility.Visible : Visibility.Collapsed;
         PortBox.IsEnabled = idle && ModeBox.SelectedIndex == 1;
         PacketSizeBox.IsEnabled = idle && ModeBox.SelectedIndex != 1;
         CountBox.IsEnabled = IntervalBox.IsEnabled = MaxHopsBox.IsEnabled = TimeoutBox.IsEnabled = ResolveNamesBox.IsEnabled = idle;
@@ -214,5 +217,8 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private sealed record NetworkInterfaceChoice(string Name, string? Address);
+    private sealed record NetworkInterfaceChoice(string Name, string? Address)
+    {
+        public override string ToString() => Name;
+    }
 }

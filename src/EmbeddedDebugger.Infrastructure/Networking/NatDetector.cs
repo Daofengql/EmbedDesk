@@ -77,7 +77,9 @@ public sealed class NatDetector
                     var alternate = await ExchangeAsync(socket, reply.Other!, 0, null, token).ConfigureAwait(false);
                     if (alternate?.Mapped is not null && !alternate.Error)
                     {
-                        observations.Add((reply.Other!, alternate.Mapped, ((IPEndPoint)route.LocalEndPoint!).Address));
+                        using var alternateRoute = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                        alternateRoute.Connect(reply.Other!);
+                        observations.Add((reply.Other!, alternate.Mapped, ((IPEndPoint)alternateRoute.LocalEndPoint!).Address));
                         progress?.Report(new(server + " · 备用地址", alternate.Mapped.ToString(), "—", "备用映射成功"));
                     }
                 }
@@ -96,9 +98,11 @@ public sealed class NatDetector
         var prefix = $"有效目标 IP {distinctServers} 个 · 公网映射 {mappedCount} 个。";
         if (observations.Select(o => o.Local).Distinct().Count() > 1)
             return new(NatKind.Unknown, prefix + "节点经不同网络出口发送，映射不能直接比较。");
+        if (observations.Select(o => o.Mapped.Address).Distinct().Count() > 1)
+            return new(NatKind.Unknown, prefix + "出现多个公网出口，可能存在 VPN / 代理分流、多出口或 NAT 地址池。请选用同一出口的节点重新检测，不能仅凭公网 IP 不同判为对称型。");
         var localPort = ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
-        if (observations.All(o => o.Mapped.Address.Equals(o.Local)))
-            return new(NatKind.OpenInternet, prefix + "公网映射地址与本地出口地址一致，判断为无地址转换；入站过滤仍可能由防火墙限制。");
+        if (observations.All(o => o.Mapped.Address.Equals(o.Local) && o.Mapped.Port == localPort))
+            return new(NatKind.OpenInternet, prefix + "公网地址及端口与本地出口一致；入站过滤仍可能由防火墙限制。");
         if (distinctServers < 2)
             return new(NatKind.Unknown, prefix + "需要至少两个不同 IP 的可用节点比较映射。");
         // Recheck the initial destination to distinguish destination-dependent mapping
@@ -106,7 +110,7 @@ public sealed class NatDetector
         Reply? recheck;
         try { recheck = await ExchangeAsync(socket, first.Server, 0, null, token).ConfigureAwait(false); }
         catch (SocketException) { recheck = null; }
-        if (recheck?.Mapped is null || !recheck.Mapped.Equals(first.Mapped))
+        if (recheck?.Mapped is null || recheck.Error || !recheck.Mapped.Equals(first.Mapped))
             return new(NatKind.Unknown, prefix + "首节点复测失败或映射变化，请重试以排除网络切换与映射过期。");
         if (mappedCount > 1)
             return new(NatKind.Symmetric, prefix + "同一本地 UDP 端口对不同目标产生不同映射，首节点复测一致。");

@@ -20,7 +20,7 @@
             <Grid Margin="0,12,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions>
                 <StackPanel Margin="0,0,10,0"><TextBlock Text="地址族" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="FamilyBox"><ComboBoxItem Content="自动选择" /><ComboBoxItem Content="仅 IPv4" /><ComboBoxItem Content="仅 IPv6" /></ComboBox></StackPanel>
-                <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock x:Name="InterfaceLabel" Text="网络出口" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="InterfaceBox" DisplayMemberPath="Name" /></StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock x:Name="InterfaceLabel" Text="网络出口" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="InterfaceBox" DisplayMemberPath="Name" /><TextBox x:Name="TraceRouteSource" Text="自动选择（按系统路由）" IsReadOnly="True" Visibility="Collapsed" /></StackPanel>
                 <StackPanel Grid.Column="2"><TextBlock Text="包大小 / 字节" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><TextBox x:Name="PacketSizeBox" Text="32" /></StackPanel>
             </Grid>
             <StackPanel x:Name="PingOptions" Orientation="Horizontal" Margin="0,12,0,0">

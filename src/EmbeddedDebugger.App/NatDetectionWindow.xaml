@@ -12,14 +12,14 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="STUN 节点 · 每行一个，也可用分号分隔，可自行编辑" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" />
-                <TextBox x:Name="ServersBox" Height="100" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" />
+                <TextBox x:Name="ServersBox" Height="100" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" />
             </StackPanel>
             <StackPanel Grid.Column="1" Margin="12,21,0,0">
                 <Button x:Name="StartButton" Content="检测" Style="{StaticResource PrimaryButton}" Click="Start_Click" />
                 <Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Margin="0,8,0,0" />
             </StackPanel>
         </Grid>
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="14" CornerRadius="4" Margin="0,0,12,12">
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="14" CornerRadius="4" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Text="综合判断" Style="{StaticResource MutedText}" FontSize="11" />
                 <TextBlock x:Name="NatTypeText" Text="未检测 / Not tested" FontSize="18" FontWeight="SemiBold" Margin="0,5,0,0" TextWrapping="Wrap" />
