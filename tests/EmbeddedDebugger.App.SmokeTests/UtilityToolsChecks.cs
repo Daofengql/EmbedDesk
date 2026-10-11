@@ -131,6 +131,27 @@ internal static class UtilityToolsChecks
             var lastDigit = editor.GetRectFromCharacterIndex(editor.Text.Length - 1, true);
             Require(!lastDigit.IsEmpty && lastDigit.Right <= editor.ActualWidth - editor.Padding.Right + 1,
                 "Seven-digit custom baud rate fits completely before the dropdown arrow");
+            foreach (var box in Descendants<ComboBox>(serial).Where(b => b.ToolTip is string tip &&
+                new[] { "数据位", "校验位", "停止位", "流控" }.Contains(tip)))
+            {
+                var selected = box.SelectedIndex;
+                for (var index = 0; index < box.Items.Count; index++)
+                {
+                    box.SelectedIndex = index; main.UpdateLayout();
+                    var presenter = Descendants<ContentPresenter>(box).First(p => p.Name == "SelectionContent");
+                    var label = Descendants<TextBlock>(presenter).Single();
+                    var text = new FormattedText(label.Text, System.Globalization.CultureInfo.CurrentUICulture,
+                        label.FlowDirection, new Typeface(label.FontFamily, label.FontStyle, label.FontWeight, label.FontStretch),
+                        label.FontSize, label.Foreground, VisualTreeHelper.GetDpi(label).PixelsPerDip);
+                    var position = label.TransformToAncestor(box).Transform(new Point());
+                    Require(text.WidthIncludingTrailingWhitespace <= presenter.ActualWidth + .5 &&
+                        position.X + text.WidthIncludingTrailingWhitespace <= box.ActualWidth - 32 + .5,
+                        $"Serial {box.ToolTip} option {label.Text} fits before the arrow at minimum window size");
+                }
+                box.SelectedIndex = selected;
+            }
+            main.UpdateLayout();
+            await FileWorkspaceChecks.CaptureAsync(main, "embedded-debugger-serial-spacing-fixed.png");
             var tabs = Descendants<TabControl>(main).First(); tabs.SelectedIndex = 3;
             main.Width = 1340; main.Height = 940;
             await FileWorkspaceChecks.CaptureAsync(main, "embedded-debugger-tools-expanded.png");
@@ -152,6 +173,25 @@ internal static class UtilityToolsChecks
             var embedded = Descendants<EmbeddedToolsWorkspace>(main).Single();
             var embeddedButtons = Descendants<Button>(embedded).Where(b => b.Tag is string).ToArray();
             Require(embeddedButtons.Length == 8, "Embedded gallery owns ESP, firmware, media, adapter and data tools");
+            await FileWorkspaceChecks.CaptureAsync(main, "embedded-debugger-embedded-tools-small.png");
+            main.Width = 1340; main.Height = 940;
+            await FileWorkspaceChecks.CaptureAsync(main, "embedded-debugger-embedded-tools.png");
+            foreach (var button in embeddedButtons)
+            {
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var dialog = main.OwnedWindows.Cast<Window>().Single(w => w.IsVisible);
+                var expected = (string)button.Tag switch
+                {
+                    "EspConnect" => typeof(EspConnectToolWindow), "Firmware" => typeof(FirmwareToolWindow),
+                    "C51" => typeof(StcIspToolWindow), "Ch347" => typeof(Ch347ToolWindow),
+                    "Image" => typeof(ImageWriterWindow), "Logs" => typeof(TrafficRecordingWindow), _ => typeof(ByteToolWindow)
+                };
+                Require(dialog.GetType() == expected, $"Embedded gallery opens the actual {button.Tag} implementation");
+                dialog.Width = dialog.MinWidth; dialog.Height = dialog.MinHeight;
+                await FileWorkspaceChecks.CaptureAsync(dialog, $"embedded-debugger-{button.Tag}-small.png");
+                dialog.Close();
+                await Until(() => !dialog.IsVisible);
+            }
         }
         finally { main.Close(); }
     }

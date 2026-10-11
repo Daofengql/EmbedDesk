@@ -19,6 +19,13 @@ public interface ISerialPortService
     ISerialPortChannel CreateChannel(SerialPortSettings settings);
 }
 
+/// <summary>Optional live controls for bootloaders using a local serial adapter.</summary>
+public interface ISerialPortControl
+{
+    Task SetControlLinesAsync(bool dtrEnable, bool rtsEnable, CancellationToken cancellationToken = default);
+    Task SetBaudRateAsync(int baudRate, CancellationToken cancellationToken = default);
+}
+
 public interface IVirtualSerialMapper
 {
     Task<IReadOnlyList<string>> CreatePairAsync(string displayName, CancellationToken cancellationToken = default);

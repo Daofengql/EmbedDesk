@@ -53,6 +53,7 @@ public static class RemovableMediaService
         Task.Run(async () =>
         {
             if (target.SectorSize != 512) throw new NotSupportedException("FAT32 格式化目前仅支持 512 字节逻辑扇区。");
+            _ = MediaImageOperations.GetFat32Layout(target.Size, label); // Validate before locking/dismounting any volume.
             using var lease = await OpenExclusiveAsync(target, token).ConfigureAwait(false);
             await MediaImageOperations.FormatFat32Async(lease.Stream, target.Size, label, progress, token).ConfigureAwait(false);
             lease.Refresh();

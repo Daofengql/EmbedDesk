@@ -12,6 +12,24 @@ public sealed record MediaProgress(string Phase, long Completed, long Total)
 /// <summary>Stream algorithms shared by physical media and file-backed regression tests.</summary>
 public static class MediaImageOperations
 {
+    public sealed record Fat32Layout(uint PartitionStart, uint TotalSectors, uint ReservedSectors, byte SectorsPerCluster, uint FatSectors, uint Clusters);
+
+    public static Fat32Layout GetFat32Layout(long capacity, string label)
+    {
+        if (capacity < 256L * 1024 * 1024 || capacity > 2L * 1024 * 1024 * 1024 * 1024) throw new ArgumentException("FAT32 支持 256 MiB–2 TiB 介质。");
+        ArgumentNullException.ThrowIfNull(label);
+        if (label.Length > 11 || label.Any(c => c < 32 || c > 126 || "\"*+,./:;<=>?[\\]|".Contains(c))) throw new ArgumentException("卷标应为最多 11 位 ASCII 字母、数字或空格。");
+        const uint start = 2048, reserved = 32;
+        uint total = checked((uint)(capacity / 512 - start));
+        // FAT32 needs at least 65,525 data clusters. A 4 KiB cluster at 256 MiB
+        // falls below that boundary once the partition gap and FATs are removed.
+        byte spc = capacity <= 512L * 1024 * 1024 ? (byte)1 : capacity < 8L * 1024 * 1024 * 1024 ? (byte)8 : (byte)64;
+        uint fatSectors = checked((uint)(((ulong)(total - reserved) / spc + 2) * 4 + 511) / 512);
+        var clusters = (total - reserved - 2 * fatSectors) / spc;
+        if (clusters < 65525 || clusters >= 0x0FFFFFF5 || (ulong)fatSectors * 128 < clusters + 2) throw new ArgumentException("容量不适合 FAT32。");
+        return new(start, total, reserved, spc, fatSectors, clusters);
+    }
+
     public static async Task<string> WriteAndVerifyAsync(Stream source, Stream target, long capacity, int sectorSize,
         IProgress<MediaProgress>? progress = null, CancellationToken token = default)
     {
@@ -51,14 +69,10 @@ public static class MediaImageOperations
 
     public static async Task FormatFat32Async(Stream target, long capacity, string label, IProgress<MediaProgress>? progress = null, CancellationToken token = default)
     {
-        if (capacity < 256L * 1024 * 1024 || capacity > 2L * 1024 * 1024 * 1024 * 1024) throw new ArgumentException("FAT32 支持 256 MiB–2 TiB 介质。");
-        if (label.Length > 11 || label.Any(c => c < 32 || c > 126 || "\"*+,./:;<=>?[\\]|".Contains(c))) throw new ArgumentException("卷标应为最多 11 位 ASCII 字母、数字或空格。");
-        const uint start = 2048, reserved = 32;
-        uint total = checked((uint)(capacity / 512 - start));
-        byte spc = capacity < 8L * 1024 * 1024 * 1024 ? (byte)8 : (byte)64;
-        uint fatSectors = checked((uint)(((ulong)(total - reserved) / spc + 2) * 4 + 511) / 512);
-        var clusters = (total - reserved - 2 * fatSectors) / spc;
-        if (clusters < 65525 || clusters >= 0x0FFFFFF5) throw new ArgumentException("容量不适合 FAT32。");
+        var layout = GetFat32Layout(capacity, label);
+        var (start, total, reserved, spc, fatSectors, clusters) = layout;
+        if (!target.CanSeek || !target.CanRead || !target.CanWrite) throw new ArgumentException("需要可读写、可定位的数据流。");
+        token.ThrowIfCancellationRequested();
         var zero = new byte[1024 * 1024];
         var metadataLength = ((long)start + reserved + 2 * fatSectors + spc) * 512;
         target.Position = 0;

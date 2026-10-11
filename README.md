@@ -11,8 +11,8 @@
 - **文件工作区**：底部本地 / 远程目录、上传下载和右键操作；面板默认收起，可拖出为独立窗口并合并回来。小文件可双击下载到缓存，在标签页预览图片或编辑文本并保存到远端；当前默认预览上限为 5 MiB。
 - **远端状态**：Linux CPU、内存、负载、网络计数和运行时间；CPU、内存和负载以进度条显示。
 - **网络质量**：SSH / Telnet、RDP / VNC 和 TCP 客户端在连接成功后，每 10 秒通过 TCPing 测量目标服务端口的握手耗时；状态栏显示延迟和信号条，悬停查看最近 20 次探测的平均值、峰值、抖动和未成功比例。右键可切换 ICMP Ping 或关闭探测。UDP 使用 ICMP；TCP 服务端仅在有一个对端时探测该主机，UDP 服务端跟随最近对端。探测失败不改变会话连接状态。
-- **网络调试**：统一的暗色工作区，可收起和调整宽度的会话列表、独立收发区、常驻发送侧栏和流量计数。支持 TCP / UDP 客户端和服务端、HEX、循环发送、发送队列、自动重连及 HTTP 接收片段诊断；发送内容和任务按会话独立保存于内存。TCP 服务端向所有客户端广播，UDP 服务端向最近的对端回发数据。
-- **嵌入式工具**：独立页面提供固件分析、STM32 USART 系统 Bootloader 烧录、ESPConnect 风格的 ESP32 / ESP8266 ROM 烧录与串口监视器、SD / USB 原始镜像写入、FAT32 格式化和 HEX / CRC 工具。固件分析支持 BIN、Intel HEX 与 Motorola S-Record，烧录前校验地址、记录校验和与 SHA-256；STM32 写入按块回读验证，ESP ROM 工具内置 SLIP 握手、地址烧录、目标区域擦除、进度和响应状态校验。镜像写入会核对目标磁盘身份、锁定并卸载卷，写完回读 SHA-256；格式化和写盘都要求二次确认。C51 和 CH347T 预留独立协议入口，按具体 MCU / SPI NAND 型号启用对应时序和 ECC / 坏块策略。
+- **网络调试**：统一的暗色工作区，可收起和调整宽度的会话列表、独立收发区、常驻发送侧栏和流量计数。支持 TCP / UDP / HTTP 客户端和服务端、MQTT 客户端、HEX、循环发送、发送队列、自动重连及 HTTP 接收片段诊断；发送内容和任务按会话独立保存于内存。服务器会话可选择全部客户端或指定对端发送。
+- **嵌入式工具**：按芯片烧录、存储介质、数据与调试辅助集中分类。ESP、STM32、STC89 与 CH347T 均已连接实际协议实现，日志入口支持原始字节录制与定时回放；支持型号和边界见下表。
 
 网络工具中的 **DNS 查询**使用内置 UDP / TCP / DoH 客户端，不依赖 `nslookup` 或其他外部程序。可指定 DNS 服务器（IPv4 / IPv6）、端口、记录类型、IN / CH / HS 查询类、递归、超时及重试；支持 A、AAAA、CNAME、MX、TXT、NS、SOA、PTR、SRV、CAA、DNAME、NAPTR、ANY 和 `TYPE数字`（不支持 AXFR / IXFR 区域传送）。UDP 截断时自动转 TCP；结果保留 TTL、应答 / 权威 / 附加区段和响应码，可复制完整响应。自动模式对域名查询 A，对 IP 地址查询 PTR。 DoH 使用 RFC 8484 HTTPS POST，支持阿里、腾讯、Cloudflare、Google 预设和自定义 HTTPS URL，正常验证 HTTPS 证书；查询内容通过加密连接发送，DoH 服务域名仍由系统解析。
 
@@ -22,6 +22,28 @@
 - **HEX / 文本编解码**：HEX、Base64、UTF-8、ASCII、UTF-16 LE 互转，严格报告无效输入；可读取最多 1 MiB 的文件，不自动添加 BOM 或换行。
 - **端口扫描**：扫描单个主机的 TCP 端口列表 / 范围，IPv4 / IPv6、超时、并发与停止控制；列表和复制结果只包含开放端口及连接耗时，摘要保留扫描总数与开放数量，每次最多 1024 个端口。
 - **TLS 证书检查**：连接地址与 SNI 可分别设置，查看有效期、SAN、证书链、名称匹配、指纹、协议和 PEM；可选联网吊销检查。检查模式展示无效证书并标明原因，不发送业务数据；支持直接 TLS，不支持 STARTTLS。
+- **iperf3 吞吐测试**：按 ESnet iperf 3.17.1 的 BSD 许可移植 TCP 协议、独立定时区间统计和测试结束逻辑，使用 .NET 内置实现。支持客户端 / 持续监听服务端、正向 / 反向、IPv4 / IPv6、即时速率、两端统计和取消；数据停滞时仍显示速率，反向统计排除结束后的数据和控制消息等待时间。无需外部 EXE。范围为单流 `-P 1`、无预热 `-O 0`、1–3600 秒按时长不限速测试；不支持 UDP / SCTP、多流、认证、限速、CPU 或 TCP 重传统计。已通过独立报文 fixture 和本机正反向测试，标准外部服务端互通仍待验证，见 [协议说明](docs/third-party/iperf3-protocol.md)。
+
+## 烧录与录制能力
+
+| 工具 | 已实现 | 兼容范围与限制 |
+| --- | --- | --- |
+| ESP | 自动 BOOT/RESET、型号与 JEDEC 容量检测、多 BIN 地址烧录、MD5 / 回读校验、范围擦除、Flash 备份、ESP-IDF 分区表与 CSV、分区备份、串口监视器 | ESP8266、ESP32、S2/S3/C2/C3/C6/H2，标准 UART、256 KiB–16 MiB SPI Flash；纯 ROM 读取较慢；安全启动或 Flash 加密时禁止普通擦写；分区是原始备份，未实现文件系统浏览 / NVS 键值编辑 |
+| STM32 | AN3155 识别、BIN / HEX / S-Record 分析、全片擦除、写入后逐块回读、独立校验、备份、GO 执行 | 8E1 系统 USART Bootloader、主 Flash 地址 0x08000000–0x081FFFFF；容量由用户按芯片填写，使用目标上报的命令能力；不改读保护与选项字节 |
+| C51 / STC89 | 上电握手、MCU ID 识别、动态波特率、代码区擦除、分块写入、设备校验和确认、原选项保持、运行固件 | 仅原始 STC89 白名单型号；不通用于 STC8 / STC15 / STC12 / STC89A 或其他厂商 C51；旧协议无通用 Flash 回读，设备块校验不等同于回读 |
+| CH347T | Windows 原生 HID 通信、JEDEC 识别、NOR / NAND 备份、范围擦除、写入及回读；NAND 原始页+OOB、ECC 与坏块预检 | HID 1A86:55DC / MI_01；W25Q16/32/64/128（EF40xx）和 W25N01GV；保持物理块地址，含坏块的写入范围被拒绝，不做通用 UBI / 坏块重映射。详见 [协议说明](docs/ch347-spi-support.md) |
+| SD / USB | ISO / IMG / BIN 原始写入、SHA-256 回读；FAT32、磁盘身份与卷锁检查、确认 / 取消 / 关闭清理、阶段进度 | 原始镜像写盘，不转换 Windows 安装 ISO；FAT32 支持 256 MiB–2 TiB、512 B 逻辑扇区；取消不能回滚已写数据 |
+| 日志与回放 | 串口 / 网络 RX+TX 原始录制、历史导出、完整性校验、0.25–8× 定时回放；确认后可向选定串口重发 TX | `.edbgtrace`，64 MiB / 100,000 条上限，磁盘跟不上时显式停止；RX 不重发；历史导出受会话 4 MiB / 1,000 条缓存限制；网络录制可预览回放，重发目标为串口 |
+
+烧录工具支持取消和擦写二次确认，未知型号或越界范围不会开始擦写。协议测试使用模拟设备、固定报文向量与文件数据流，本轮没有对实际开发板、CH347T 或物理磁盘执行擦写；硬件互操作仍需实机验收。系统级虚拟 COM 仍需独立驱动，应用内远程串口不受此限制。
+
+工具回归测试（不会擦写物理硬件）：
+
+```powershell
+dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --firmware-check
+dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --recording-media-check
+dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-check
+```
 
 ## 开发运行
 
@@ -49,7 +71,7 @@ dotnet publish .\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj -c Release
 
 成品为 `artifacts\release\win-x64\EmbeddedDebugger.App.exe`。终端 HTML、JavaScript、样式及其许可文件已嵌入程序，运行时会解包到用户缓存，无需在 EXE 旁放置 `Assets` 目录。发布配置关闭裁剪以兼容 WPF、WebView2 和 SSH。
 
-Release 将完整的 BouncyCastle 程序集压缩存放，首次使用 SSH / VNC 时在内存中解压加载，不删减任何算法。当前精简 EXE 约 6.2 MiB；压缩只减少分发体积。依赖版本不变时，增量构建会复用压缩结果。排查依赖加载时可追加 `-p:PackManagedDependencies=false` 使用常规程序集。SDK 的 `EnableCompressionInSingleFile` 在精简版中仍保持关闭。
+Release 将完整的 BouncyCastle 程序集压缩存放，首次使用 SSH / VNC 时在内存中解压加载，不删减任何算法。精简 EXE 大小随功能版本变化；压缩只减少分发体积。依赖版本不变时，增量构建会复用压缩结果。排查依赖加载时可追加 `-p:PackManagedDependencies=false` 使用常规程序集。SDK 的 `EnableCompressionInSingleFile` 在精简版中仍保持关闭。
 
 如果需要向尚未安装 .NET 运行时的机器交付，可显式生成自带运行时的较大版本：
 

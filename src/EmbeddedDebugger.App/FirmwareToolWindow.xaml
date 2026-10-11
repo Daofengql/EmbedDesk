@@ -1,52 +1,31 @@
-<Window x:Class="EmbeddedDebugger.App.FirmwareToolWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="固件与烧录" Icon="Assets/embedded-debugger.ico"
-        Width="980" Height="760" MinWidth="820" MinHeight="620"
-        WindowStartupLocation="CenterOwner">
-    <Grid Margin="20">
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock Text="固件与烧录" FontSize="18" FontWeight="SemiBold" />
-            <TextBlock Text="内部解析 BIN、Intel HEX、S-Record，并通过串口执行 STM32 系统 Bootloader 流程。" Style="{StaticResource MutedText}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
-        </StackPanel>
-        <TabControl Grid.Row="1" Margin="0,16,0,0">
-            <TabItem Header="固件分析">
-                <Grid Margin="0,14,0,0">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <WrapPanel VerticalAlignment="Center">
-                        <Button x:Name="AnalyzeFileButton" Content="选择固件并分析" Click="AnalyzeFile_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0" />
-                        <Button x:Name="ClearFileButton" Content="清除" Click="ClearFile_Click" />
-                    </WrapPanel>
-                    <TextBox x:Name="AnalysisBox" Grid.Row="1" Margin="0,14,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" />
-                    <TextBlock Grid.Row="2" Text="支持 BIN、Intel HEX 和 Motorola S-Record。分析会校验记录长度和校验和，并计算 SHA-256。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,12,0,0" />
-                </Grid>
-            </TabItem>
-            <TabItem Header="串口烧录">
-                <Grid Margin="0,14,0,0">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="170" /><ColumnDefinition Width="150" /><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <StackPanel Margin="0,0,10,0"><TextBlock Text="烧录协议" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="ProtocolBox" SelectionChanged="Protocol_Changed" /></StackPanel>
-                        <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="串口" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="PortBox" /></StackPanel>
-                        <StackPanel Grid.Column="2" Margin="0,0,10,0"><TextBlock Text="波特率" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="BaudBox" IsEditable="True" /></StackPanel>
-                        <StackPanel Grid.Column="3" Margin="0,0,10,0"><TextBlock Text="BIN 起始地址" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><TextBox x:Name="AddressBox" Text="0x08000000" /></StackPanel>
-                        <Button x:Name="RefreshPortsButton" Grid.Column="4" Content="刷新串口" Click="RefreshPorts_Click" VerticalAlignment="Bottom" />
-                    </Grid>
-                    <WrapPanel Grid.Row="1" Margin="0,14,0,0">
-                        <Button x:Name="SelectFirmwareButton" Content="选择固件" Click="SelectFirmware_Click" Margin="0,0,8,0" />
-                        <Button x:Name="ConnectButton" Content="连接 Bootloader" Click="Connect_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" />
-                        <Button x:Name="EraseButton" Content="全片擦除" Click="Erase_Click" IsEnabled="False" Margin="0,0,8,0" />
-                        <Button x:Name="WriteButton" Content="写入固件" Click="Write_Click" IsEnabled="False" />
-                    </WrapPanel>
-                    <Border Grid.Row="2" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="10" Margin="0,14,0,0">
-                        <TextBlock x:Name="ProtocolHint" TextWrapping="Wrap" Style="{StaticResource MutedText}" />
-                    </Border>
-                    <TextBox x:Name="FlashLogBox" Grid.Row="3" Margin="0,12,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" />
-                    <StackPanel Grid.Row="4" Margin="0,12,0,0"><ProgressBar x:Name="FlashProgress" Height="7" Minimum="0" Maximum="100" /><TextBlock x:Name="FlashStatus" Text="未连接" Style="{StaticResource MutedText}" Margin="0,8,0,0" /></StackPanel>
-                </Grid>
-            </TabItem>
-        </TabControl>
-        <TextBlock Grid.Row="2" Text="C51 和 CH347T 需要按具体 MCU / SPI NAND 型号选择协议配置；当前先提供统一入口和固件校验，避免误用不兼容时序。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,14,0,0" />
-    </Grid>
-</Window>
+<Window x:Class="EmbeddedDebugger.App.FirmwareToolWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="STM32 烧录工具" Icon="Assets/embedded-debugger.ico" Width="1000" Height="780" MinWidth="820" MinHeight="680" WindowStartupLocation="CenterOwner">
+<Grid Margin="20"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<StackPanel><TextBlock Text="STM32 烧录工具" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="AN3155 USART · 固件分析、擦写、回读校验和备份" Style="{StaticResource MutedText}" Margin="0,6,0,0"/></StackPanel>
+<TabControl Grid.Row="1" Margin="0,16,0,0"><TabItem Header="串口烧录"><Grid Margin="0,14,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<WrapPanel>
+<StackPanel Width="240" Margin="0,0,10,8"><TextBlock Text="串口" Style="{StaticResource MutedText}"/><ComboBox x:Name="PortBox"/></StackPanel>
+<StackPanel Width="120" Margin="0,0,10,8"><TextBlock Text="波特率 · 8E1" Style="{StaticResource MutedText}"/><ComboBox x:Name="BaudBox" IsEditable="True"/></StackPanel>
+<StackPanel Width="150" Margin="0,0,10,8"><TextBlock Text="BIN / 备份 / 执行地址" Style="{StaticResource MutedText}"/><TextBox x:Name="AddressBox" Text="0x08000000"/></StackPanel>
+<StackPanel Width="140" Margin="0,0,10,8"><TextBlock Text="Flash 容量（KiB）" Style="{StaticResource MutedText}"/><TextBox x:Name="CapacityBox" Text="128"/></StackPanel>
+<Button x:Name="RefreshPortsButton" Content="刷新串口" Click="RefreshPorts_Click" VerticalAlignment="Bottom" Margin="0,0,0,8"/>
+</WrapPanel><WrapPanel Grid.Row="1" Margin="0,4,0,0">
+<Button x:Name="SelectFirmwareButton" Content="选择固件" Click="SelectFirmware_Click" Margin="0,0,8,8"/>
+<Button x:Name="ConnectButton" Content="连接 Bootloader" Click="Connect_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,8,8"/>
+<Button x:Name="DisconnectButton" Content="断开" Click="Disconnect_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="EraseButton" Content="全片擦除" Click="Erase_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="WriteButton" Content="擦除并写入" Click="Write_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="VerifyButton" Content="回读校验" Click="Verify_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="BackupButton" Content="备份 Flash" Click="Backup_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="RunButton" Content="执行固件" Click="Run_Click" IsEnabled="False" Margin="0,0,8,8"/>
+<Button x:Name="CancelButton" Content="取消" Click="Cancel_Click" IsEnabled="False" Margin="0,0,0,8"/>
+</WrapPanel>
+<Border Grid.Row="2" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="10" Margin="0,4,0,0"><TextBlock Text="连接前进入系统 Bootloader（按芯片手册设置 BOOT 并复位）。容量请按实际芯片填写；BIN 使用上方地址，HEX / S-Record 保留文件地址。写入先全片擦除，再逐块回读校验。备份从指定地址读取至所填 Flash 容量末尾。" TextWrapping="Wrap" Style="{StaticResource MutedText}"/></Border>
+<TextBox x:Name="FlashLogBox" Grid.Row="3" Margin="0,12,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+<StackPanel Grid.Row="4" Margin="0,12,0,0"><ProgressBar x:Name="FlashProgress" Height="7" Minimum="0" Maximum="100"/><TextBlock x:Name="FlashStatus" Text="未连接" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+</Grid></TabItem><TabItem Header="固件分析"><Grid Margin="0,14,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+<WrapPanel><Button x:Name="AnalyzeFileButton" Content="选择固件并分析" Click="SelectFirmware_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0"/><Button x:Name="ClearFileButton" Content="清除" Click="ClearFile_Click"/></WrapPanel>
+<TextBox x:Name="AnalysisBox" Grid.Row="1" Margin="0,14,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13"/>
+<TextBlock Grid.Row="2" Text="支持 BIN、Intel HEX 和 Motorola S-Record；校验记录长度、校验和、地址重叠，并计算 SHA-256。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+</Grid></TabItem></TabControl>
+<TextBlock Grid.Row="2" Text="执行固件使用 GO 命令；若程序依赖复位状态，请退出 BOOT 模式后硬件复位。取消或通讯出错后需要重新进入 Bootloader。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,14,0,0"/>
+</Grid></Window>

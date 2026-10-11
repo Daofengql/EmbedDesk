@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
+using EmbeddedDebugger.Infrastructure.Diagnostics;
 
 namespace EmbeddedDebugger.App.ViewModels;
 
@@ -29,7 +30,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         Number = number;
         OpenSelectedSerialCommand = new AsyncRelayCommand(OpenAsync, () => CanConfigure && SelectedSerialPort is { IsAvailable: true });
         CloseSelectedSerialCommand = new AsyncRelayCommand(() => CloseAsync(), () => IsOpen && !IsBusy);
-        SendSelectedSerialCommand = new AsyncRelayCommand(SendCurrentAsync, () => IsOpen && !IsBusy && !string.IsNullOrWhiteSpace(SerialSendText));
+        SendSelectedSerialCommand = new AsyncRelayCommand(SendCurrentAsync, () => IsOpen && !IsBusy && !_serialSending && !string.IsNullOrWhiteSpace(SerialSendText));
         AddQueueItemCommand = new RelayCommand(() => SerialSendQueue.Add(new SerialSendQueueItem { Payload = SerialSendText }));
         RemoveQueueItemCommand = new RelayCommand(() => { if (SelectedQueueItem is not null) SerialSendQueue.Remove(SelectedQueueItem); });
         RunQueueCommand = new AsyncRelayCommand(RunQueueAsync, () => IsOpen && !IsBusy && !_serialSending);
@@ -159,7 +160,9 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         IsBusy = true;
         if (OpenSelectedSerialCommand.ExecutionTask is { IsCompleted: false } opening) await opening;
         IsBusy = true;
-        await _jobTask;
+        try { await _jobTask; }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Owner.AddSerialLog($"{Title} 发送任务已结束: {ex.Message}", TransportEventKind.Error); }
         if (RunQueueCommand.ExecutionTask is { IsCompleted: false } queue) await queue;
         await _sendGate.WaitAsync();
         try { await ReleaseChannelAsync(); Status = status; }
@@ -214,7 +217,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
 
     private async Task SendCurrentAsync(CancellationToken token)
     {
-        if (!IsOpen || string.IsNullOrEmpty(SerialSendText)) return;
+        if (!IsOpen || _serialSending || string.IsNullOrEmpty(SerialSendText)) return;
         try { await SendBytesAsync(SendPayload.Encode(SerialSendText, SerialSendAsHex, SerialAppendCrLf), token); }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ReportSendFailure(ex); }
@@ -222,7 +225,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
 
     public async Task SendShellInputAsync(string text)
     {
-        if (!IsOpen) return;
+        if (!IsOpen || _serialSending) return;
         try { await SendBytesAsync(Encoding.UTF8.GetBytes(text), CancellationToken.None); }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ReportSendFailure(ex); }
@@ -232,6 +235,35 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
     {
         if (_serialSending || !IsOpen || IsBusy) return Task.CompletedTask;
         return _jobTask = RunJobAsync(loop: false, token);
+    }
+
+    public Task ReplayRecordingAsync(IReadOnlyList<TrafficRecord> records, double speed, CancellationToken token)
+    {
+        if (!IsOpen || IsBusy || _serialSending || SendSelectedSerialCommand.IsRunning)
+            throw new InvalidOperationException("请先连接串口，并停止循环、队列及其他发送任务。");
+        return _jobTask = ReplayCoreAsync(records, speed, token);
+    }
+
+    private async Task ReplayCoreAsync(IReadOnlyList<TrafficRecord> records, double speed, CancellationToken token)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        _jobCancellation = cancellation; _serialSending = true; NotifyState();
+        SerialJobStatus = "录制 TX 回放中";
+        try
+        {
+            await TrafficRecordingFile.ReplayAsync(records, speed, async (record, ct) =>
+            {
+                if (record.IsReceived) return;
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher is not null && !dispatcher.CheckAccess())
+                    await dispatcher.InvokeAsync(() => SendBytesAsync(record.Data, ct)).Task.Unwrap();
+                else await SendBytesAsync(record.Data, ct);
+            }, cancellation.Token);
+            SerialJobStatus = "录制 TX 回放完成";
+        }
+        catch (OperationCanceledException) { SerialJobStatus = "回放已停止"; throw; }
+        catch (Exception ex) { ReportSendFailure(ex); throw; }
+        finally { _jobCancellation = null; _serialSending = false; NotifyState(); }
     }
 
     private async Task RunJobAsync(bool loop, CancellationToken token)

@@ -1,67 +1,69 @@
 <Window x:Class="EmbeddedDebugger.App.EspConnectToolWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ESPConnect · ESP32 工具" Icon="Assets/embedded-debugger.ico"
-        Width="1120" Height="780" MinWidth="920" MinHeight="640"
-        WindowStartupLocation="CenterOwner">
+        Title="ESP 烧录工具" Icon="Assets/embedded-debugger.ico"
+        Width="1120" Height="840" MinWidth="960" MinHeight="720" WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton"><Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/></Border></ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="ProgressBar">
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ProgressBar"><Grid x:Name="PART_Track" Background="{StaticResource InputBrush}"><Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{StaticResource AccentBrush}"/></Grid></ControlTemplate></Setter.Value></Setter>
+        </Style>
+    </Window.Resources>
     <Grid Margin="18">
-        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-        <Grid>
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <StackPanel>
-                <StackPanel Orientation="Horizontal"><TextBlock Text="ESPConnect" FontSize="19" FontWeight="SemiBold" /><TextBlock Text="  ·  ESP32 / ESP8266" Style="{StaticResource MutedText}" FontSize="14" VerticalAlignment="Bottom" Margin="0,0,0,2" /></StackPanel>
-                <TextBlock Text="串口 ROM 连接、固件烧录和串口监视器" Style="{StaticResource MutedText}" FontSize="12" Margin="0,5,0,0" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
-                <TextBlock x:Name="ConnectionState" Text="未连接" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                <Button x:Name="ConnectButton" Content="连接" Style="{StaticResource PrimaryButton}" Click="Connect_Click" MinWidth="92" />
-            </StackPanel>
-        </Grid>
-
-        <Grid Grid.Row="1" Margin="0,16,0,0">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-            <Border Padding="10" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="230" /><ColumnDefinition Width="150" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <StackPanel Margin="0,0,10,0"><TextBlock Text="串口" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,4" /><ComboBox x:Name="PortBox" /></StackPanel>
-                    <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="ROM 波特率" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,4" /><ComboBox x:Name="BaudBox" IsEditable="True" /></StackPanel>
-                    <Button Grid.Column="2" Content="刷新" Click="RefreshPorts_Click" VerticalAlignment="Bottom" Margin="0,0,8,0" />
-                    <Button Grid.Column="3" x:Name="MonitorButton" Content="启动监视器" Click="Monitor_Click" VerticalAlignment="Bottom" IsEnabled="False" />
-                    <TextBlock Grid.Column="4" x:Name="DeviceSummary" Text="选择串口后连接到下载模式。" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="16,14,0,0" TextWrapping="Wrap" />
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="112"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <DockPanel><TextBlock Text="ESP 烧录工具" FontSize="19" FontWeight="SemiBold"/><TextBlock x:Name="ConnectionState" Text="未连接" Style="{StaticResource MutedText}" Margin="16,0,0,0" VerticalAlignment="Center"/></DockPanel>
+        <Border Grid.Row="1" Padding="10" Margin="0,14,0,12" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="110"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,10,0"><TextBlock Text="串口" Style="{StaticResource MutedText}"/><ComboBox x:Name="PortBox" Margin="0,4,0,0"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" Margin="0,0,22,0"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="下载波特率" Style="{StaticResource MutedText}"/><ComboBox x:Name="BaudBox" Margin="0,4,0,0"/></StackPanel>
+                <Button Grid.Column="2" x:Name="RefreshButton" Content="刷新" Click="RefreshPorts_Click" VerticalAlignment="Bottom" Margin="0,0,10,0"/>
+                <CheckBox Grid.Column="3" x:Name="AutoResetBox" Content="自动 BOOT / RESET" IsChecked="True" VerticalAlignment="Bottom" Margin="0,0,10,8" ToolTip="开发板通过 DTR/RTS 进入下载模式；裸芯片可取消后手动进入"/>
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Bottom"><Button x:Name="ConnectButton" Content="连接下载模式" Style="{StaticResource PrimaryButton}" Click="Connect_Click"/><Button x:Name="DisconnectButton" Content="断开" Click="Disconnect_Click" IsEnabled="False" Margin="8,0,0,0"/></StackPanel>
+            </Grid>
+        </Border>
+        <TabControl Grid.Row="2" x:Name="WorkTabs">
+            <TabItem Header="设备信息">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="12,18">
+                    <TextBlock x:Name="DeviceSummary" Text="连接后识别芯片、Flash 容量与安全状态。" FontSize="16" FontWeight="SemiBold"/>
+                    <Grid Margin="0,20,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock Text="芯片系列" Style="{StaticResource MutedText}"/><TextBlock Grid.Column="1" x:Name="ChipFamilyText" Text="—"/>
+                        <TextBlock Grid.Row="1" Text="ROM 型号标识" Style="{StaticResource MutedText}" Margin="0,14,0,0"/><TextBlock Grid.Row="1" Grid.Column="1" x:Name="ChipIdText" Text="—" Margin="0,14,0,0"/>
+                        <TextBlock Grid.Row="2" Text="Flash / JEDEC" Style="{StaticResource MutedText}" Margin="0,14,0,0"/><TextBlock Grid.Row="2" Grid.Column="1" x:Name="FlashInfoText" Text="—" Margin="0,14,0,0"/>
+                        <TextBlock Grid.Row="3" Text="安全状态" Style="{StaticResource MutedText}" Margin="0,14,0,0"/><TextBlock Grid.Row="3" Grid.Column="1" x:Name="SecurityText" Text="—" Margin="0,14,0,0" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Row="4" Text="串口" Style="{StaticResource MutedText}" Margin="0,14,0,0"/><TextBlock Grid.Row="4" Grid.Column="1" x:Name="PortText" Text="—" Margin="0,14,0,0"/>
+                    </Grid>
+                    <TextBlock x:Name="SupportedText" Margin="0,24,0,0" TextWrapping="Wrap" Style="{StaticResource MutedText}"/>
+                    <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Style="{StaticResource MutedText}" Text="使用板载 UART 下载模式。裸芯片需手动 BOOT / RESET。读取和备份使用 ROM 小块传输，速度低于烧录；Flash 加密或安全启动设备禁止普通擦写。"/>
+                    <Button x:Name="RebootButton" Content="复位运行固件" Click="Reboot_Click" HorizontalAlignment="Left" Margin="0,18,0,0" IsEnabled="False"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <TabItem Header="多文件烧录">
+                <Grid Margin="10,14"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,10"><StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button x:Name="AddFilesButton" Content="添加 .bin" Click="SelectFirmware_Click"/><Button x:Name="RemoveFileButton" Content="移除选中" Click="RemoveFirmware_Click" Margin="8,0,0,0"/></StackPanel><TextBlock Text="每个文件分别设置地址；写入前检查容量、扇区重叠和芯片型号。" TextWrapping="Wrap" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,12,0"/></DockPanel>
+                    <DataGrid Grid.Row="1" x:Name="FirmwareGrid" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" SelectionMode="Single" HeadersVisibility="Column" RowHeaderWidth="0" MinHeight="100"><DataGrid.Columns><DataGridTextColumn Header="烧录地址（可编辑）" Binding="{Binding Address, UpdateSourceTrigger=PropertyChanged}" Width="170"/><DataGridTextColumn Header="文件" Binding="{Binding Path}" IsReadOnly="True" Width="*"/><DataGridTextColumn Header="大小" Binding="{Binding SizeText}" IsReadOnly="True" Width="110"/></DataGrid.Columns></DataGrid>
+                    <Grid Grid.Row="2" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><CheckBox x:Name="RebootAfterBox" Content="校验成功后复位运行" IsChecked="False" VerticalAlignment="Center"/><Button Grid.Column="1" x:Name="VerifyButton" Content="仅校验" Click="Verify_Click" IsEnabled="False" Margin="0,0,8,0"/><Button Grid.Column="2" x:Name="FlashButton" Content="擦除、烧录并校验" Style="{StaticResource PrimaryButton}" Click="Flash_Click" IsEnabled="False"/></Grid>
                 </Grid>
-            </Border>
-
-            <TabControl Grid.Row="1" x:Name="WorkTabs" Margin="0,12,0,0">
-                <TabItem Header="设备信息">
-                    <Grid Margin="8,16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                        <TextBlock Text="设备信息" FontSize="16" FontWeight="SemiBold" />
-                        <Grid Grid.Row="1" Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                            <TextBlock Text="芯片系列" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="1" x:Name="ChipFamilyText" Text="—" />
-                            <TextBlock Grid.Row="1" Text="芯片 ID" Style="{StaticResource MutedText}" Margin="0,14,0,0" /><TextBlock Grid.Row="1" Grid.Column="1" x:Name="ChipIdText" Text="—" Margin="0,14,0,0" />
-                            <TextBlock Grid.Row="2" Text="串口" Style="{StaticResource MutedText}" Margin="0,14,0,0" /><TextBlock Grid.Row="2" Grid.Column="1" x:Name="PortText" Text="—" Margin="0,14,0,0" />
-                            <TextBlock Grid.Row="3" Text="说明" Style="{StaticResource MutedText}" Margin="0,14,0,0" /><TextBlock Grid.Row="3" Grid.Column="1" Text="ROM 协议直接在应用内实现，不需要旁边放置 esptool.exe 或其他外部程序。" TextWrapping="Wrap" Margin="0,14,0,0" />
-                        </Grid>
-                    </Grid>
-                </TabItem>
-                <TabItem Header="固件烧录">
-                    <Grid Margin="8,16"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="FirmwarePathBox" IsReadOnly="True" VerticalContentAlignment="Center" /><Button Grid.Column="1" Content="选择 .bin" Click="SelectFirmware_Click" Margin="10,0,0,0" /></Grid>
-                        <Grid Grid.Row="1" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="180" /><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel Margin="0,0,10,0"><TextBlock Text="烧录地址" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,4" /><TextBox x:Name="AddressBox" Text="0x10000" /></StackPanel><TextBlock Grid.Column="1" Text="FLASH_BEGIN 会擦除目标区域" Style="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,7" TextWrapping="Wrap" /></Grid>
-                        <TextBox Grid.Row="2" x:Name="FlashLogBox" Margin="0,14,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" />
-                        <Grid Grid.Row="3" Margin="0,14,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><ProgressBar x:Name="FlashProgress" Height="8" Minimum="0" Maximum="100" /><TextBlock x:Name="FlashStatus" Text="请先连接 ESP 并选择固件。" Style="{StaticResource MutedText}" Margin="0,8,0,0" /></StackPanel><Button Grid.Column="1" x:Name="FlashButton" Content="擦除并烧录" Style="{StaticResource PrimaryButton}" Click="Flash_Click" IsEnabled="False" Margin="14,0,0,0" /></Grid>
-                    </Grid>
-                </TabItem>
-                <TabItem Header="串口监视器">
-                    <Grid Margin="8,16"><Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                        <TextBox x:Name="MonitorBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" Background="#141A20" />
-                        <Grid Grid.Row="1" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="MonitorInput" Text="" /><Button Grid.Column="1" Content="发送" Click="SendMonitor_Click" Margin="10,0,0,0" IsEnabled="False" x:Name="SendMonitorButton" /><Button Grid.Column="2" Content="清空" Click="ClearMonitor_Click" Margin="8,0,0,0" /></Grid>
-                    </Grid>
-                </TabItem>
-                <TabItem Header="分区 / 文件系统">
-                    <StackPanel Margin="8,16"><TextBlock Text="分区和文件系统" FontSize="16" FontWeight="SemiBold" /><TextBlock Text="后续可在此加入分区表读取、SPIFFS、LittleFS、FATFS 浏览和 NVS 检查。当前先保留与 ESPConnect 一致的工作区入口，避免把文件系统写入误当作普通固件写入。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,14,0,0" /><Border Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="12" Margin="0,18,0,0"><TextBlock Text="提示：固件烧录已经支持地址、擦除、进度和 ROM 响应校验；文件系统工具将在分区探测完成后启用。" TextWrapping="Wrap" /></Border></StackPanel>
-                </TabItem>
-            </TabControl>
-        </Grid>
-        <TextBlock Grid.Row="2" x:Name="StatusText" Text="ESPConnect 工作区已就绪。" Style="{StaticResource MutedText}" Margin="0,12,0,0" TextTrimming="CharacterEllipsis" />
+            </TabItem>
+            <TabItem Header="Flash / 分区">
+                <Grid Margin="10,14"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <WrapPanel x:Name="RangePanel" Margin="0,0,0,14"><TextBlock Text="地址" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="ReadAddressBox" Text="0x0" Width="110"/><TextBlock Text="长度（字节）" VerticalAlignment="Center" Margin="14,0,8,0"/><TextBox x:Name="ReadLengthBox" Text="0x100000" Width="110"/><Button x:Name="BackupButton" Content="备份到文件" Click="Backup_Click" Margin="12,0,0,0" IsEnabled="False"/><Button x:Name="WholeFlashButton" Content="整个 Flash" Click="WholeFlash_Click" Margin="8,0,0,0" IsEnabled="False"/><Button x:Name="EraseButton" Content="擦除范围" Click="Erase_Click" Margin="8,0,0,0" IsEnabled="False"/></WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,0,0,10"><TextBlock Text="分区表地址" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBox x:Name="PartitionAddressBox" Text="0x8000" Width="110"/><Button x:Name="ReadPartitionsButton" Content="读取分区表" Click="ReadPartitions_Click" Margin="12,0,0,0" IsEnabled="False"/><Button x:Name="ImportPartitionsButton" Content="打开本地分区 .bin" Click="ImportPartitions_Click" Margin="8,0,0,0"/><Button x:Name="ExportPartitionsButton" Content="导出 CSV" Click="ExportPartitions_Click" Margin="8,0,0,0" IsEnabled="False"/></WrapPanel>
+                    <DataGrid Grid.Row="2" x:Name="PartitionGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" SelectionMode="Single" RowHeaderWidth="0"><DataGrid.Columns><DataGridTextColumn Header="名称" Binding="{Binding Label}" Width="*"/><DataGridTextColumn Header="类型" Binding="{Binding TypeText}" Width="170"/><DataGridTextColumn Header="起始地址" Binding="{Binding AddressText}" Width="120"/><DataGridTextColumn Header="大小" Binding="{Binding SizeText}" Width="190"/><DataGridTextColumn Header="标志" Binding="{Binding FlagsText}" Width="70"/></DataGrid.Columns></DataGrid>
+                    <DockPanel Grid.Row="3" Margin="0,12,0,0"><Button DockPanel.Dock="Right" x:Name="ExportPartitionButton" Content="备份选中分区" Click="ExportPartition_Click" IsEnabled="False"/><TextBlock Text="识别 ESP-IDF 分区及表 MD5；支持原始 NVS / 文件系统分区备份。ESP8266 没有统一分区表，可按地址备份。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,12,0"/></DockPanel>
+                </Grid>
+            </TabItem>
+            <TabItem Header="串口监视器">
+                <Grid Margin="10,14"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <WrapPanel Margin="0,0,0,10"><TextBlock Text="运行波特率" VerticalAlignment="Center" Margin="0,0,8,0"/><ComboBox x:Name="MonitorBaudBox" Width="115"/><Button x:Name="MonitorButton" Content="启动监视器" Click="Monitor_Click" Margin="12,0,0,0"/><TextBlock Text="切换后退出 ROM 操作；再次烧录需要重新连接下载模式。" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="12,0,0,0"/></WrapPanel>
+                    <TextBox Grid.Row="1" x:Name="MonitorBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13" Background="#141A20"/>
+                    <Grid Grid.Row="2" Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBox x:Name="MonitorInput"/><ComboBox Grid.Column="1" x:Name="LineEndingBox" Margin="8,0,0,0" SelectedIndex="2"><ComboBoxItem Content="无换行"/><ComboBoxItem Content="LF"/><ComboBoxItem Content="CRLF"/></ComboBox><Button Grid.Column="2" x:Name="SendMonitorButton" Content="发送" Click="SendMonitor_Click" Margin="8,0,0,0" IsEnabled="False"/><Button Grid.Column="3" Content="清空" Click="ClearMonitor_Click" Margin="8,0,0,0"/></Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <TextBox Grid.Row="3" x:Name="FlashLogBox" Margin="0,12,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+        <Grid Grid.Row="4" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><ProgressBar x:Name="FlashProgress" Height="7" Minimum="0" Maximum="100"/><TextBlock x:Name="StatusText" Text="ESP 工具已就绪。" Style="{StaticResource MutedText}" Margin="0,8,0,0" TextWrapping="Wrap"/></StackPanel><Button Grid.Column="1" x:Name="CancelButton" Content="取消" Click="Cancel_Click" IsEnabled="False" Margin="12,0,0,0"/></Grid>
     </Grid>
 </Window>

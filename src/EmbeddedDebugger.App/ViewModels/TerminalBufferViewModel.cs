@@ -17,9 +17,11 @@ public sealed class TerminalBufferViewModel : ObservableObject
     public long ReceivedBytes { get => _receivedBytes; private set => SetProperty(ref _receivedBytes, value); }
     public long SentBytes { get => _sentBytes; private set => SetProperty(ref _sentBytes, value); }
     public IRelayCommand ClearCommand { get; }
+    public event Action<DateTimeOffset, bool, ReadOnlyMemory<byte>>? TrafficCaptured;
 
     public void Add(DateTimeOffset timestamp, bool isReceived, ReadOnlyMemory<byte> data)
     {
+        TrafficCaptured?.Invoke(timestamp, isReceived, data);
         if (isReceived) ReceivedBytes += data.Length;
         else SentBytes += data.Length;
         // Keep byte counters exact while bounding retained data for every session.

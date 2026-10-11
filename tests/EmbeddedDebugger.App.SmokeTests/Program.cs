@@ -58,6 +58,11 @@ internal sealed class SmokeApplication : Application
                 await NetworkToolsChecks.RunAsync();
                 Shutdown(0); return;
             }
+            if (e.Args.Contains("--iperf3-check"))
+            {
+                await Iperf3Checks.RunAsync();
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--dns-query-check"))
             {
                 await DnsQueryChecks.RunAsync();
@@ -76,6 +81,26 @@ internal sealed class SmokeApplication : Application
             if (e.Args.Contains("--firmware-check"))
             {
                 await FirmwareChecks.RunAsync();
+                await Stm32Checks.RunAsync();
+                await StcChecks.RunAsync();
+                await Ch347Checks.RunAsync();
+                await EspChecks.RunAsync();
+                await RecordingMediaChecks.RunAsync(viewModel);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--ch347-check"))
+            {
+                await Ch347Checks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--esp-check"))
+            {
+                await EspChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--recording-media-check"))
+            {
+                await RecordingMediaChecks.RunAsync(viewModel);
                 Shutdown(0); return;
             }
             if (e.Args.Contains("--live-doh-check"))

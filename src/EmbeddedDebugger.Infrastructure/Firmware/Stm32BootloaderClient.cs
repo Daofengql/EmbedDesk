@@ -12,6 +12,10 @@ public sealed class Stm32BootloaderClient : IAsyncDisposable
     private byte[] _commands = [];
     private bool _disposed;
     public byte Version { get; private set; }
+    public bool SupportsErase => _commands.Contains((byte)0x44) || _commands.Contains((byte)0x43);
+    public bool SupportsRead => _commands.Contains((byte)0x11);
+    public bool SupportsWrite => _commands.Contains((byte)0x31) && SupportsRead;
+    public bool SupportsGo => _commands.Contains((byte)0x21);
 
     public Stm32BootloaderClient(ISerialPortChannel channel)
     {
@@ -25,6 +29,7 @@ public sealed class Stm32BootloaderClient : IAsyncDisposable
         await AckAsync(token).ConfigureAwait(false);
         await CommandAsync(0x00, token).ConfigureAwait(false);
         var count = await ReadAsync(token).ConfigureAwait(false);
+        if (count is < 1 or > 64) throw new InvalidDataException("Bootloader 命令列表长度无效。");
         Version = await ReadAsync(token).ConfigureAwait(false);
         _commands = new byte[count];
         for (var i = 0; i < count; i++) _commands[i] = await ReadAsync(token).ConfigureAwait(false);
@@ -66,6 +71,46 @@ public sealed class Stm32BootloaderClient : IAsyncDisposable
         }
     }
 
+    public static void ValidateFlashRange(uint address, long count)
+    {
+        if (count < 1 || address < 0x08000000 || (ulong)address + (ulong)count > 0x08200000)
+            throw new ArgumentOutOfRangeException(nameof(count), "范围必须位于 0x08000000–0x081FFFFF 主 Flash 内。");
+    }
+
+    public async Task GoAsync(uint address, CancellationToken token = default)
+    {
+        Require(0x21);
+        ValidateFlashRange(address, 4);
+        if ((address & 3) != 0) throw new ArgumentException("执行地址必须 4 字节对齐。", nameof(address));
+        await CommandAsync(0x21, token).ConfigureAwait(false);
+        await AddressAsync(address, token).ConfigureAwait(false);
+    }
+
+    public async Task ReadFlashAsync(uint address, int count, Stream destination, IProgress<long>? progress = null, CancellationToken token = default)
+    {
+        ValidateFlashRange(address, count);
+        if (!destination.CanWrite) throw new ArgumentException("备份目标不可写入。", nameof(destination));
+        for (var offset = 0; offset < count; offset += 256)
+        {
+            var chunk = await ReadMemoryAsync(address + (uint)offset, Math.Min(256, count - offset), token).ConfigureAwait(false);
+            await destination.WriteAsync(chunk, token).ConfigureAwait(false);
+            progress?.Report(offset + chunk.Length);
+        }
+    }
+
+    public async Task VerifyMemoryAsync(uint address, ReadOnlyMemory<byte> data, IProgress<long>? progress = null, CancellationToken token = default)
+    {
+        ValidateFlashRange(address, data.Length);
+        for (var offset = 0; offset < data.Length; offset += 256)
+        {
+            var count = Math.Min(256, data.Length - offset);
+            var actual = await ReadMemoryAsync(address + (uint)offset, count, token).ConfigureAwait(false);
+            if (!actual.AsSpan().SequenceEqual(data.Span.Slice(offset, count)))
+                throw new IOException($"Flash 回读校验失败：0x{address + (uint)offset:X8}。");
+            progress?.Report(offset + count);
+        }
+    }
+
     public async Task WriteMemoryAsync(uint address, ReadOnlyMemory<byte> data, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         Require(0x31); Require(0x11);
@@ -95,6 +140,7 @@ public sealed class Stm32BootloaderClient : IAsyncDisposable
     {
         Require(0x11);
         if (count is < 1 or > 256) throw new ArgumentOutOfRangeException(nameof(count));
+        ValidateFlashRange(address, count);
         await CommandAsync(0x11, token).ConfigureAwait(false);
         await AddressAsync(address, token).ConfigureAwait(false);
         await SendAsync(new byte[] { (byte)(count - 1), (byte)~(count - 1) }, token).ConfigureAwait(false);

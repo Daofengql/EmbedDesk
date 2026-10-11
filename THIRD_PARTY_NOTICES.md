@@ -17,6 +17,16 @@ The [platform icon notice](src/EmbeddedDebugger.App/Assets/Platforms/NOTICE.md) 
 
 [ESPConnect](https://github.com/thelastoutpostworkshop/ESPConnect) is a separate MIT-licensed project whose information architecture inspired the ESP32 workspace grouping (device information, flashing, serial monitor, and session log). The ESP ROM transport in this repository is an independent C# implementation and does not bundle ESPConnect source, JavaScript, or assets.
 
+## Embedded device protocol references
+
+- The ESP ROM UART implementation adapts protocol/register definitions and the ESP8266 erase-size workaround from [esptool v4.8.1](https://github.com/espressif/esptool/tree/v4.8.1), `esptool/loader.py` and `esptool/targets/*.py`: Copyright 2014–2023 Fredrik Ahlberg, Angus Gratton, Espressif Systems (Shanghai) CO LTD and other contributors. License: [GPL-2.0-or-later](docs/third-party/esptool-GPL-2.0-or-later.txt), compatible with this project's GPL-3.0 distribution. No esptool executable, Python package or binary loader stub is bundled.
+- STC89 framing, baud negotiation, code-area erase, programming and option preservation are adapted from [stcgal](https://github.com/grigorig/stcgal), `stcgal/protocols.py` and `stcgal/models.py`. Copyright © 2013–2015 Grigori Goronzy; [MIT notice](docs/third-party/stcgal-MIT.txt).
+- CH347 HID framing references [CH347-HIDAPI](https://github.com/i2cy/CH347-HIDAPI/tree/be30eef5aa1881d476bb63bdebfdff957655e183), copyright © 2022 Icy Cloud; [MIT notice](docs/third-party/CH347-HIDAPI-MIT.txt). SPI command fields were cross-checked against flashrom (GPL-2.0-or-later) and Winbond documentation. Exact revisions and implementation boundaries are recorded in [CH347 protocol support](docs/ch347-spi-support.md). No WCH DLL, flashrom or SNANDer executable is bundled.
+
+These notices and their local license files are also embedded in the application assembly under `ThirdParty/` for single-EXE distribution.
+
+The managed iperf3 TCP implementation adapts protocol, interval statistics and test lifecycle logic from [ESnet iperf 3.17.1](https://github.com/esnet/iperf/tree/3.17.1). Copyright (c) 2014–2024, The Regents of the University of California, through Lawrence Berkeley National Laboratory; [BSD-style upstream LICENSE](docs/third-party/iperf3-LICENSE.txt). The C# implementation uses .NET sockets and timers without an external executable or native library. Source mappings and interoperability limits are recorded in [iperf3 protocol notes](docs/third-party/iperf3-protocol.md).
+
 ## Application dependencies
 
 NuGet restores these dependencies during the build. Direct versions are recorded in [Directory.Packages.props](Directory.Packages.props); restored package metadata also records transitive dependencies and their licenses.

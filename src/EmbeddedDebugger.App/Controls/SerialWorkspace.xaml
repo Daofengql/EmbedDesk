@@ -8,7 +8,10 @@
                 <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" /></Border>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
-        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="Padding" Value="8,5,34,5" /></Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <!-- The shared selection template reserves the arrow; only the editable textbox needs its own inset. -->
+            <Style.Triggers><Trigger Property="IsEditable" Value="True"><Setter Property="Padding" Value="8,5,34,5" /></Trigger></Style.Triggers>
+        </Style>
         <local:SerialOptionLabelConverter x:Key="OptionLabel" />
         <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,7" /><Setter Property="FontSize" Value="12" /></Style>
         <Style x:Key="ModeButton" TargetType="RadioButton">

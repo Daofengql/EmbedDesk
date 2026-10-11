@@ -19,9 +19,9 @@ public partial class EmbeddedToolsWorkspace : UserControl
             "Image" => new ImageWriterWindow(),
             "Checksum" => new ByteToolWindow(checksum: true),
             "Codec" => new ByteToolWindow(),
-            "C51" => new FirmwareToolWindow((DataContext as MainWindowViewModel)?.SerialPortService ?? throw new InvalidOperationException("串口服务不可用。"), 1),
-            "Ch347" => new FirmwareToolWindow((DataContext as MainWindowViewModel)?.SerialPortService ?? throw new InvalidOperationException("串口服务不可用。"), 2),
-            "Logs" => new LogWindow { DataContext = DataContext },
+            "C51" => new StcIspToolWindow((DataContext as MainWindowViewModel)?.SerialPortService ?? throw new InvalidOperationException("串口服务不可用。")),
+            "Ch347" => new Ch347ToolWindow(),
+            "Logs" => new TrafficRecordingWindow((DataContext as MainWindowViewModel) ?? throw new InvalidOperationException("会话服务不可用。")),
             _ => null
         };
         if (window is null) return;

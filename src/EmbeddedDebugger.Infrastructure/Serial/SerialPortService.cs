@@ -53,7 +53,7 @@ public sealed class SerialPortService : ISerialPortService
     }
 }
 
-internal sealed class SerialPortChannel : ISerialPortChannel
+internal sealed class SerialPortChannel : ISerialPortChannel, ISerialPortControl
 {
     private readonly SerialPort _port;
     private int _disposed;
@@ -74,7 +74,7 @@ internal sealed class SerialPortChannel : ISerialPortChannel
     }
 
     public string Id { get; }
-    public SerialPortSettings Settings { get; }
+    public SerialPortSettings Settings { get; private set; }
     public bool IsOpen => _port.IsOpen;
     public event EventHandler<ReadOnlyMemory<byte>>? DataReceived;
 
@@ -119,6 +119,38 @@ internal sealed class SerialPortChannel : ISerialPortChannel
         }
         return Task.CompletedTask;
     }
+
+    public Task SetControlLinesAsync(bool dtrEnable, bool rtsEnable, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_port.IsOpen) throw new InvalidOperationException("Serial port is not open.");
+        if (_port.Handshake is Handshake.RequestToSend or Handshake.RequestToSendXOnXOff)
+            throw new InvalidOperationException("请先禁用硬件流控，再使用 Bootloader 复位控制。");
+        _port.DtrEnable = dtrEnable;
+        _port.RtsEnable = rtsEnable;
+        UpdateSettings();
+        return Task.CompletedTask;
+    }
+
+    public Task SetBaudRateAsync(int baudRate, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_port.IsOpen) throw new InvalidOperationException("Serial port is not open.");
+        if (baudRate is < 300 or > 4_000_000) throw new ArgumentOutOfRangeException(nameof(baudRate));
+        _port.BaudRate = baudRate;
+        UpdateSettings();
+        return Task.CompletedTask;
+    }
+
+    private void UpdateSettings() => Settings = new SerialPortSettings
+    {
+        PortName = Settings.PortName, BaudRate = _port.BaudRate,
+        DataBits = Settings.DataBits, Parity = Settings.Parity, StopBits = Settings.StopBits,
+        Handshake = Settings.Handshake, DtrEnable = _port.DtrEnable, RtsEnable = _port.RtsEnable,
+        ReadBufferSize = Settings.ReadBufferSize
+    };
 
     public async ValueTask DisposeAsync()
     {
