@@ -25,7 +25,7 @@ The [platform icon notice](src/EmbeddedDebugger.App/Assets/Platforms/NOTICE.md) 
 
 These notices and their local license files are also embedded in the application assembly under `ThirdParty/` for single-EXE distribution.
 
-The managed iperf3 TCP implementation adapts protocol, interval statistics and test lifecycle logic from [ESnet iperf 3.17.1](https://github.com/esnet/iperf/tree/3.17.1). Copyright (c) 2014–2024, The Regents of the University of California, through Lawrence Berkeley National Laboratory; [BSD-style upstream LICENSE](docs/third-party/iperf3-LICENSE.txt). The C# implementation uses .NET sockets and timers without an external executable or native library. Source mappings and interoperability limits are recorded in [iperf3 protocol notes](docs/third-party/iperf3-protocol.md).
+The managed iperf3 TCP/UDP implementation adapts protocol, pacing, interval statistics, UDP loss/jitter and test lifecycle logic from [ESnet iperf 3.17.1](https://github.com/esnet/iperf/tree/3.17.1). Copyright (c) 2014–2024, The Regents of the University of California, through Lawrence Berkeley National Laboratory; [BSD-style upstream LICENSE](docs/third-party/iperf3-LICENSE.txt). The C# implementation uses .NET sockets and timers without an external executable or native library. Source mappings and interoperability limits are recorded in [iperf3 protocol notes](docs/third-party/iperf3-protocol.md).
 
 ## Application dependencies
 

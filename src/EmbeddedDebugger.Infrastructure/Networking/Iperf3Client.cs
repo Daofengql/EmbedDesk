@@ -1,9 +1,8 @@
-// TCP protocol and measurement lifecycle adapted from ESnet iperf 3.17.1.
+// TCP/UDP protocol and measurement lifecycle adapted from ESnet iperf 3.17.1.
 // Copyright (c) 2014-2024, The Regents of the University of California,
 // through Lawrence Berkeley National Laboratory. All rights reserved.
 // BSD-style license: docs/third-party/iperf3-LICENSE.txt (also embedded in the app).
 using System.Buffers.Binary;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -12,28 +11,20 @@ using System.Text.Json;
 
 namespace EmbeddedDebugger.Infrastructure.Networking;
 
-public sealed record Iperf3Progress(double Seconds, long Bytes, double BitsPerSecond, bool Sender)
-{
-    public double IntervalSeconds { get; init; }
-    public long IntervalBytes { get; init; }
-}
-public sealed record Iperf3Result(long LocalBytes, long PeerBytes, double LocalSeconds, double PeerSeconds, bool LocalSender)
-{
-    public double LocalBitsPerSecond => LocalBytes * 8d / Math.Max(LocalSeconds, .001);
-    public double PeerBitsPerSecond => PeerBytes * 8d / Math.Max(PeerSeconds, .001);
-}
-
-/// <summary>Native iperf3 TCP control protocol: single stream, timed forward/reverse tests.</summary>
+/// <summary>Managed iperf3 TCP/UDP: single stream, timed forward/reverse tests.</summary>
 public static class Iperf3Client
 {
     private const byte TestStart = 1, TestRunning = 2, TestEnd = 4, Parameters = 9, CreateStreams = 10, ExchangeResults = 13, DisplayResults = 14, Done = 16;
     private const int CookieBytes = 37, MaxJsonBytes = 65536;
 
-    public static async Task<Iperf3Result> RunAsync(string host, int port, int seconds, bool reverse = false, IProgress<Iperf3Progress>? progress = null, CancellationToken token = default)
+    public static Task<Iperf3Result> RunAsync(string host, int port, int seconds, bool reverse = false, IProgress<Iperf3Progress>? progress = null, CancellationToken token = default)
+        => RunAsync(host, port, new Iperf3Options(seconds, reverse), progress, token);
+
+    public static async Task<Iperf3Result> RunAsync(string host, int port, Iperf3Options settings, IProgress<Iperf3Progress>? progress = null, CancellationToken token = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(host); ValidatePort(port);
-        if (seconds is < 1 or > 3600) throw new ArgumentOutOfRangeException(nameof(seconds), "时长应为 1–3600 秒。");
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token); lifetime.CancelAfter(TimeSpan.FromSeconds(seconds + 30));
+        settings.Validate(); var seconds = settings.Seconds; var reverse = settings.Reverse;
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token); lifetime.CancelAfter(TimeSpan.FromSeconds(15));
         try
         {
             using var control = NewClient(); await control.ConnectAsync(host, port, lifetime.Token).ConfigureAwait(false);
@@ -41,16 +32,25 @@ public static class Iperf3Client
             var cookie = Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("D") + "\0");
             await stream.WriteAsync(cookie, lifetime.Token).ConfigureAwait(false);
             await ExpectAsync(stream, Parameters, lifetime.Token).ConfigureAwait(false);
-            var parameters = new Dictionary<string, object> { ["tcp"] = true, ["omit"] = 0, ["time"] = seconds, ["num"] = 0, ["blockcount"] = 0, ["parallel"] = 1, ["len"] = 131072, ["client_version"] = "EmbeddedDebugger native iperf3" };
+            var parameters = new Dictionary<string, object> { [settings.Udp ? "udp" : "tcp"] = true, ["omit"] = 0, ["time"] = seconds, ["num"] = 0, ["blockcount"] = 0, ["parallel"] = 1, ["len"] = settings.EffectiveBlockBytes, ["bandwidth"] = settings.BitsPerSecond, ["client_version"] = "EmbeddedDebugger managed iperf3" };
             if (reverse) parameters["reverse"] = true;
+            if (settings.Udp && settings.UdpCounters64Bit) parameters["udp_counters_64bit"] = 1;
             await WriteJsonAsync(stream, parameters, lifetime.Token).ConfigureAwait(false);
             await ExpectAsync(stream, CreateStreams, lifetime.Token).ConfigureAwait(false);
-            using var data = NewClient(); await data.ConnectAsync(host, port, lifetime.Token).ConfigureAwait(false);
-            await data.GetStream().WriteAsync(cookie, lifetime.Token).ConfigureAwait(false);
+            var endpoint = NormalizeEndpoint((IPEndPoint)control.Client.RemoteEndPoint!);
+            using var data = new Socket(endpoint.AddressFamily, settings.Udp ? SocketType.Dgram : SocketType.Stream, settings.Udp ? ProtocolType.Udp : ProtocolType.Tcp);
+            await data.ConnectAsync(endpoint, lifetime.Token).ConfigureAwait(false);
+            if (settings.Udp) await ConnectUdpAsync(data, lifetime.Token).ConfigureAwait(false);
+            else
+            {
+                using var dataStream = new NetworkStream(data, ownsSocket: false);
+                await dataStream.WriteAsync(cookie, lifetime.Token).ConfigureAwait(false);
+            }
             await ExpectAsync(stream, TestStart, lifetime.Token).ConfigureAwait(false);
             await ExpectAsync(stream, TestRunning, lifetime.Token).ConfigureAwait(false);
-            using var pump = new DataPump(data.GetStream(), !reverse, 131072, progress, lifetime.Token);
-            var pumping = pump.RunAsync();
+            lifetime.CancelAfter(TimeSpan.FromSeconds(seconds + 15));
+            using var pump = new Iperf3DataPump(data, !reverse, settings, progress, lifetime.Token);
+            var pumping = Task.Run(pump.RunAsync);
             using var phase = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
             var response = ReadStateAsync(stream, phase.Token);
             var duration = Task.Delay(TimeSpan.FromSeconds(seconds), phase.Token);
@@ -75,12 +75,12 @@ public static class Iperf3Client
                 if (next != ExchangeResults) throw new InvalidDataException($"iperf3 结束阶段状态错误：{next}。");
                 if (reverse) { pump.Stop(); await pumping.ConfigureAwait(false); }
                 var local = pump.Snapshot;
-                await WriteJsonAsync(stream, Results(local.Bytes, local.Seconds, !reverse), lifetime.Token).ConfigureAwait(false);
+                await WriteJsonAsync(stream, Results(local, !reverse), lifetime.Token).ConfigureAwait(false);
                 using var peerJson = await ReadJsonAsync(stream, lifetime.Token).ConfigureAwait(false);
-                var peer = ParseResults(peerJson.RootElement, seconds);
+                var peer = ParseResults(peerJson.RootElement, seconds, settings.Udp);
                 await ExpectAsync(stream, DisplayResults, lifetime.Token).ConfigureAwait(false);
                 await WriteStateAsync(stream, Done, lifetime.Token).ConfigureAwait(false);
-                return new(local.Bytes, peer.Bytes, local.Seconds, peer.Seconds, !reverse);
+                return MakeResult(local, peer, !reverse);
             }
             finally
             {
@@ -91,7 +91,7 @@ public static class Iperf3Client
             }
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
-        { throw new TimeoutException("iperf3 握手或测试超时。请确认对端是 iperf3 服务端且防火墙允许 TCP 端口。"); }
+        { throw new TimeoutException("iperf3 握手或测试超时。请确认对端是 iperf3 服务端；UDP 测试需放行同一端口的 TCP 和 UDP。"); }
     }
 
     public static async Task RunServerAsync(IPAddress address, int port, IProgress<Iperf3Progress>? progress = null, IProgress<string>? messages = null, IProgress<Iperf3Result>? results = null, CancellationToken token = default)
@@ -102,7 +102,7 @@ public static class Iperf3Client
         listener.Start(8);
         try
         {
-            messages?.Report($"iperf3 TCP 服务端正在监听 {address}:{port}（单连接流，支持正向 / 反向）。");
+            messages?.Report($"iperf3 服务端正在监听 {address}:{port}（TCP / UDP 单流，正向 / 反向，参数由客户端指定）。");
             while (true)
             {
                 token.ThrowIfCancellationRequested();
@@ -135,14 +135,23 @@ public static class Iperf3Client
         using var parameters = await ReadJsonAsync(stream, ct).ConfigureAwait(false);
         var settings = ValidateParameters(parameters.RootElement);
         session.CancelAfter(TimeSpan.FromSeconds(settings.Seconds + 20));
-        await WriteStateAsync(stream, CreateStreams, ct).ConfigureAwait(false);
-        TcpClient? data = null;
+        TcpClient? tcpData = null;
+        Socket? udpData = null;
         try
         {
+            if (settings.Udp)
+            {
+                var localEndpoint = NormalizeEndpoint((IPEndPoint)control.Client.LocalEndPoint!);
+                udpData = new Socket(localEndpoint.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+                udpData.Bind(localEndpoint);
+            }
+            await WriteStateAsync(stream, CreateStreams, ct).ConfigureAwait(false);
             // A different cookie belongs to another client; deny it instead of mixing test traffic.
             using var acceptDeadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             acceptDeadline.CancelAfter(TimeSpan.FromSeconds(10));
-            while (data is null)
+            if (udpData is not null)
+                await AcceptUdpAsync(udpData, NormalizeEndpoint((IPEndPoint)control.Client.RemoteEndPoint!), acceptDeadline.Token).ConfigureAwait(false);
+            while (udpData is null && tcpData is null)
             {
                 var candidate = await listener.AcceptTcpClientAsync(acceptDeadline.Token).ConfigureAwait(false);
                 try
@@ -151,7 +160,7 @@ public static class Iperf3Client
                     var candidateCookie = new byte[CookieBytes]; await candidate.GetStream().ReadExactlyAsync(candidateCookie, readDeadline.Token).ConfigureAwait(false);
                     if (!CryptographicOperations.FixedTimeEquals(cookie, candidateCookie))
                     { await WriteStateAsync(candidate.GetStream(), 255, readDeadline.Token).ConfigureAwait(false); candidate.Dispose(); continue; }
-                    data = candidate;
+                    tcpData = candidate;
                 }
                 catch (OperationCanceledException) when (!acceptDeadline.IsCancellationRequested) { candidate.Dispose(); }
                 catch (IOException) when (!acceptDeadline.IsCancellationRequested) { candidate.Dispose(); }
@@ -159,41 +168,46 @@ public static class Iperf3Client
             }
             await WriteStateAsync(stream, TestStart, ct).ConfigureAwait(false);
             await WriteStateAsync(stream, TestRunning, ct).ConfigureAwait(false);
-            using var pump = new DataPump(data.GetStream(), settings.Reverse, settings.BlockBytes, progress, ct);
-            var pumping = pump.RunAsync();
+            using var pump = new Iperf3DataPump(udpData ?? tcpData!.Client, settings.Reverse, settings, progress, ct);
+            var pumping = Task.Run(pump.RunAsync);
             try { await ExpectAsync(stream, TestEnd, ct).ConfigureAwait(false); }
             finally { pump.CompleteMeasurement(); pump.Stop(); await pumping.ConfigureAwait(false); }
             var local = pump.Snapshot;
-            data.Dispose(); data = null;
+            tcpData?.Dispose(); tcpData = null; udpData?.Dispose(); udpData = null;
             await WriteStateAsync(stream, ExchangeResults, ct).ConfigureAwait(false);
             using var peerJson = await ReadJsonAsync(stream, ct).ConfigureAwait(false);
-            var peer = ParseResults(peerJson.RootElement, settings.Seconds);
-            await WriteJsonAsync(stream, Results(local.Bytes, local.Seconds, settings.Reverse), ct).ConfigureAwait(false);
+            var peer = ParseResults(peerJson.RootElement, settings.Seconds, settings.Udp);
+            await WriteJsonAsync(stream, Results(local, settings.Reverse), ct).ConfigureAwait(false);
             await WriteStateAsync(stream, DisplayResults, ct).ConfigureAwait(false);
             await ExpectAsync(stream, Done, ct).ConfigureAwait(false);
-            return new(local.Bytes, peer.Bytes, local.Seconds, peer.Seconds, settings.Reverse);
+            return MakeResult(local, peer, settings.Reverse);
         }
-        finally { data?.Dispose(); }
+        finally { tcpData?.Dispose(); udpData?.Dispose(); }
     }
 
-    public static (int Seconds, int BlockBytes, bool Reverse) ValidateParameters(JsonElement json)
+    public static Iperf3Options ValidateParameters(JsonElement json)
     {
-        if (json.ValueKind != JsonValueKind.Object || !Flag(json, "tcp") || Flag(json, "udp") || Flag(json, "sctp") || Flag(json, "bidirectional"))
-            throw new NotSupportedException("内置 iperf3 当前支持 TCP 单向 / 反向，不支持 UDP、SCTP 或双向同时测试。");
-        var seconds = Integer(json, "time", 10); var block = Integer(json, "len", 131072);
-        if (seconds is < 1 or > 3600 || block is < 1024 or > 1048576 || Integer(json, "parallel", 1) != 1 || Integer(json, "omit", 0) != 0 || Number(json, "num", 0) != 0 || Number(json, "blockcount", 0) != 0 || Number(json, "bandwidth", 0) != 0 || Number(json, "fqrate", 0) != 0 || Number(json, "MSS", 0) != 0 || Number(json, "window", 0) != 0)
-            throw new NotSupportedException("内置 iperf3 使用 -P 1、-O 0、按时间测试（1–3600秒）、TCP不限速；块大小支持 1KiB–1MiB。");
-        return (seconds, block, Flag(json, "reverse"));
+        if (json.ValueKind != JsonValueKind.Object || Flag(json, "tcp") == Flag(json, "udp") || Flag(json, "sctp") || Flag(json, "bidirectional"))
+            throw new NotSupportedException("内置 iperf3 支持 TCP / UDP 单向或反向，不支持 SCTP 或双向同时测试。");
+        if (Integer(json, "parallel", 1) != 1 || Integer(json, "omit", 0) != 0 || Number(json, "num", 0) != 0 || Number(json, "blockcount", 0) != 0 || Number(json, "fqrate", 0) != 0 || Number(json, "MSS", 0) != 0 || Number(json, "window", 0) != 0 || Number(json, "burst", 0) != 0)
+            throw new NotSupportedException("内置 iperf3 使用 -P 1、-O 0、按时间测试；支持 -u、-l、-b、-R，不支持分组突发或内核 socket 调优。");
+        var udp = Flag(json, "udp"); var bandwidth = Number(json, "bandwidth", udp ? 1_000_000 : 0);
+        if (bandwidth < 0 || bandwidth > 100_000_000_000 || Math.Truncate(bandwidth) != bandwidth)
+            throw new NotSupportedException("iperf3 带宽应为 0–100 Gbit/s 的整数 bit/s。");
+        var settings = new Iperf3Options(Integer(json, "time", 10), Flag(json, "reverse"), udp,
+            Integer(json, "len", udp ? 1200 : 131072), (long)bandwidth, Flag(json, "udp_counters_64bit"));
+        try { settings.Validate(); } catch (ArgumentOutOfRangeException ex) { throw new NotSupportedException(ex.Message, ex); }
+        return settings;
     }
-    private static bool Flag(JsonElement json, string key) => json.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.True;
+    private static bool Flag(JsonElement json, string key) => json.TryGetProperty(key, out var value) && (value.ValueKind == JsonValueKind.True || (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var n) && n != 0));
     private static int Integer(JsonElement json, string key, int fallback) => json.TryGetProperty(key, out var value) && value.TryGetInt32(out var n) ? n : json.TryGetProperty(key, out _) ? throw new InvalidDataException($"iperf3 {key} 参数格式无效。") : fallback;
     private static double Number(JsonElement json, string key, double fallback) => json.TryGetProperty(key, out var value) && value.TryGetDouble(out var n) && double.IsFinite(n) ? n : json.TryGetProperty(key, out _) ? throw new InvalidDataException($"iperf3 {key} 数值无效。") : fallback;
-    private static object Results(long bytes, double seconds, bool sender) => new
+    private static object Results(Iperf3Measurement result, bool sender) => new
     {
         cpu_util_total = 0, cpu_util_user = 0, cpu_util_system = 0, sender_has_retransmits = sender ? 0 : -1,
-        streams = new[] { new { id = 1, bytes, retransmits = -1, jitter = 0, errors = 0, omitted_errors = 0, packets = 0, omitted_packets = 0, start_time = 0, end_time = seconds } }
+        streams = new[] { new { id = 1, bytes = result.Bytes, retransmits = -1, jitter = (result.Udp?.JitterMilliseconds ?? 0) / 1000, errors = result.Udp?.LostPackets ?? 0, omitted_errors = 0, packets = result.Udp?.Packets ?? 0, omitted_packets = 0, out_of_order = result.Udp?.OutOfOrderPackets ?? 0, start_time = 0, end_time = result.Seconds } }
     };
-    private static (long Bytes, double Seconds) ParseResults(JsonElement json, double fallbackSeconds)
+    private static Iperf3Measurement ParseResults(JsonElement json, double fallbackSeconds, bool udp)
     {
         if (json.ValueKind != JsonValueKind.Object || !json.TryGetProperty("streams", out var streams) || streams.ValueKind != JsonValueKind.Array || streams.GetArrayLength() != 1)
             throw new InvalidDataException("iperf3 对端统计数据无效。");
@@ -204,7 +218,50 @@ public static class Iperf3Client
         var bytes = (long)count;
         var elapsed = Number(stream, "end_time", fallbackSeconds) - Number(stream, "start_time", 0);
         if (elapsed <= 0 || elapsed > 7200) throw new InvalidDataException("iperf3 对端统计时长无效。");
-        return (bytes, elapsed);
+        Iperf3UdpStatistics? statistics = null;
+        if (udp)
+        {
+            var packets = Count(stream, "packets"); var lost = Count(stream, "errors");
+            var jitter = Number(stream, "jitter", 0);
+            if (lost > packets || jitter < 0) throw new InvalidDataException("iperf3 对端 UDP 统计无效。");
+            statistics = new(packets, lost, stream.TryGetProperty("out_of_order", out _) ? Count(stream, "out_of_order") : null, jitter * 1000);
+        }
+        return new(bytes, elapsed, statistics);
+    }
+    private static long Count(JsonElement json, string key)
+    { var value = Number(json, key, 0); return value >= 0 && value < long.MaxValue && Math.Truncate(value) == value ? (long)value : throw new InvalidDataException($"iperf3 {key} 计数无效。"); }
+    private static Iperf3Result MakeResult(Iperf3Measurement local, Iperf3Measurement peer, bool sender)
+        => new(local.Bytes, peer.Bytes, local.Seconds, peer.Seconds, sender) { LocalUdp = local.Udp, PeerUdp = peer.Udp };
+    private static IPEndPoint NormalizeEndpoint(IPEndPoint endpoint) => endpoint.Address.IsIPv4MappedToIPv6 ? new(endpoint.Address.MapToIPv4(), endpoint.Port) : endpoint;
+
+    private static async Task ConnectUdpAsync(Socket socket, CancellationToken token)
+    {
+        // These four wire bytes are endian-independent in modern iperf3 (iperf.h).
+        await socket.SendAsync(new byte[] { 0x39, 0x38, 0x37, 0x36 }, SocketFlags.None, token).ConfigureAwait(false);
+        var buffer = new byte[65536];
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var count = await socket.ReceiveAsync(buffer, SocketFlags.None, token).ConfigureAwait(false);
+            if (count == 4 && (buffer.AsSpan(0, 4).SequenceEqual(new byte[] { 0x36, 0x37, 0x38, 0x39 }) ||
+                BinaryPrimitives.ReadUInt32LittleEndian(buffer) == 987654321 || BinaryPrimitives.ReadUInt32BigEndian(buffer) == 987654321)) return;
+        }
+        throw new InvalidDataException("iperf3 UDP 握手应答无效。");
+    }
+    private static async Task AcceptUdpAsync(Socket socket, IPEndPoint controlPeer, CancellationToken token)
+    {
+        var buffer = new byte[65536];
+        EndPoint any = new IPEndPoint(socket.AddressFamily == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, 0);
+        while (true)
+        {
+            var packet = await socket.ReceiveFromAsync(buffer, SocketFlags.None, any, token).ConfigureAwait(false);
+            var peer = (IPEndPoint)packet.RemoteEndPoint;
+            if (packet.ReceivedBytes != 4 || !peer.Address.MapToIPv6().Equals(controlPeer.Address.MapToIPv6())) continue;
+            var magic = BinaryPrimitives.ReadUInt32LittleEndian(buffer);
+            if (magic != 0x36373839 && magic != 123456789 && BinaryPrimitives.ReadUInt32BigEndian(buffer) != 123456789) continue;
+            socket.Connect(peer);
+            await socket.SendAsync(new byte[] { 0x36, 0x37, 0x38, 0x39 }, SocketFlags.None, token).ConfigureAwait(false);
+            return;
+        }
     }
     private static TcpClient NewClient() => new() { NoDelay = true };
     private static void ValidatePort(int port) { if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port)); }
@@ -237,89 +294,4 @@ public static class Iperf3Client
         return JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
     }
 
-    private sealed class DataPump : IDisposable
-    {
-        private readonly NetworkStream _stream;
-        private readonly bool _sender;
-        private readonly int _blockBytes;
-        private readonly IProgress<Iperf3Progress>? _progress;
-        private readonly CancellationTokenSource _stop;
-        private readonly Stopwatch _watch = new();
-        private readonly object _statisticsLock = new();
-        private long _bytes;
-        private long _previousBytes;
-        private double _previousSeconds;
-        private bool _measurementEnded;
-        public (long Bytes, double Seconds) Snapshot
-        { get { lock (_statisticsLock) return (_bytes, _watch.Elapsed.TotalSeconds); } }
-        public DataPump(NetworkStream stream, bool sender, int blockBytes, IProgress<Iperf3Progress>? progress, CancellationToken token)
-        { _stream = stream; _sender = sender; _blockBytes = blockBytes; _progress = progress; _stop = CancellationTokenSource.CreateLinkedTokenSource(token); }
-        public async Task RunAsync()
-        {
-            var buffer = new byte[_blockBytes]; if (_sender) RandomNumberGenerator.Fill(buffer);
-            _watch.Start();
-            using var reportsStop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-            var reports = ReportIntervalsAsync(reportsStop.Token);
-            try
-            {
-                while (!_stop.IsCancellationRequested)
-                {
-                    int transferred;
-                    if (_sender) { await _stream.WriteAsync(buffer, _stop.Token).ConfigureAwait(false); transferred = buffer.Length; }
-                    else { transferred = await _stream.ReadAsync(buffer, _stop.Token).ConfigureAwait(false); if (transferred == 0) break; }
-                    lock (_statisticsLock)
-                    {
-                        // iperf_tcp_recv counts only data received in TEST_RUNNING.
-                        if (!_measurementEnded) _bytes += transferred;
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-            catch (IOException) when (_stop.IsCancellationRequested) { }
-            finally
-            {
-                CompleteMeasurement();
-                reportsStop.Cancel();
-                await reports.ConfigureAwait(false);
-            }
-        }
-        private async Task ReportIntervalsAsync(CancellationToken token)
-        {
-            // Like iperf's stats timer, this must run even when socket I/O stalls.
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-            try
-            {
-                while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false))
-                {
-                    lock (_statisticsLock)
-                        if (!_measurementEnded) ReportInterval();
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        }
-        private void ReportInterval()
-        {
-            // Port of iperf_stats_callback's byte delta / monotonic interval duration.
-            var seconds = _watch.Elapsed.TotalSeconds;
-            var duration = seconds - _previousSeconds;
-            if (duration <= 0) return;
-            var transferred = _bytes - _previousBytes;
-            _progress?.Report(new(seconds, _bytes, transferred * 8d / duration, _sender)
-                { IntervalSeconds = duration, IntervalBytes = transferred });
-            _previousBytes = _bytes;
-            _previousSeconds = seconds;
-        }
-        public void CompleteMeasurement()
-        {
-            lock (_statisticsLock)
-            {
-                if (_measurementEnded) return;
-                _measurementEnded = true;
-                _watch.Stop();
-                ReportInterval();
-            }
-        }
-        public void Stop() => _stop.Cancel();
-        public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
-    }
 }

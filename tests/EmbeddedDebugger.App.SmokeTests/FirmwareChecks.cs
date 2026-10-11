@@ -38,6 +38,9 @@ internal static class FirmwareChecks
             await using var output = new MemoryStream(); output.SetLength(512);
             var expectedHash = await MediaImageOperations.WriteAndVerifyAsync(input, output, 512, 512);
             Require(expectedHash == Convert.ToHexString(SHA256.HashData([1, 2, 3, 4, 5])) && output.ToArray()[5..512].All(value => value == 0), "Image write padding and readback verification");
+            var probeRoot = Path.Combine(root, "probe"); Directory.CreateDirectory(probeRoot);
+            await Stm32ProbeFlashService.CopyFirmwareAsync(probeRoot, binary);
+            Require(File.ReadAllBytes(Path.Combine(probeRoot, "image.bin")).SequenceEqual(new byte[] { 1, 2, 3, 4 }), "ST-LINK / DAPLink drag-drop copy uses the original firmware bytes");
             var firmwareWindow = new FirmwareToolWindow(new FakeSerialService()); firmwareWindow.Show(); await Task.Delay(40); firmwareWindow.Close();
             var imageWindow = new ImageWriterWindow(); imageWindow.Show(); await Task.Delay(40); imageWindow.Close();
             Require(true, "Embedded firmware and image tool windows initialize");

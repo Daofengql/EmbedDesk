@@ -25,6 +25,6 @@ flowchart LR
 
 - `ITransportService`：可替换为 TLS、WebSocket 或测试用内存传输。
 - `IHttpDiagnosticsParser`：可替换为支持分块传输、WebSocket 握手和更严格 RFC 校验的解析器。
-- `ISerialPortService`：可替换为厂商 SDK 或虚拟串口实现。
+- `ISerialPortService`：可替换为厂商 SDK 或虚拟串口实现；Windows 实现同时通过可选的 `ISerialPortChangeNotifier` 发布设备插拔事件，界面合并事件后自动重新扫描串口。
 - `IVirtualSerialMapper`：接入 com0com、USB 虚拟串口、远程串口驱动等。
-- 固件工具将镜像解析和设备协议分开：`FirmwareImageAnalyzer` / `FirmwareImageLoader` 负责记录校验、地址段和 SHA-256；`Stm32BootloaderClient` 只依赖 `ISerialPortChannel`，可以在真实串口、网络串口和内存测试通道上复用。C51、CH347T 适配器必须按具体芯片型号提供协议实现，不能把不同 ISP / SPI NAND 时序混用。
+- 固件工具将镜像解析和设备协议分开：`FirmwareImageAnalyzer` / `FirmwareImageLoader` 负责记录校验、地址段和 SHA-256；`Stm32BootloaderClient` 只依赖 `ISerialPortChannel`，可以在真实串口、网络串口和内存测试通道上复用。STM32 窗口的 DTR/RTS 序列通过可选的 `ISerialPortControl` 应用；使用同一 COM 的串口调试标签会在连接前确认并释放。`Stm32ProbeFlashService` 只处理 ST-LINK / DAPLink 暴露的 USB 大容量存储拖拽接口，SWD 擦写、校验和复位仍由探针固件负责。C51、CH347T 适配器必须按具体芯片型号提供协议实现，不能把不同 ISP / SPI NAND 时序混用。

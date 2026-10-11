@@ -5,7 +5,6 @@
 <StackPanel Width="280" Margin="0,0,12,8"><TextBlock Text="物理串口 · RX/TX 交叉连接并共地" Style="{StaticResource MutedText}"/><ComboBox x:Name="PortBox"/></StackPanel>
 <StackPanel Width="130" Margin="0,0,12,8"><TextBlock Text="握手波特率 · 8N1" Style="{StaticResource MutedText}"/><ComboBox x:Name="HandshakeBaudBox"/></StackPanel>
 <StackPanel Width="140" Margin="0,0,12,8"><TextBlock Text="传输波特率" Style="{StaticResource MutedText}"/><ComboBox x:Name="TransferBaudBox"/></StackPanel>
-<Button x:Name="RefreshButton" Content="刷新串口" Click="Refresh_Click" VerticalAlignment="Bottom" Margin="0,0,0,8"/>
 </WrapPanel>
 <WrapPanel Grid.Row="2" Margin="0,4,0,0">
 <Button x:Name="ConnectButton" Content="连接 / 等待上电" Click="Connect_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,8,8"/>

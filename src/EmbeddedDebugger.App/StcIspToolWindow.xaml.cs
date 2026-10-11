@@ -5,6 +5,7 @@ using System.Windows;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
 using EmbeddedDebugger.Infrastructure.Firmware;
+using EmbeddedDebugger.App.ViewModels;
 using Microsoft.Win32;
 
 namespace EmbeddedDebugger.App;
@@ -12,6 +13,8 @@ namespace EmbeddedDebugger.App;
 public partial class StcIspToolWindow : Window
 {
     private readonly ISerialPortService _serial;
+    private readonly MainWindowViewModel? _workspace;
+    private readonly SerialPortAutoRefresh _serialPortAutoRefresh;
     private ISerialPortChannel? _channel;
     private Stc89BootloaderClient? _client;
     private string? _path;
@@ -19,18 +22,18 @@ public partial class StcIspToolWindow : Window
     private bool _closed;
     private bool _closeRequested;
 
-    public StcIspToolWindow(ISerialPortService serial)
+    public StcIspToolWindow(ISerialPortService serial, MainWindowViewModel? workspace = null)
     {
-        InitializeComponent(); _serial = serial;
+        InitializeComponent(); _serial = serial; _workspace = workspace;
+        _serialPortAutoRefresh = new SerialPortAutoRefresh(_serial, Dispatcher, RefreshAsync);
         HandshakeBaudBox.ItemsSource = new[] { 1200, 2400, 4800, 9600 }; HandshakeBaudBox.SelectedItem = 2400;
         TransferBaudBox.ItemsSource = new[] { 2400, 4800, 9600, 19200, 38400, 57600, 115200 }; TransferBaudBox.SelectedItem = 19200;
         WindowTheme.ApplyDarkTitleBar(this);
         Loaded += async (_, _) => await RefreshAsync();
         Closing += OnClosing;
-        Closed += async (_, _) => { _closed = true; await DisconnectAsync(); };
+        Closed += async (_, _) => { _closed = true; _serialPortAutoRefresh.Dispose(); await DisconnectAsync(); };
         UpdateState();
     }
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
     private async Task RefreshAsync()
     {
         if (_operation is not null || _client is not null) return;
@@ -48,6 +51,8 @@ public partial class StcIspToolWindow : Window
     {
         if (_operation is not null || _client is not null || PortBox.SelectedItem is not SerialPortDescriptor port) return;
         var handshakeBaud = (int)HandshakeBaudBox.SelectedItem; var transferBaud = (int)TransferBaudBox.SelectedItem;
+        if (!await SerialPortUsePrompt.EnsureExclusiveAsync(this, _workspace, port.PortName))
+        { Status.Text = "未释放调试串口，下载连接已取消。"; return; }
         await OperateAsync(async token =>
         {
             _channel = _serial.CreateChannel(new SerialPortSettings { PortName = port.PortName, BaudRate = handshakeBaud, DataBits = 8, Parity = Parity.None, StopBits = StopBits.One, Handshake = Handshake.None });
@@ -120,7 +125,7 @@ public partial class StcIspToolWindow : Window
     {
         if (_closed) return;
         var idle = _operation is null; var connected = _client?.Info is not null;
-        PortBox.IsEnabled = HandshakeBaudBox.IsEnabled = TransferBaudBox.IsEnabled = RefreshButton.IsEnabled = ConnectButton.IsEnabled = idle && !connected;
+        PortBox.IsEnabled = HandshakeBaudBox.IsEnabled = TransferBaudBox.IsEnabled = ConnectButton.IsEnabled = idle && !connected;
         ChooseButton.IsEnabled = idle; DisconnectButton.IsEnabled = EraseButton.IsEnabled = RunButton.IsEnabled = idle && connected;
         WriteButton.IsEnabled = idle && connected && _path is not null; CancelButton.IsEnabled = !idle;
     }

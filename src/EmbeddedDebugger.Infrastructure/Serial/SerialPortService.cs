@@ -6,8 +6,32 @@ using EmbeddedDebugger.Core.Models;
 
 namespace EmbeddedDebugger.Infrastructure.Serial;
 
-public sealed class SerialPortService : ISerialPortService
+public sealed class SerialPortService : ISerialPortService, ISerialPortChangeNotifier, IDisposable
 {
+    private readonly ManagementEventWatcher? _deviceWatcher;
+    private int _disposed;
+
+    public event EventHandler? PortsChanged;
+
+    public SerialPortService()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            // Win32_DeviceChangeEvent reports both insertion (2) and removal (3).
+            // The app debounces these notifications before performing a complete scan.
+            _deviceWatcher = new ManagementEventWatcher(
+                new WqlEventQuery("SELECT * FROM Win32_DeviceChangeEvent WHERE EventType = 2 OR EventType = 3"));
+            _deviceWatcher.EventArrived += OnDeviceChanged;
+            _deviceWatcher.Start();
+        }
+        catch (Exception ex) when (ex is ManagementException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            // Device notifications are optional. Scanning still works when WMI is unavailable.
+            _deviceWatcher?.Dispose();
+        }
+    }
+
     public Task<IReadOnlyList<SerialPortDescriptor>> ScanAsync(CancellationToken cancellationToken = default)
     {
         return Task.Run<IReadOnlyList<SerialPortDescriptor>>(() =>
@@ -50,6 +74,22 @@ public sealed class SerialPortService : ISerialPortService
     {
         ArgumentNullException.ThrowIfNull(settings);
         return new SerialPortChannel(settings);
+    }
+
+    private void OnDeviceChanged(object? sender, EventArrivedEventArgs e)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        try { PortsChanged?.Invoke(this, EventArgs.Empty); }
+        catch { /* Subscribers schedule their own UI work; one handler must not stop WMI delivery. */ }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        if (_deviceWatcher is null) return;
+        try { _deviceWatcher.EventArrived -= OnDeviceChanged; } catch { }
+        try { _deviceWatcher.Stop(); } catch { }
+        _deviceWatcher.Dispose();
     }
 }
 

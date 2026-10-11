@@ -19,7 +19,6 @@
             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="110"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Margin="0,0,10,0"><TextBlock Text="串口" Style="{StaticResource MutedText}"/><ComboBox x:Name="PortBox" Margin="0,4,0,0"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" Margin="0,0,22,0"/></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="下载波特率" Style="{StaticResource MutedText}"/><ComboBox x:Name="BaudBox" Margin="0,4,0,0"/></StackPanel>
-                <Button Grid.Column="2" x:Name="RefreshButton" Content="刷新" Click="RefreshPorts_Click" VerticalAlignment="Bottom" Margin="0,0,10,0"/>
                 <CheckBox Grid.Column="3" x:Name="AutoResetBox" Content="自动 BOOT / RESET" IsChecked="True" VerticalAlignment="Bottom" Margin="0,0,10,8" ToolTip="开发板通过 DTR/RTS 进入下载模式；裸芯片可取消后手动进入"/>
                 <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Bottom"><Button x:Name="ConnectButton" Content="连接下载模式" Style="{StaticResource PrimaryButton}" Click="Connect_Click"/><Button x:Name="DisconnectButton" Content="断开" Click="Disconnect_Click" IsEnabled="False" Margin="8,0,0,0"/></StackPanel>
             </Grid>

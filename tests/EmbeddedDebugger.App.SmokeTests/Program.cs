@@ -61,6 +61,12 @@ internal sealed class SmokeApplication : Application
             if (e.Args.Contains("--iperf3-check"))
             {
                 await Iperf3Checks.RunAsync();
+                await Iperf3UiChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Length == 3 && e.Args[0] == "--iperf3-peer-check")
+            {
+                await Iperf3Checks.CheckPeerAsync(e.Args[1], int.Parse(e.Args[2]));
                 Shutdown(0); return;
             }
             if (e.Args.Contains("--dns-query-check"))

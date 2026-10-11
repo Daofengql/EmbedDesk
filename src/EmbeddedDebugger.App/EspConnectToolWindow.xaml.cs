@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
 using EmbeddedDebugger.Infrastructure.Firmware;
+using EmbeddedDebugger.App.ViewModels;
 using Microsoft.Win32;
 
 namespace EmbeddedDebugger.App;
@@ -21,6 +22,8 @@ public partial class EspConnectToolWindow : Window
         public string SizeText { get; init; } = "";
     }
     private readonly ISerialPortService _serial;
+    private readonly MainWindowViewModel? _workspace;
+    private readonly SerialPortAutoRefresh _serialPortAutoRefresh;
     private readonly ObservableCollection<FirmwareRow> _firmware = [];
     private IReadOnlyList<EspPartition> _partitions = [];
     private ISerialPortChannel? _channel;
@@ -32,10 +35,12 @@ public partial class EspConnectToolWindow : Window
     private readonly DispatcherTimer _monitorTimer;
     private bool _closed;
 
-    public EspConnectToolWindow(ISerialPortService serial)
+    public EspConnectToolWindow(ISerialPortService serial, MainWindowViewModel? workspace = null)
     {
         InitializeComponent();
         _serial = serial;
+        _workspace = workspace;
+        _serialPortAutoRefresh = new SerialPortAutoRefresh(_serial, Dispatcher, RefreshPortsAsync);
         BaudBox.ItemsSource = new[] { 115200, 230400, 460800, 921600 };
         BaudBox.SelectedItem = 115200;
         MonitorBaudBox.ItemsSource = new[] { 9600, 19200, 38400, 57600, 74880, 115200, 230400, 460800, 921600 };
@@ -48,15 +53,16 @@ public partial class EspConnectToolWindow : Window
         Closed += async (_, _) =>
         {
             _closed = true;
+            _serialPortAutoRefresh.Dispose();
             _monitorTimer.Stop();
             _operation?.Cancel();
             try { await DisconnectAsync(); } catch { /* Closing still releases the connection. */ }
         };
     }
 
-    private async void RefreshPorts_Click(object sender, RoutedEventArgs e) => await RefreshPortsAsync();
     private async Task RefreshPortsAsync()
     {
+        if (_closed || _operation is not null || _channel is not null) return;
         try
         {
             var selected = (PortBox.SelectedItem as SerialPortDescriptor)?.PortName;
@@ -78,6 +84,8 @@ public partial class EspConnectToolWindow : Window
             await DisconnectAsync();
         }
         if (PortBox.SelectedItem is not SerialPortDescriptor descriptor) throw new InvalidOperationException("请选择串口。");
+        if (!await SerialPortUsePrompt.EnsureExclusiveAsync(this, _workspace, descriptor.PortName))
+            throw new OperationCanceledException("未释放调试串口，下载连接已取消。");
         _channel = _serial.CreateChannel(new SerialPortSettings { PortName = descriptor.PortName, BaudRate = baud, DataBits = 8, Parity = Parity.None, StopBits = StopBits.One, Handshake = Handshake.None });
         try { await _channel.OpenAsync(token); _esp = new EspRomBootloaderClient(_channel); }
         catch { await DisconnectAsync(); throw; }
@@ -336,7 +344,6 @@ public partial class EspConnectToolWindow : Window
         DisconnectButton.IsEnabled = idle && _channel is not null;
         PortBox.IsEnabled = idle && _channel is null;
         BaudBox.IsEnabled = idle && !connected;
-        RefreshButton.IsEnabled = idle && _channel is null;
         AutoResetBox.IsEnabled = idle;
         AddFilesButton.IsEnabled = RemoveFileButton.IsEnabled = FirmwareGrid.IsEnabled = idle;
         FlashButton.IsEnabled = idle && writable && _firmware.Count > 0;

@@ -15,6 +15,23 @@ internal static class WindowTheme
     public static void ApplyDarkTitleBar(Window window)
     {
         window.SourceInitialized += (_, _) => Apply(window);
+        // WPF can leave the owner behind another application after an owned
+        // modeless window (or a nested confirmation dialog) closes. Restore
+        // activation on the dispatcher so the close animation has finished.
+        window.Closed += (_, _) =>
+        {
+            var owner = window.Owner;
+            if (owner is null || !owner.IsVisible) return;
+            if (owner.Dispatcher.HasShutdownStarted || owner.Dispatcher.HasShutdownFinished) return;
+            owner.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (owner.IsVisible && owner.IsEnabled && !owner.IsActive)
+                {
+                    owner.Activate();
+                    owner.Focus();
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        };
     }
 
     private static void Apply(Window window)

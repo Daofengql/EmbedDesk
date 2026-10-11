@@ -42,7 +42,6 @@
                         <ComboBox x:Name="PortSelector" Width="260" HorizontalAlignment="Left" ItemsSource="{Binding SerialPorts}" SelectedItem="{Binding SelectedSerialPort}" ToolTip="串口设备" IsEnabled="{Binding CanConfigure}">
                             <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding SelectionLabel}" TextTrimming="CharacterEllipsis" /></DataTemplate></ComboBox.ItemTemplate>
                         </ComboBox>
-                        <Button Grid.Column="1" Style="{StaticResource IconButton}" Command="{Binding Owner.ScanSerialPortsCommand}" ToolTip="刷新串口"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" /></Button>
                     </Grid>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,14,0" IsEnabled="{Binding CanConfigure}">

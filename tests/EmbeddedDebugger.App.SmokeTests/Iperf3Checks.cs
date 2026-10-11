@@ -14,14 +14,14 @@ internal static class Iperf3Checks
     internal static async Task RunAsync()
     {
         using (var json = JsonDocument.Parse("{\"tcp\":true,\"time\":1,\"parallel\":1,\"reverse\":true,\"len\":4096}"))
-        { var p = Iperf3Client.ValidateParameters(json.RootElement); Require(p == (1, 4096, true), "iperf3 standard parameter mapping"); }
-        foreach (var text in new[] { "{\"udp\":true}", "{\"tcp\":true,\"parallel\":2}", "{\"tcp\":true,\"len\":2147483647}", "{\"tcp\":true,\"time\":0}", "{\"tcp\":true,\"bandwidth\":10000}" })
+        { var p = Iperf3Client.ValidateParameters(json.RootElement); Require(p.Seconds == 1 && p.BlockBytes == 4096 && p.Reverse && !p.Udp, "iperf3 standard parameter mapping"); }
+        foreach (var text in new[] { "{\"udp\":true,\"len\":11}", "{\"tcp\":true,\"parallel\":2}", "{\"tcp\":true,\"len\":2147483647}", "{\"tcp\":true,\"time\":0}", "{\"tcp\":true,\"bandwidth\":-1}" })
         {
             using var json = JsonDocument.Parse(text);
             try { Iperf3Client.ValidateParameters(json.RootElement); throw new Exception("Unsupported parameters accepted"); }
             catch (NotSupportedException) { }
         }
-        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var port = FreePort(); var reports = new List<Iperf3Result>();
         var intervals = new ConcurrentQueue<Iperf3Progress>();
         using var serverStop = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -72,6 +72,7 @@ internal static class Iperf3Checks
         finally { fixtureListener.Stop(); }
 
         await CheckReverseMeasurementAsync(lifetime.Token);
+        await CheckUdpAndPacingAsync(lifetime.Token);
 
         var silentListener = new TcpListener(IPAddress.Loopback, 0); silentListener.Start();
         try
@@ -82,6 +83,102 @@ internal static class Iperf3Checks
         }
         finally { silentListener.Stop(); }
         Console.WriteLine("PASS native iperf3 wire fixture, forward/reverse loopback, malformed JSON recovery and cancellation");
+    }
+    internal static async Task CheckPeerAsync(string host, int port)
+    {
+        // Explicit opt-in only. Public checks use 2 seconds at 2 Mbit/s per case.
+        foreach (var udp in new[] { false, true })
+            foreach (var reverse in new[] { false, true })
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+                var result = await Iperf3Client.RunAsync(host, port, new Iperf3Options(2, reverse, udp, udp ? 1200 : 8192, 2_000_000), token: timeout.Token);
+                Require(result.LocalBytes > 0 && result.PeerBytes > 0, $"Standard peer {host}:{port} {(udp ? "UDP" : "TCP")} {(reverse ? "reverse" : "forward")}");
+                Console.WriteLine($"PEER local={result.LocalBytes} bytes/{result.LocalSeconds:F3}s peer={result.PeerBytes} bytes/{result.PeerSeconds:F3}s UDP={result.ReceiverUdp}");
+                await Task.Delay(300);
+            }
+    }
+
+    private static async Task CheckUdpAndPacingAsync(CancellationToken token)
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var port = FreePort();
+        var server = Iperf3Client.RunServerAsync(IPAddress.Loopback, port, token: stop.Token);
+        try
+        {
+            foreach (var udp in new[] { false, true })
+                foreach (var reverse in new[] { false, true })
+                {
+                    var result = await Iperf3Client.RunAsync("127.0.0.1", port, new Iperf3Options(1, reverse, udp, udp ? 256 : 8192, 500_000), token: token);
+                    var sentRate = result.LocalSender ? result.LocalBitsPerSecond : result.PeerBitsPerSecond;
+                    Require(sentRate is > 350_000 and < 650_000, $"{(udp ? "UDP" : "TCP")} {(reverse ? "reverse" : "forward")} follows negotiated 500 Kbit/s pacing");
+                    if (udp) Require(result.ReceiverUdp is { Packets: > 0, LostPackets: 0 } && result.LocalBytes % 256 == 0,
+                        "UDP counts whole configured datagrams and reports receiver loss");
+                }
+            foreach (var counters64 in new[] { false, true }) await CheckUdpCountersAsync(port, counters64, token);
+            foreach (var reverse in new[] { false, true })
+            {
+                var result = await Iperf3Client.RunAsync("127.0.0.1", port, new Iperf3Options(1, reverse, true, 1200, 0, false), token: token);
+                Require(result.LocalBytes > 0 && result.PeerBytes > 0 && result.LocalSeconds < 3,
+                    $"Unlimited UDP {(reverse ? "reverse" : "forward")} keeps timers responsive with 32-bit packet counters");
+            }
+            using (var cancelled = new CancellationTokenSource(200))
+            {
+                try { await Iperf3Client.RunAsync("127.0.0.1", port, new Iperf3Options(10, false, true, 1200, 1), token: cancelled.Token); throw new Exception("Slow UDP pacing ignored cancellation"); }
+                catch (OperationCanceledException) when (cancelled.IsCancellationRequested) { Console.WriteLine("PASS UDP cancellation interrupts long pacing waits"); }
+            }
+        }
+        finally { stop.Cancel(); try { await server; } catch (OperationCanceledException) { } }
+        if (Socket.OSSupportsIPv6)
+        {
+            using var ipv6Stop = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var ipv6Server = Iperf3Client.RunServerAsync(IPAddress.IPv6Loopback, port, token: ipv6Stop.Token);
+            try
+            {
+                var result = await Iperf3Client.RunAsync("::1", port, new Iperf3Options(1, false, true, 1200, 1_000_000), token: token);
+                Require(result.PeerBytes > 0, "UDP handshake and data run over IPv6");
+            }
+            finally { ipv6Stop.Cancel(); try { await ipv6Server; } catch (OperationCanceledException) { } }
+        }
+    }
+
+    private static async Task CheckUdpCountersAsync(int port, bool counters64, CancellationToken token)
+    {
+        using var control = new TcpClient(); await control.ConnectAsync(IPAddress.Loopback, port, token);
+        var stream = control.GetStream(); await stream.WriteAsync(Encoding.ASCII.GetBytes(Guid.NewGuid().ToString("D") + "\0"), token);
+        var state = new byte[1]; await stream.ReadExactlyAsync(state, token);
+        await SendJsonAsync(stream, new { udp = true, time = 1, parallel = 1, len = 64, bandwidth = 1000000, udp_counters_64bit = counters64 ? 1 : 0 }, token);
+        await stream.ReadExactlyAsync(state, token); Require(state[0] == 10, "UDP peer receives CREATE_STREAMS over TCP");
+        using var data = new UdpClient(); data.Connect(IPAddress.Loopback, port);
+        // Exercise legacy client handshake as well as modern iperf3's wire bytes.
+        var magic = counters64 ? new byte[] { 0x39, 0x38, 0x37, 0x36 } : new byte[] { 0x15, 0xCD, 0x5B, 0x07 };
+        await data.SendAsync(magic, token);
+        var reply = await data.ReceiveAsync(token);
+        Require(reply.Buffer.SequenceEqual(new byte[] { 0x36, 0x37, 0x38, 0x39 }), "UDP connect reply matches upstream iperf.h wire constants");
+        var states = new byte[2]; await stream.ReadExactlyAsync(states, token);
+        Require(states.SequenceEqual(new byte[] { 1, 2 }), "UDP starts with standard TEST_START / TEST_RUNNING");
+        foreach (var sequence in new long[] { 1, 3, 2, 5 })
+        {
+            var packet = new byte[64]; BinaryPrimitives.WriteUInt32BigEndian(packet, 12345);
+            BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(4), (uint)(sequence * 1000));
+            if (counters64) BinaryPrimitives.WriteInt64BigEndian(packet.AsSpan(8), sequence);
+            else BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(8), (uint)sequence);
+            await data.SendAsync(packet, token); await Task.Delay(10, token);
+        }
+        await data.SendAsync(new byte[8], token); // Malformed/truncated header is not test traffic.
+        await Task.Delay(60, token);
+        await stream.WriteAsync(new byte[] { 4 }, token); await stream.ReadExactlyAsync(state, token);
+        await SendJsonAsync(stream, new { streams = new[] { new { id = 1, bytes = 256, packets = 5, errors = 0, jitter = 0, start_time = 0, end_time = .1 } } }, token);
+        using var result = await JsonAsync(stream, token); var stats = result.RootElement.GetProperty("streams")[0];
+        Require(stats.GetProperty("bytes").GetInt64() == 256 && stats.GetProperty("packets").GetInt64() == 5 && stats.GetProperty("errors").GetInt64() == 1 && stats.GetProperty("out_of_order").GetInt64() == 1,
+            $"UDP {(counters64 ? 64 : 32)}-bit counters repair reordered gaps and reject short packets");
+        Require(stats.GetProperty("jitter").GetDouble() > 0, "UDP jitter reflects changing transit time");
+        await stream.ReadExactlyAsync(state, token); await stream.WriteAsync(new byte[] { 16 }, token);
+    }
+
+    private static async Task SendJsonAsync(NetworkStream stream, object value, CancellationToken token)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(value); var header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, bytes.Length);
+        await stream.WriteAsync(header, token); await stream.WriteAsync(bytes, token);
     }
     private static async Task CheckReverseMeasurementAsync(CancellationToken token)
     {

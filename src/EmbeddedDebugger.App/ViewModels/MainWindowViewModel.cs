@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EmbeddedDebugger.Core.Abstractions;
@@ -15,6 +16,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly ISerialBridgeService _serialBridgeService;
     private readonly IRemoteSerialClient _remoteSerialClient;
     private readonly Dictionary<string, SerialSessionViewModel> _serialOwners = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _serialScanGate = new(1, 1);
+    private readonly SerialPortAutoRefresh _serialPortAutoRefresh;
     private SerialSessionViewModel? _selectedSerialSession;
     private int _serialSessionNumber;
     private bool _disposed, _bridgeStarting;
@@ -59,6 +62,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         SelectedNetworkTool = NetworkTools[1];
         SerialPorts = new ObservableCollection<SerialPortRowViewModel>();
         Logs = new ObservableCollection<LogEntryViewModel>();
+        _serialPortAutoRefresh = new SerialPortAutoRefresh(
+            _serialPortService,
+            Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher,
+            () => ScanSerialPortsAsync());
 
         AddNetworkSessionCommand = new AsyncRelayCommand(AddNetworkSessionAsync);
         RemoveSelectedNetworkCommand = new AsyncRelayCommand(RemoveSelectedNetworkAsync, () => SelectedSession is not null);
@@ -128,6 +135,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         _serialOwners.Add(port.PortName, session);
         UpdateSerialUsage(); error = ""; return true;
+    }
+
+    /// <summary>Returns whether a live serial debug tab currently owns this port.</summary>
+    internal bool IsSerialPortInUse(string portName) => _serialOwners.ContainsKey(portName);
+
+    /// <summary>Stops the debug tab that owns a port so a firmware tool can use it exclusively.</summary>
+    internal async Task<bool> ReleaseSerialPortForToolAsync(string portName)
+    {
+        if (!_serialOwners.TryGetValue(portName, out var owner)) return true;
+        await owner.CloseAsync("已为烧录工具释放");
+        return !_serialOwners.ContainsKey(portName);
     }
     internal void ReleaseSerialPort(SerialSessionViewModel session)
     {
@@ -205,6 +223,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _serialPortAutoRefresh.Dispose();
         foreach (var session in SerialSessions.ToArray()) await session.DisposeAsync();
         _remoteSerialClient.PortsChanged -= OnRemotePortsChanged;
         _remoteSerialClient.ConnectionChanged -= OnRemoteConnectionChanged;
@@ -299,8 +318,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private async Task ScanSerialPortsAsync(CancellationToken cancellationToken = default)
     {
+        await _serialScanGate.WaitAsync(cancellationToken);
         try
         {
+            if (_disposed) return;
             var ports = await _serialPortService.ScanAsync(cancellationToken);
             var knownPorts = SerialPorts.ToDictionary(port => port.PortName, StringComparer.OrdinalIgnoreCase);
             var rows = ports.Select(port => knownPorts.TryGetValue(port.PortName, out var row) ? row : new SerialPortRowViewModel(port)).ToList();
@@ -316,6 +337,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             AddLog("串口", $"扫描失败: {ex.Message}", TransportEventKind.Error);
         }
+        finally { _serialScanGate.Release(); }
     }
 
     private async Task StartBridgeAsync(CancellationToken cancellationToken = default)

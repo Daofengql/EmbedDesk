@@ -6,6 +6,7 @@ using System.Windows;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
 using EmbeddedDebugger.Infrastructure.Firmware;
+using EmbeddedDebugger.App.ViewModels;
 using Microsoft.Win32;
 
 namespace EmbeddedDebugger.App;
@@ -13,6 +14,8 @@ namespace EmbeddedDebugger.App;
 public partial class FirmwareToolWindow : Window
 {
     private readonly ISerialPortService _serial;
+    private readonly MainWindowViewModel? _workspace;
+    private readonly SerialPortAutoRefresh _serialPortAutoRefresh;
     private ISerialPortChannel? _channel;
     private Stm32BootloaderClient? _stm32;
     private string? _firmwarePath;
@@ -20,16 +23,29 @@ public partial class FirmwareToolWindow : Window
     private bool _closed;
     private bool _closeRequested;
 
-    public FirmwareToolWindow(ISerialPortService serial, int initialProtocol = 0)
+    public FirmwareToolWindow(ISerialPortService serial, MainWindowViewModel? workspace = null, int initialProtocol = 0)
     {
         InitializeComponent();
         _serial = serial;
+        _workspace = workspace;
+        _serialPortAutoRefresh = new SerialPortAutoRefresh(_serial, Dispatcher, RefreshPortsAsync);
         BaudBox.ItemsSource = new[] { "9600", "19200", "38400", "57600", "115200", "230400", "460800" };
         BaudBox.SelectedItem = "115200";
+        BootEntryBox.ItemsSource = new[] { "手动设置 BOOT0 并复位", "DTR / RTS 自动进入" };
+        BootEntryBox.SelectedIndex = 0;
+        ControlSequenceBox.ItemsSource = new[]
+        {
+            "DTR=0 / RTS=1 → DTR=1 / RTS=0",
+            "DTR=1 / RTS=0 → DTR=0 / RTS=1",
+            "DTR=0 / RTS=0 → DTR=1 / RTS=1"
+        };
+        ControlSequenceBox.SelectedIndex = 0;
+        BootEntryBox.SelectionChanged += (_, _) => UpdateState();
+        ProbeDriveBox.SelectionChanged += (_, _) => UpdateState();
         WindowTheme.ApplyDarkTitleBar(this);
         Closing += OnClosing;
-        Closed += async (_, _) => { _closed = true; await DisposeTransportAsync(); };
-        Loaded += async (_, _) => await RefreshPortsAsync();
+        Closed += async (_, _) => { _closed = true; _serialPortAutoRefresh.Dispose(); await DisposeTransportAsync(); };
+        Loaded += async (_, _) => { await RefreshPortsAsync(); await RefreshProbeDrivesAsync(); };
         UpdateState();
     }
 
@@ -50,7 +66,25 @@ public partial class FirmwareToolWindow : Window
         }, false);
     }
 
-    private async void RefreshPorts_Click(object sender, RoutedEventArgs e) => await RefreshPortsAsync();
+    private async void RefreshProbe_Click(object sender, RoutedEventArgs e) => await RefreshProbeDrivesAsync();
+
+    private async Task RefreshProbeDrivesAsync()
+    {
+        if (_operation is not null) return;
+        try
+        {
+            var selected = (ProbeDriveBox.SelectedItem as Stm32ProbeDrive)?.Root;
+            var drives = await Stm32ProbeFlashService.ScanAsync();
+            if (_closed) return;
+            ProbeDriveBox.ItemsSource = drives;
+            ProbeDriveBox.DisplayMemberPath = nameof(Stm32ProbeDrive.DisplayName);
+            ProbeDriveBox.SelectedItem = drives.FirstOrDefault(drive => drive.Root.Equals(selected, StringComparison.OrdinalIgnoreCase)) ?? drives.FirstOrDefault();
+            ProbeInfoText.Text = drives.Count == 0 ? "未发现探针盘" : $"发现 {drives.Count} 个目标盘";
+            ProbeStatus.Text = drives.Count == 0 ? "请连接带 USB 大容量存储接口的 ST-LINK / DAPLink。" : "请选择目标盘并确认板卡型号。";
+            UpdateState();
+        }
+        catch (Exception ex) { ProbeStatus.Text = "扫描探针失败：" + ex.Message; }
+    }
     private async Task RefreshPortsAsync()
     {
         if (_operation is not null || _stm32 is not null) return;
@@ -71,16 +105,41 @@ public partial class FirmwareToolWindow : Window
         if (_operation is not null || PortBox.SelectedItem is not SerialPortDescriptor descriptor) return;
         if (!int.TryParse(BaudBox.Text, out var baud) || baud is < 1200 or > 3000000)
         { FlashStatus.Text = "波特率无效。"; return; }
+        if (!await SerialPortUsePrompt.EnsureExclusiveAsync(this, _workspace, descriptor.PortName))
+        { FlashStatus.Text = "未释放调试串口，烧录连接已取消。"; return; }
         await OperateAsync(async token =>
         {
             _channel = _serial.CreateChannel(new SerialPortSettings { PortName = descriptor.PortName, BaudRate = baud, DataBits = 8, Parity = Parity.Even, StopBits = StopBits.One, Handshake = Handshake.None });
             _stm32 = new Stm32BootloaderClient(_channel);
             await _channel.OpenAsync(token);
+            await EnterBootloaderAsync(token);
             await _stm32.ConnectAsync(token);
             var id = await _stm32.ReadDeviceIdAsync(token);
             Log($"{descriptor.PortName} · STM32 ID 0x{id:X4} · Bootloader {_stm32.Version >> 4}.{_stm32.Version & 15}");
             FlashStatus.Text = "已连接。请核对芯片实际 Flash 容量后操作。";
         });
+    }
+
+    private async Task EnterBootloaderAsync(CancellationToken token)
+    {
+        if (BootEntryBox.SelectedIndex == 0)
+        {
+            Log("请确认 BOOT0 已拉高并完成硬件复位，然后等待 Bootloader。 ");
+            return;
+        }
+        if (_channel is not ISerialPortControl control)
+            throw new NotSupportedException("当前串口通道不支持 DTR / RTS 控制，请改为手动进入 Bootloader。");
+        var sequence = ControlSequenceBox.SelectedIndex switch
+        {
+            1 => (true, false, false, true),
+            2 => (false, false, true, true),
+            _ => (false, true, true, false)
+        };
+        await control.SetControlLinesAsync(sequence.Item1, sequence.Item2, token);
+        await Task.Delay(80, token);
+        await control.SetControlLinesAsync(sequence.Item3, sequence.Item4, token);
+        await Task.Delay(120, token);
+        Log($"已发送 DTR/RTS 进入序列：{ControlSequenceBox.Text}。 ");
     }
 
     private async void Disconnect_Click(object sender, RoutedEventArgs e)
@@ -183,13 +242,43 @@ public partial class FirmwareToolWindow : Window
     }
     private void Cancel_Click(object sender, RoutedEventArgs e) => _operation?.Cancel();
     private void ClearFile_Click(object sender, RoutedEventArgs e) { if (_operation is not null) return; _firmwarePath = null; AnalysisBox.Clear(); UpdateState(); }
+
+    private async void FlashProbe_Click(object sender, RoutedEventArgs e)
+    {
+        if (_operation is not null || ProbeDriveBox.SelectedItem is not Stm32ProbeDrive drive || _firmwarePath is null) return;
+        var info = new FileInfo(_firmwarePath);
+        if (new ConfirmationWindow("确认探针烧录",
+            $"目标：{drive.DisplayName}（{drive.Root}）\n固件：{Path.GetFileName(_firmwarePath)} · {info.Length:N0} 字节\n探针将接管 SWD 擦除、写入和校验。确定复制并开始？", "复制并开始") { Owner = this }.ShowDialog() != true) return;
+        await OperateProbeAsync(async token =>
+        {
+            ProbeStatus.Text = "正在复制到探针…";
+            await Stm32ProbeFlashService.CopyFirmwareAsync(drive.Root, _firmwarePath, new Progress<long>(value => ProbeProgress.Value = value * 100d / Math.Max(1, info.Length)), token);
+            ProbeProgress.Value = 100;
+            ProbeStatus.Text = "文件已交给探针，等待板卡复位；请查看探针指示灯或 FAIL.TXT。";
+            ProbeLogBox.AppendText($"{DateTime.Now:T} 已复制 {Path.GetFileName(_firmwarePath)} 到 {drive.Root}{Environment.NewLine}");
+            ProbeLogBox.ScrollToEnd();
+        });
+    }
+
+    private async Task OperateProbeAsync(Func<CancellationToken, Task> action)
+    {
+        if (_operation is not null) return;
+        using var operation = new CancellationTokenSource(); _operation = operation;
+        ProbeProgress.Value = 0; ProbeStatus.Text = "处理中…"; UpdateState();
+        try { await action(operation.Token); }
+        catch (OperationCanceledException) { ProbeStatus.Text = "已取消；探针可能已接收部分文件，请检查目标盘。"; }
+        catch (Exception ex) { ProbeStatus.Text = "探针烧录失败：" + ex.Message; ProbeLogBox.AppendText(ProbeStatus.Text + Environment.NewLine); }
+        finally { _operation = null; UpdateState(); if (_closeRequested) Close(); }
+    }
     private void Log(string text) { FlashLogBox.AppendText(text + Environment.NewLine); FlashLogBox.ScrollToEnd(); }
     private void UpdateState()
     {
         if (_closed) return;
         var idle = _operation is null;
         AnalyzeFileButton.IsEnabled = SelectFirmwareButton.IsEnabled = ClearFileButton.IsEnabled = AddressBox.IsEnabled = CapacityBox.IsEnabled = idle;
-        RefreshPortsButton.IsEnabled = PortBox.IsEnabled = BaudBox.IsEnabled = ConnectButton.IsEnabled = idle && _stm32 is null;
+        BootEntryBox.IsEnabled = idle;
+        ControlSequenceBox.IsEnabled = idle && BootEntryBox.SelectedIndex == 1;
+        PortBox.IsEnabled = BaudBox.IsEnabled = ConnectButton.IsEnabled = idle && _stm32 is null;
         DisconnectButton.IsEnabled = idle && _stm32 is not null;
         EraseButton.IsEnabled = idle && _stm32?.SupportsErase == true;
         WriteButton.IsEnabled = idle && _stm32?.SupportsErase == true && _stm32.SupportsWrite && _firmwarePath is not null;
@@ -197,6 +286,8 @@ public partial class FirmwareToolWindow : Window
         BackupButton.IsEnabled = idle && _stm32?.SupportsRead == true;
         RunButton.IsEnabled = idle && _stm32?.SupportsGo == true;
         CancelButton.IsEnabled = !idle;
+        RefreshProbeButton.IsEnabled = ProbeDriveBox.IsEnabled = idle;
+        FlashProbeButton.IsEnabled = idle && ProbeDriveBox.SelectedItem is Stm32ProbeDrive && _firmwarePath is not null;
     }
     private void OnClosing(object? sender, CancelEventArgs e)
     {
