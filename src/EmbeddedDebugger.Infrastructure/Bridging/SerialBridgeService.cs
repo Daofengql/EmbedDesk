@@ -1,9 +1,7 @@
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using EmbeddedDebugger.Core.Abstractions;
 using EmbeddedDebugger.Core.Models;
-using EmbeddedDebugger.Protocols;
 using Microsoft.Extensions.Logging;
 
 namespace EmbeddedDebugger.Infrastructure.Bridging;
@@ -44,7 +42,7 @@ public sealed class SerialBridgeService : ISerialBridgeService, IAsyncDisposable
         {
             _runtimes.Remove(bridgeId, out runtime);
         }
-        if (runtime is not null) await runtime.StopAsync(cancellationToken);
+        if (runtime is not null) await runtime.DisposeAsync();
     }
 
     public async ValueTask DisposeAsync()
@@ -58,204 +56,76 @@ public sealed class SerialBridgeService : ISerialBridgeService, IAsyncDisposable
 
 internal sealed class SerialBridgeRuntime : IAsyncDisposable
 {
-    private readonly string _id;
     private readonly SerialBridgeProfile _profile;
     private readonly ISerialPortService _serialPortService;
     private readonly IVirtualSerialMapper _virtualSerialMapper;
     private readonly ILogger _logger;
-    private readonly Dictionary<ushort, ISerialPortChannel> _channels = new();
-    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly Dictionary<ushort, string> _mappings = new();
     private TcpListener? _listener;
-    private TcpClient? _client;
-    private NetworkStream? _stream;
-    private Task? _acceptTask;
-    private Task? _receiveTask;
-    private ushort _nextChannelId = 1;
-    private IReadOnlyList<string> _virtualPorts = Array.Empty<string>();
+    private SerialBridgeConnection? _connection;
+    private Task? _worker;
+    private IReadOnlyList<string> _virtualPorts = [];
+    private int _disposed;
 
-    public SerialBridgeRuntime(
-        string id,
-        SerialBridgeProfile profile,
-        ISerialPortService serialPortService,
-        IVirtualSerialMapper virtualSerialMapper,
-        ILogger logger)
+    public SerialBridgeRuntime(string id, SerialBridgeProfile profile, ISerialPortService serialPortService,
+        IVirtualSerialMapper virtualSerialMapper, ILogger logger)
     {
-        _id = id;
-        _profile = profile;
-        _serialPortService = serialPortService;
-        _virtualSerialMapper = virtualSerialMapper;
-        _logger = logger;
+        _profile = profile; _serialPortService = serialPortService;
+        _virtualSerialMapper = virtualSerialMapper; _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_profile.Channels.Count == 0)
-        {
-            throw new InvalidOperationException("至少选择一个串口通道。");
-        }
-
-        foreach (var settings in _profile.Channels)
-        {
-            var channel = _serialPortService.CreateChannel(settings);
-            var channelId = _nextChannelId++;
-            _channels[channelId] = channel;
-            channel.DataReceived += (_, data) => _ = PublishChannelDataAsync(channelId, data, _lifetime.Token);
-            await channel.OpenAsync(cancellationToken);
-        }
-
+        if (_profile.Channels.Count is < 1 or > ushort.MaxValue ||
+            _profile.Channels.Any(c => string.IsNullOrWhiteSpace(c.PortName)) ||
+            _profile.Channels.Select(c => c.PortName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _profile.Channels.Count)
+            throw new ArgumentException("请选择不重复的本地串口映射。");
+        for (var i = 0; i < _profile.Channels.Count; i++) _mappings.Add((ushort)(i + 1), _profile.Channels[i].PortName);
         if (_profile.CreateVirtualPorts)
-        {
-            _virtualPorts = await _virtualSerialMapper.CreatePairAsync(_profile.Name, cancellationToken);
-        }
-
+            _virtualPorts = await _virtualSerialMapper.CreatePairAsync(_profile.Name, cancellationToken).ConfigureAwait(false);
         if (_profile.Mode == SerialBridgeMode.Server)
         {
-            var address = ParseAddress(_profile.LocalHost);
+            var address = string.IsNullOrWhiteSpace(_profile.LocalHost) || _profile.LocalHost == "*" ? IPAddress.Any :
+                IPAddress.TryParse(_profile.LocalHost, out var ip) ? ip :
+                (await Dns.GetHostAddressesAsync(_profile.LocalHost, cancellationToken).ConfigureAwait(false)).First();
             _listener = new TcpListener(address, _profile.LocalPort);
             _listener.Start();
-            _acceptTask = AcceptLoopAsync(_lifetime.Token);
+            _worker = Task.Run(AcceptAsync);
         }
         else
         {
-            _client = new TcpClient { NoDelay = true };
-            await _client.ConnectAsync(_profile.RemoteHost, _profile.RemotePort, cancellationToken);
-            _stream = _client.GetStream();
-            _receiveTask = ReceiveLoopAsync(_stream, _lifetime.Token);
-            await SendOpenFramesAsync(cancellationToken);
+            var client = new TcpClient { NoDelay = true };
+            try { await client.ConnectAsync(_profile.RemoteHost, _profile.RemotePort, cancellationToken).ConfigureAwait(false); }
+            catch { client.Dispose(); throw; }
+            _connection = new(client, _mappings, _serialPortService, _logger, _lifetime.Token);
         }
-
-        _logger.LogInformation("Serial bridge {BridgeId} started with {ChannelCount} channels", _id, _channels.Count);
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    private async Task AcceptAsync()
     {
-        _lifetime.Cancel();
-        _listener?.Stop();
-        _stream?.Dispose();
-        _client?.Dispose();
-        foreach (var channel in _channels.Values)
+        try
         {
-            await channel.CloseAsync(cancellationToken);
-            await channel.DisposeAsync();
+            while (!_lifetime.IsCancellationRequested)
+            {
+                var client = await _listener!.AcceptTcpClientAsync(_lifetime.Token).ConfigureAwait(false);
+                // Finish the old reader, sender and COM callbacks before handing a new client the mappings.
+                if (_connection is not null) await _connection.DisposeAsync().ConfigureAwait(false);
+                if (_lifetime.IsCancellationRequested) { client.Dispose(); break; }
+                _connection = new(client, _mappings, _serialPortService, _logger, _lifetime.Token);
+            }
         }
-        if (_virtualPorts.Count > 0)
-        {
-            await _virtualSerialMapper.RemovePairAsync(_virtualPorts, cancellationToken);
-        }
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException)
+        { if (!_lifetime.IsCancellationRequested) _logger.LogWarning(ex, "Serial bridge listener stopped"); }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync(CancellationToken.None);
-        _writeLock.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _lifetime.Cancel(); _listener?.Stop();
+        if (_worker is not null) await _worker.ConfigureAwait(false);
+        if (_connection is not null) await _connection.DisposeAsync().ConfigureAwait(false);
+        if (_virtualPorts.Count > 0) await _virtualSerialMapper.RemovePairAsync(_virtualPorts).ConfigureAwait(false);
         _lifetime.Dispose();
     }
-
-    private async Task AcceptLoopAsync(CancellationToken cancellationToken)
-    {
-        if (_listener is null) return;
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var client = await _listener.AcceptTcpClientAsync(cancellationToken);
-                client.NoDelay = true;
-                _client?.Dispose();
-                _client = client;
-                _stream = client.GetStream();
-                _receiveTask = ReceiveLoopAsync(_stream, cancellationToken);
-                await SendOpenFramesAsync(cancellationToken);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-    }
-
-    private async Task SendOpenFramesAsync(CancellationToken cancellationToken)
-    {
-        foreach (var channelId in _channels.Keys)
-        {
-            var settings = _channels[channelId].Settings;
-            var description = System.Text.Encoding.UTF8.GetBytes($"{settings.PortName} @ {settings.BaudRate}");
-            await SendFrameAsync(new MultiplexFrame(channelId, MultiplexFrameFlags.Open, description), cancellationToken);
-        }
-    }
-
-    private async Task PublishChannelDataAsync(ushort channelId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
-    {
-        if (_profile.EnableMultiplexing)
-        {
-            await SendFrameAsync(new MultiplexFrame(channelId, MultiplexFrameFlags.Data, data), cancellationToken);
-        }
-        else
-        {
-            await SendFrameAsync(new MultiplexFrame(1, MultiplexFrameFlags.Data, data), cancellationToken);
-        }
-    }
-
-    private async Task SendFrameAsync(MultiplexFrame frame, CancellationToken cancellationToken)
-    {
-        var stream = _stream;
-        if (stream is null || !stream.CanWrite) return;
-        var bytes = MultiplexFrameCodec.Encode(frame);
-        await _writeLock.WaitAsync(cancellationToken);
-        try { await stream.WriteAsync(bytes, cancellationToken); }
-        catch (IOException) { }
-        catch (SocketException) { }
-        finally { _writeLock.Release(); }
-    }
-
-    private async Task ReceiveLoopAsync(NetworkStream stream, CancellationToken cancellationToken)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        var readBuffer = new byte[16 * 1024];
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var count = await stream.ReadAsync(readBuffer, cancellationToken);
-                if (count == 0) break;
-                var target = buffer.GetSpan(count);
-                readBuffer.AsSpan(0, count).CopyTo(target);
-                buffer.Advance(count);
-                while (MultiplexFrameCodec.TryDecode(ref buffer, out var frame) && frame is not null)
-                {
-                    if (frame.Flags == MultiplexFrameFlags.Data)
-                    {
-                        var channel = ResolveChannel(frame.ChannelId);
-                        if (channel is not null) await channel.SendAsync(frame.Payload, cancellationToken);
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (IOException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (InvalidDataException ex)
-        {
-            _logger.LogWarning(ex, "Invalid serial bridge frame for {BridgeId}", _id);
-        }
-    }
-
-    private ISerialPortChannel? ResolveChannel(ushort channelId)
-    {
-        if (_channels.TryGetValue(channelId, out var channel)) return channel;
-        return _channels.Values.FirstOrDefault();
-    }
-
-    private static IPAddress ParseAddress(string host)
-    {
-        if (string.IsNullOrWhiteSpace(host) || host == "*") return IPAddress.Any;
-        if (IPAddress.TryParse(host, out var address)) return address;
-        return Dns.GetHostAddresses(host).First(address => address.AddressFamily == AddressFamily.InterNetwork);
-    }
 }
-

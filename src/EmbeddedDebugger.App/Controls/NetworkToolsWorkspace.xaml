@@ -1,35 +1,148 @@
 <UserControl x:Class="EmbeddedDebugger.App.Controls.NetworkToolsWorkspace"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="ToolCard" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinHeight" Value="68" />
+            <Setter Property="Padding" Value="10,10" />
+            <Setter Property="Margin" Value="4,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource SelectedBrush}" /></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource AccentBrush}" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ToolIcon" TargetType="TextBlock" BasedOn="{StaticResource Icon}">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+        <Style x:Key="ToolTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="ToolDescription" TargetType="TextBlock" BasedOn="{StaticResource MutedText}">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,6,0,0" />
+        </Style>
+        <Style x:Key="CategoryHeading" TargetType="Border">
+            <Setter Property="Margin" Value="4,0,4,10" />
+            <Setter Property="Padding" Value="0,0,0,8" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+        </Style>
+    </UserControl.Resources>
     <Grid Background="{StaticResource PanelBrush}">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-        <Border Padding="22,14" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
-            <StackPanel><TextBlock Text="网络工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="地址规划、链路探测、NAT、DNS、UPnP 和路由诊断" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
+        <Border Padding="16,12" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+            <StackPanel><TextBlock Text="网络工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="网络诊断、设备发现与嵌入式数据工具" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel>
         </Border>
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <WrapPanel Margin="22" HorizontalAlignment="Left">
-                <Button Tag="Cidr" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="⌘" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="CIDR 计算" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="网络地址、掩码、广播地址和可用主机范围" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Ping" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="◌" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="Ping / 路由追踪" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="ICMPing、TCPing 和逐跳路由追踪，支持地址族与网络出口" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Iperf3" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="⚡" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="iperf3" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="启动客户端或服务端进行吞吐量测试" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Discovery" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="⌕" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="内网扫描" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="轮询 Ping 并结合 ARP 查找在线设备和主机名" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Nat" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="⇆" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="STUN / NAT" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="检测公网映射地址并综合判断 NAT 类型" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Upnp" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="▣" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="UPnP 发现" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="发现路由器、网关和局域网 UPnP 设备" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-                <Button Tag="Dns" Click="OpenTool_Click" Width="190" Height="128" Margin="0,0,10,10" Padding="0" Background="{StaticResource SurfaceBrush}">
-                    <StackPanel Margin="14"><TextBlock Text="⌁" FontSize="20" Foreground="{StaticResource AccentBrush}" /><TextBlock Text="DNS 查询" FontSize="14" FontWeight="SemiBold" Margin="0,10,0,0" /><TextBlock Text="正向和反向解析，显示地址与主机名" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" /></StackPanel>
-                </Button>
-            </WrapPanel>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="12,16" VerticalAlignment="Top">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,20">
+                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="地址与证书" FontSize="12" FontWeight="SemiBold" /></Border>
+                    <UniformGrid Columns="3" Rows="1">
+                        <Button Tag="Cidr" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="CIDR 计算" ToolTip="子网掩码与地址范围">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE8EF;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="CIDR 计算" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="子网掩码与地址范围" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Dns" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="DNS / DoH" ToolTip="UDP、TCP 与 HTTPS 解析">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="DNS / DoH" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="UDP、TCP 与 HTTPS 解析" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Tls" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="TLS 证书" ToolTip="有效期、证书链与 SNI">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE72E;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="TLS 证书" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="有效期、证书链与 SNI" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,20">
+                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="连通与性能" FontSize="12" FontWeight="SemiBold" /></Border>
+                    <UniformGrid Columns="3" Rows="1">
+                        <Button Tag="Ping" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="Ping / 路由追踪" ToolTip="ICMP、TCP 与逐跳诊断">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE968;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="Ping / 路由追踪" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="ICMP、TCP 与逐跳诊断" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Ports" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="端口扫描" ToolTip="扫描 TCP 端口，仅显示开放端口与连接耗时">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE839;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="端口扫描" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="TCP 开放状态与连接耗时" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Iperf3" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="iperf3" ToolTip="TCP / UDP 吞吐测试">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE9D9;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="iperf3" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="TCP / UDP 吞吐测试" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,0,20">
+                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="发现与 NAT" FontSize="12" FontWeight="SemiBold" /></Border>
+                    <UniformGrid Columns="3" Rows="1">
+                        <Button Tag="Discovery" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="内网扫描" ToolTip="发现设备、地址与主机名">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE721;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="内网扫描" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="发现设备、地址与主机名" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Nat" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="NAT 类型" ToolTip="STUN 探测与出口分析">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="NAT 类型" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="STUN 探测与出口分析" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Upnp" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="UPnP 发现" ToolTip="设备信息与端口映射">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE701;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="UPnP 发现" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="设备信息与端口映射" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,20">
+                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="嵌入式与数据" FontSize="12" FontWeight="SemiBold" /></Border>
+                    <UniformGrid Columns="3" Rows="1">
+                        <Button Tag="Checksum" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="CRC / 校验和" ToolTip="报文、固件与文件指纹">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE9D5;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="CRC / 校验和" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="报文、固件与文件指纹" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Codec" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="HEX / 文本" ToolTip="字节、编码与 Base64 互转">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE8AB;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="HEX / 文本" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="字节、编码与 Base64 互转" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+            </Grid>
         </ScrollViewer>
     </Grid>
 </UserControl>

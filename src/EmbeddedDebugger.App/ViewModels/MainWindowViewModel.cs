@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -64,7 +64,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RemoveSelectedNetworkCommand = new AsyncRelayCommand(RemoveSelectedNetworkAsync, () => SelectedSession is not null);
         SendSelectedNetworkCommand = new AsyncRelayCommand(SendSelectedNetworkAsync, () => SelectedSession?.CanSend == true && !string.IsNullOrWhiteSpace(NetworkSendText));
         ScanSerialPortsCommand = new AsyncRelayCommand(ScanSerialPortsAsync);
-        StartBridgeCommand = new AsyncRelayCommand(StartBridgeAsync, () => !IsBridgeRunning && (BridgeMode == "客户端" || SerialPorts.Any(port => port.IsSelected && !port.IsRemote)));
+        StartBridgeCommand = new AsyncRelayCommand(StartBridgeAsync, () => CanConfigureBridge && (BridgeMode == "客户端" || SerialPorts.Any(port => port.IsSelected && !port.IsRemote)));
         StopBridgeCommand = new AsyncRelayCommand(StopBridgeAsync, () => IsBridgeRunning);
         ClearLogsCommand = new RelayCommand(() => Logs.Clear());
         AddSerialSessionCommand = new RelayCommand(() => AddSerialSession());
@@ -125,7 +125,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             AddSerialLog($"{port.PortName} 已在其他标签打开，已切换到该标签", TransportEventKind.Info);
             return false;
         }
-        if (!port.IsRemote && (_bridgeId is not null || _bridgeStarting)) { error = "请先停止串口映射服务"; return false; }
         _serialOwners.Add(port.PortName, session);
         UpdateSerialUsage(); error = ""; return true;
     }
@@ -185,7 +184,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public bool IsBridgeServer => BridgeMode == "服务端";
     public string BridgeStatus => _remoteSerialClient.IsConnected ? "客户端已连接" : _bridgeId is null ? "未启动" : "服务端运行中";
     public bool IsBridgeRunning => _bridgeId is not null || _remoteSerialClient.IsConnected;
-    public bool CanConfigureBridge => !IsBridgeRunning;
+    public bool CanConfigureBridge => !IsBridgeRunning && !_bridgeStarting;
 
     public IAsyncRelayCommand AddNetworkSessionCommand { get; }
     public IAsyncRelayCommand RemoveSelectedNetworkCommand { get; }
@@ -320,54 +319,31 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private async Task StartBridgeAsync(CancellationToken cancellationToken = default)
     {
-        if (IsBridgeRunning || _bridgeStarting) return;
-        if (!IsBridgeServer)
-        {
-            try
-            {
-                await _remoteSerialClient.ConnectAsync(BridgeRemoteHost, ParsePort(BridgeRemotePort, 9100), cancellationToken);
-                NotifyBridgeState();
-                AddLog("映射", $"已连接网络串口服务 {BridgeRemoteHost}:{BridgeRemotePort}", TransportEventKind.Connected);
-            }
-            catch (Exception ex) { AddLog("映射", $"连接失败: {ex.Message}", TransportEventKind.Error); }
-            return;
-        }
-        var selected = SerialPorts.Where(row => row.IsSelected && !row.IsRemote).ToArray();
-        if (selected.Length == 0)
-        {
-            AddLog("映射", "请先勾选需要复用的串口通道", TransportEventKind.Error);
-            return;
-        }
-        if (selected.Any(port => port.IsOpen))
-        {
-            AddLog("映射", "选中的串口正在用于调试，请先断开后再启动映射", TransportEventKind.Error);
-            return;
-        }
-        var profile = new SerialBridgeProfile
-        {
-            Name = "Desktop Bridge",
-            Mode = BridgeMode == "客户端" ? SerialBridgeMode.Client : SerialBridgeMode.Server,
-            LocalHost = BridgeLocalHost,
-            LocalPort = ParsePort(BridgeLocalPort, 9100),
-            RemoteHost = BridgeRemoteHost,
-            RemotePort = ParsePort(BridgeRemotePort, 9100),
-            EnableMultiplexing = true,
-            CreateVirtualPorts = EnableVirtualSerialPorts,
-            Channels = selected.Select(row => row.ToSettings()).ToArray()
-        };
-        _bridgeStarting = true;
+        if (!CanConfigureBridge) return;
+        _bridgeStarting = true; NotifyBridgeState();
         try
         {
+            if (!IsBridgeServer)
+            {
+                await _remoteSerialClient.ConnectAsync(BridgeRemoteHost, ParsePort(BridgeRemotePort, 9100), cancellationToken);
+                AddLog("映射", $"已连接网络串口服务 {BridgeRemoteHost}:{BridgeRemotePort}", TransportEventKind.Connected);
+                return;
+            }
+            var selected = SerialPorts.Where(row => row.IsSelected && !row.IsRemote).ToArray();
+            if (selected.Length == 0) throw new InvalidOperationException("请先勾选需要映射的 COM。");
+            var profile = new SerialBridgeProfile
+            {
+                Name = "Desktop Bridge", Mode = SerialBridgeMode.Server,
+                LocalHost = BridgeLocalHost, LocalPort = ParsePort(BridgeLocalPort, 9100),
+                EnableMultiplexing = true, CreateVirtualPorts = EnableVirtualSerialPorts,
+                // The server stores only its allowlist; serial settings arrive from the client on Open.
+                Channels = selected.Select(row => new SerialPortSettings { PortName = row.PortName }).ToArray()
+            };
             _bridgeId = await _serialBridgeService.StartAsync(profile, cancellationToken);
-            OnPropertyChanged(nameof(BridgeStatus));
-            NotifyBridgeState();
-            AddLog("映射", $"串口复用链路已启动，通道数: {selected.Length}", TransportEventKind.Connected);
+            AddLog("映射", $"已发布 {selected.Length} 个 COM 映射，等待客户端下发参数打开", TransportEventKind.Connected);
         }
-        catch (Exception ex)
-        {
-            AddLog("映射", $"启动失败: {ex.Message}", TransportEventKind.Error);
-        }
-        finally { _bridgeStarting = false; }
+        catch (Exception ex) { AddLog("映射", $"启动失败: {ex.Message}", TransportEventKind.Error); }
+        finally { _bridgeStarting = false; NotifyBridgeState(); }
     }
 
     private async Task StopBridgeAsync(CancellationToken cancellationToken = default)
@@ -413,6 +389,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     }
     private void NotifyBridgeState()
     {
+        OnPropertyChanged(nameof(BridgeStatus));
         OnPropertyChanged(nameof(IsBridgeRunning));
         OnPropertyChanged(nameof(CanConfigureBridge));
         StartBridgeCommand.NotifyCanExecuteChanged();

@@ -19,6 +19,10 @@ public partial class NetworkToolsWorkspace : UserControl
             "Nat" => new NatDetectionWindow(),
             "Upnp" => new UpnpDiscoveryWindow(),
             "Dns" => new DnsQueryWindow(),
+            "Checksum" => new ByteToolWindow(checksum: true),
+            "Codec" => new ByteToolWindow(),
+            "Ports" => new TcpPortCheckWindow(),
+            "Tls" => new TlsCertificateWindow(),
             _ => throw new InvalidOperationException($"Unknown network tool: {tool}")
         };
         window.Owner = Window.GetWindow(this);

@@ -8,6 +8,7 @@
                 <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" /></Border>
             </ControlTemplate></Setter.Value></Setter>
         </Style>
+        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="Padding" Value="8,5,34,5" /></Style>
         <local:SerialOptionLabelConverter x:Key="OptionLabel" />
         <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,7" /><Setter Property="FontSize" Value="12" /></Style>
         <Style x:Key="ModeButton" TargetType="RadioButton">
@@ -31,7 +32,7 @@
         <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12,22,10" Background="{StaticResource PanelBrush}">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="300" /><ColumnDefinition Width="96" /><ColumnDefinition Width="180" /><ColumnDefinition Width="112" /><ColumnDefinition Width="72" /></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="308" /><ColumnDefinition Width="134" /><ColumnDefinition Width="272" /><ColumnDefinition Width="206" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions>
                 <StackPanel Margin="0,0,14,0">
                     <TextBlock Text="串口设备" Style="{StaticResource FieldLabel}" />
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="260" /><ColumnDefinition Width="34" /></Grid.ColumnDefinitions>
@@ -43,11 +44,18 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,0,14,0" IsEnabled="{Binding CanConfigure}">
                     <TextBlock Text="波特率" Style="{StaticResource FieldLabel}" />
-                    <ComboBox x:Name="BaudSelector" IsEditable="True" ItemsSource="{Binding Owner.BaudRateOptions}" Text="{Binding SelectedSerialPort.BaudRate, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}" ToolTip="波特率，可输入自定义值" />
+                    <ComboBox x:Name="BaudSelector" IsEditable="True" ItemsSource="{Binding Owner.BaudRateOptions}" Text="{Binding SelectedSerialPort.BaudRate, UpdateSourceTrigger=LostFocus, ValidatesOnExceptions=True}" ToolTip="波特率，可输入自定义值">
+                        <ComboBox.Resources>
+                            <!-- TextBox applies its own padding; an extra content-host margin would reserve the arrow twice. -->
+                            <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                                <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><ScrollViewer x:Name="PART_ContentHost" /></ControlTemplate></Setter.Value></Setter>
+                            </Style>
+                        </ComboBox.Resources>
+                    </ComboBox>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Margin="0,0,14,0" IsEnabled="{Binding CanConfigure}">
                     <TextBlock Text="数据位 / 校验 / 停止位" Style="{StaticResource FieldLabel}" />
-                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="50" /><ColumnDefinition Width="*" /><ColumnDefinition Width="58" /></Grid.ColumnDefinitions>
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="60" /><ColumnDefinition Width="128" /><ColumnDefinition Width="70" /></Grid.ColumnDefinitions>
                         <ComboBox ItemsSource="{Binding Owner.DataBitsOptions}" SelectedItem="{Binding SelectedSerialPort.DataBits}" ToolTip="数据位" />
                         <ComboBox Grid.Column="1" Margin="5,0" ItemsSource="{Binding Owner.ParityOptions}" SelectedItem="{Binding SelectedSerialPort.Parity}" ToolTip="校验位"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource OptionLabel}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>
                         <ComboBox Grid.Column="2" ItemsSource="{Binding Owner.StopBitsOptions}" SelectedItem="{Binding SelectedSerialPort.StopBits}" ToolTip="停止位"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource OptionLabel}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox>

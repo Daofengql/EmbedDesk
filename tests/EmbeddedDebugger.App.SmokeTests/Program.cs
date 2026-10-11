@@ -58,12 +58,39 @@ internal sealed class SmokeApplication : Application
                 await NetworkToolsChecks.RunAsync();
                 Shutdown(0); return;
             }
+            if (e.Args.Contains("--dns-query-check"))
+            {
+                await DnsQueryChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--utility-tools-check"))
+            {
+                await UtilityToolsChecks.RunAsync(viewModel);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--serial-bridge-check"))
+            {
+                await SerialBridgeChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--live-doh-check"))
+            {
+                await DnsQueryChecks.RunLiveDohAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--live-dns-check"))
+            {
+                await DnsQueryChecks.RunLiveAsync();
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--live-nat-check"))
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
                 var report = await new NatDetector().DetectAsync(NatDetector.DefaultServers,
                     new Progress<NatObservation>(o => Console.WriteLine($"{o.Server} | {o.MappedEndpoint} | {o.Detail}")), timeout.Token);
                 Console.WriteLine(report.Label + " · " + report.Evidence);
+                foreach (var exit in report.Exits)
+                    Console.WriteLine($"{exit.Heading} | {exit.Label}\n{exit.MappingDetails}\n{exit.NodesText}\n{exit.LocalDetails}\n{exit.Evidence}");
                 Shutdown(0); return;
             }
             if (e.Args.Contains("--connection-layout-check"))

@@ -19,6 +19,7 @@ public partial class NatDetectionWindow : Window, IDisposable
     }
 
     public ObservableCollection<NatObservation> Results { get; } = [];
+    public ObservableCollection<NatExitReport> Exits { get; } = [];
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
@@ -26,8 +27,11 @@ public partial class NatDetectionWindow : Window, IDisposable
         var servers = ServersBox.Text.Split([';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (servers.Length is < 1 or > 16) { StatusText.Text = "请填写 1–16 个 STUN 节点，每行一个或用分号分隔。"; return; }
         Results.Clear();
+        Exits.Clear();
+        ServerSettings.IsExpanded = false;
+        ReportScroll.ScrollToTop();
         NatTypeText.Text = "检测中…";
-        SummaryText.Text = "正在比较多节点映射，并检测备用 IP / 端口的入站响应。";
+        SummaryText.Text = "正在采集节点映射；完成后按公网 IP 分组，分别复测并判断。";
         StatusText.Text = "IPv4 / UDP · 国内节点优先";
         using var lifetime = new CancellationTokenSource();
         _lifetime = lifetime;
@@ -46,6 +50,7 @@ public partial class NatDetectionWindow : Window, IDisposable
             lifetime.Token.ThrowIfCancellationRequested();
             NatTypeText.Text = report.Label;
             SummaryText.Text = report.Evidence;
+            foreach (var exit in report.Exits) Exits.Add(exit);
             StatusText.Text = "检测完成 · IPv4 / UDP";
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)

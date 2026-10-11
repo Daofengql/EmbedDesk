@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Net.Sockets;
 using System.Text;
 using EmbeddedDebugger.Core.Abstractions;
@@ -9,49 +8,76 @@ namespace EmbeddedDebugger.Infrastructure.Bridging;
 
 public sealed class RemoteSerialClient : IRemoteSerialClient
 {
+    private sealed class Connection(TcpClient client) : IDisposable
+    {
+        public TcpClient Client { get; } = client;
+        public NetworkStream Stream { get; } = client.GetStream();
+        public CancellationTokenSource Lifetime { get; } = new();
+        public Task Reader { get; set; } = Task.CompletedTask;
+        public void Abort() { Lifetime.Cancel(); Client.Dispose(); }
+        public void Dispose() { Client.Dispose(); Lifetime.Dispose(); }
+    }
     private readonly object _gate = new();
     private readonly Dictionary<ushort, RemoteSerialPort> _ports = new();
     private readonly HashSet<RemoteChannel> _channels = new();
-    private readonly SemaphoreSlim _writeLock = new(1, 1);
-    private TcpClient? _client;
-    private CancellationTokenSource? _lifetime;
-    private Task? _reader;
+    private readonly Dictionary<ushort, RemoteChannel> _active = new();
+    private readonly SemaphoreSlim _writeLock = new(1, 1), _connectionLock = new(1, 1);
+    private Connection? _connection;
+    private bool _disposed;
 
-    public bool IsConnected => _client?.Connected == true && _lifetime?.IsCancellationRequested == false;
+    public bool IsConnected => _connection is { } connection && !connection.Lifetime.IsCancellationRequested;
     public IReadOnlyList<RemoteSerialPort> Ports { get { lock (_gate) return _ports.Values.OrderBy(port => port.ChannelId).ToArray(); } }
     public event EventHandler? PortsChanged;
     public event EventHandler? ConnectionChanged;
 
     public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
-        await DisconnectAsync();
-        var client = new TcpClient { NoDelay = true };
-        try { await client.ConnectAsync(host, port, cancellationToken); }
-        catch { client.Dispose(); throw; }
-        _client = client;
-        _lifetime = new CancellationTokenSource();
-        _reader = ReadAsync(client.GetStream(), _lifetime.Token);
-        ConnectionChanged?.Invoke(this, EventArgs.Empty);
+        await _connectionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await DisconnectCoreAsync().ConfigureAwait(false);
+            var client = new TcpClient { NoDelay = true };
+            try { await client.ConnectAsync(host, port, cancellationToken).ConfigureAwait(false); }
+            catch { client.Dispose(); throw; }
+            var connection = new Connection(client);
+            _connection = connection;
+            connection.Reader = Task.Run(() => ReadAsync(connection));
+            ConnectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+        finally { _connectionLock.Release(); }
     }
 
     public async Task DisconnectAsync()
     {
-        _lifetime?.Cancel();
-        _client?.Dispose();
-        if (_reader is not null) await _reader;
-        _reader = null;
-        _client = null;
-        _lifetime?.Dispose();
-        _lifetime = null;
-        ClearPorts();
+        await _connectionLock.WaitAsync().ConfigureAwait(false);
+        try { await DisconnectCoreAsync().ConfigureAwait(false); }
+        finally { _connectionLock.Release(); }
+    }
+    private async Task DisconnectCoreAsync()
+    {
+        var connection = _connection;
+        if (connection is null) return;
+        connection.Abort();
+        await connection.Reader.ConfigureAwait(false);
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try { _connection = null; connection.Dispose(); }
+        finally { _writeLock.Release(); }
     }
 
     public ISerialPortChannel CreateChannel(string portName, SerialPortSettings settings)
     {
         lock (_gate)
         {
+            if (!IsConnected || _connection is null) throw new InvalidOperationException("网络串口服务未连接");
             var port = _ports.Values.FirstOrDefault(port => port.PortName == portName) ?? throw new InvalidOperationException("远程串口已离线");
-            var channel = new RemoteChannel(this, port.ChannelId, settings);
+            var wireSettings = new SerialPortSettings
+            {
+                PortName = port.DisplayName, BaudRate = settings.BaudRate, DataBits = settings.DataBits,
+                Parity = settings.Parity, StopBits = settings.StopBits, Handshake = settings.Handshake,
+                DtrEnable = settings.DtrEnable, RtsEnable = settings.RtsEnable
+            };
+            var channel = new RemoteChannel(this, _connection, port.ChannelId, settings, wireSettings);
             _channels.Add(channel);
             return channel;
         }
@@ -59,39 +85,43 @@ public sealed class RemoteSerialClient : IRemoteSerialClient
 
     public async ValueTask DisposeAsync()
     {
-        await DisconnectAsync();
-        _writeLock.Dispose();
+        await _connectionLock.WaitAsync().ConfigureAwait(false);
+        try { if (_disposed) return; _disposed = true; await DisconnectCoreAsync().ConfigureAwait(false); }
+        finally { _connectionLock.Release(); }
+        // Semaphores may still have cancellation continuations from a closing tab.
     }
 
-    private async Task ReadAsync(NetworkStream stream, CancellationToken token)
+    private async Task ReadAsync(Connection connection)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        var bytes = new byte[16384];
         try
         {
-            while (!token.IsCancellationRequested)
+            while (await MultiplexFrameCodec.ReadAsync(connection.Stream, connection.Lifetime.Token).ConfigureAwait(false) is { } frame)
             {
-                var count = await stream.ReadAsync(bytes, token);
-                if (count == 0) break;
-                buffer.Write(bytes.AsSpan(0, count));
-                while (MultiplexFrameCodec.TryDecode(ref buffer, out var frame) && frame is not null)
+                if (frame.Flags == MultiplexFrameFlags.Open)
                 {
-                    if (frame.Flags == MultiplexFrameFlags.Open)
+                    var name = Encoding.UTF8.GetString(frame.Payload.Span);
+                    if (frame.ChannelId == 0 || string.IsNullOrWhiteSpace(name) || name.Length > 128)
+                        throw new InvalidDataException("服务端返回了无效的串口映射。");
+                    lock (_gate) _ports[frame.ChannelId] = new(frame.ChannelId, $"REMOTE:{frame.ChannelId}", name);
+                    PortsChanged?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    RemoteChannel? channel;
+                    lock (_gate) _active.TryGetValue(frame.ChannelId, out channel);
+                    if (frame.Flags == MultiplexFrameFlags.OpenAcknowledged) channel?.Acknowledge();
+                    else if (frame.Flags == MultiplexFrameFlags.Error)
                     {
-                        var name = frame.Payload.IsEmpty ? $"通道 {frame.ChannelId}" : Encoding.UTF8.GetString(frame.Payload.Span);
-                        lock (_gate) _ports[frame.ChannelId] = new RemoteSerialPort(frame.ChannelId, $"REMOTE:{frame.ChannelId}", name);
-                        PortsChanged?.Invoke(this, EventArgs.Empty);
+                        var message = frame.Payload.IsEmpty ? "服务端串口操作失败" : Encoding.UTF8.GetString(frame.Payload.Span);
+                        // After opening, a COM failure must also take the visible session offline.
+                        if (channel is null || !channel.RejectOpen(message)) throw new IOException(message);
                     }
+                    else if (frame.Flags == MultiplexFrameFlags.Data) channel?.Receive(frame.Payload);
                     else if (frame.Flags == MultiplexFrameFlags.Close)
                     {
-                        lock (_gate) _ports.Remove(frame.ChannelId);
+                        channel?.MarkClosed();
+                        lock (_gate) { _active.Remove(frame.ChannelId); _ports.Remove(frame.ChannelId); }
                         PortsChanged?.Invoke(this, EventArgs.Empty);
-                    }
-                    else if (frame.Flags == MultiplexFrameFlags.Data)
-                    {
-                        RemoteChannel[] channels;
-                        lock (_gate) channels = _channels.Where(channel => channel.ChannelId == frame.ChannelId && channel.IsOpen).ToArray();
-                        foreach (var channel in channels) channel.Receive(frame.Payload);
                     }
                 }
             }
@@ -99,56 +129,140 @@ public sealed class RemoteSerialClient : IRemoteSerialClient
         catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException or InvalidDataException) { }
         finally
         {
-            _lifetime?.Cancel();
-            ClearPorts();
+            connection.Abort();
+            lock (_gate)
+            {
+                _ports.Clear();
+                foreach (var channel in _channels) channel.MarkClosed();
+                _active.Clear();
+            }
+            PortsChanged?.Invoke(this, EventArgs.Empty);
             ConnectionChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    private void ClearPorts()
+    private async Task SendAsync(Connection connection, ushort id, MultiplexFrameFlags flags, ReadOnlyMemory<byte> data, CancellationToken token)
     {
-        lock (_gate)
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        // Check connection identity before touching a potentially retired CancellationTokenSource.
+        await _writeLock.WaitAsync(token).ConfigureAwait(false);
+        try
         {
-            _ports.Clear();
-            foreach (var channel in _channels) channel.MarkClosed();
+            if (connection != _connection || !IsConnected) throw new InvalidOperationException("网络串口服务未连接");
+            using var disconnected = connection.Lifetime.Token.Register(lifetime.Cancel);
+            var chunkSize = flags == MultiplexFrameFlags.Data ? MultiplexFrameCodec.DataChunkSize : Math.Max(1, data.Length);
+            var offset = 0;
+            do
+            {
+                lifetime.Token.ThrowIfCancellationRequested();
+                var count = Math.Min(chunkSize, data.Length - offset);
+                await connection.Stream.WriteAsync(MultiplexFrameCodec.Encode(new(id, flags, data.Slice(offset, count))), lifetime.Token).ConfigureAwait(false);
+                offset += count;
+            } while (offset < data.Length);
         }
-        PortsChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private async Task SendAsync(ushort id, ReadOnlyMemory<byte> data, CancellationToken token)
-    {
-        if (!IsConnected || _client is null) throw new InvalidOperationException("网络串口服务未连接");
-        var frame = MultiplexFrameCodec.Encode(new MultiplexFrame(id, MultiplexFrameFlags.Data, data));
-        await _writeLock.WaitAsync(token);
-        try { await _client.GetStream().WriteAsync(frame, token); }
+        catch
+        {
+            // An interrupted frame cannot safely share the byte stream with another request.
+            if (connection == _connection) connection.Abort();
+            throw;
+        }
         finally { _writeLock.Release(); }
     }
 
-    private sealed class RemoteChannel(RemoteSerialClient owner, ushort channelId, SerialPortSettings settings) : ISerialPortChannel
+    private sealed class RemoteChannel(RemoteSerialClient owner, Connection connection, ushort id,
+        SerialPortSettings settings, SerialPortSettings wireSettings) : ISerialPortChannel
     {
+        private readonly SemaphoreSlim _operations = new(1, 1);
+        private TaskCompletionSource<bool>? _ready;
+        private volatile bool _isOpen;
+        private bool _disposed;
         public string Id { get; } = Guid.NewGuid().ToString("N");
-        public ushort ChannelId => channelId;
         public SerialPortSettings Settings => settings;
-        public bool IsOpen { get; private set; }
+        public bool IsOpen => _isOpen;
         public event EventHandler<ReadOnlyMemory<byte>>? DataReceived;
-        public Task OpenAsync(CancellationToken cancellationToken = default)
+
+        public async Task OpenAsync(CancellationToken cancellationToken = default)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!owner.IsConnected) throw new InvalidOperationException("远程串口已离线");
-            IsOpen = true;
-            return Task.CompletedTask;
+            await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (IsOpen) return;
+                var payload = SerialBridgeControlCodec.EncodeSettings(wireSettings);
+                if (!SerialBridgeControlCodec.TryDecodeSettings(payload, out _)) throw new ArgumentException("串口参数无效。");
+                lock (owner._gate)
+                {
+                    if (connection != owner._connection || !owner.IsConnected) throw new InvalidOperationException("远程串口已离线");
+                    if (!owner._active.TryAdd(id, this)) throw new InvalidOperationException("远程串口已在其他标签打开");
+                    _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                }
+                try
+                {
+                    await owner.SendAsync(connection, id, MultiplexFrameFlags.Open, payload, cancellationToken).ConfigureAwait(false);
+                    await _ready.Task.WaitAsync(TimeSpan.FromSeconds(8), cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!IsOpen) throw new IOException("远程串口打开期间连接已断开。");
+                }
+                catch (Exception ex)
+                {
+                    // Canceling a handshake must release any COM the server opened just before cancellation.
+                    if (ex is OperationCanceledException or TimeoutException && connection == owner._connection) connection.Abort();
+                    lock (owner._gate) if (owner._active.GetValueOrDefault(id) == this) owner._active.Remove(id);
+                    MarkClosed();
+                    throw;
+                }
+                finally { _ready = null; }
+            }
+            finally { _operations.Release(); }
         }
-        public Task CloseAsync(CancellationToken cancellationToken = default) { IsOpen = false; return Task.CompletedTask; }
-        public Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default) => IsOpen
-            ? owner.SendAsync(channelId, data, cancellationToken)
-            : throw new InvalidOperationException("远程串口未打开");
-        public void Receive(ReadOnlyMemory<byte> data) => DataReceived?.Invoke(this, data);
-        public void MarkClosed() => IsOpen = false;
-        public ValueTask DisposeAsync()
+        public void Acknowledge()
         {
-            IsOpen = false;
-            lock (owner._gate) owner._channels.Remove(this);
-            return ValueTask.CompletedTask;
+            if (_ready is { } ready && !ready.Task.IsCompleted) { _isOpen = true; ready.TrySetResult(true); }
+        }
+        public bool RejectOpen(string message) => _ready?.TrySetException(new InvalidOperationException(message)) == true;
+        public void Receive(ReadOnlyMemory<byte> data)
+        {
+            // Preserve immediate startup output received while the Open acknowledgement is in flight.
+            if (IsOpen || _ready is not null) DataReceived?.Invoke(this, data);
+        }
+        public void MarkClosed() { _isOpen = false; _ready?.TrySetException(new IOException("网络串口连接已断开")); }
+        public async Task CloseAsync(CancellationToken cancellationToken = default)
+        {
+            await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { await CloseCoreAsync(cancellationToken).ConfigureAwait(false); }
+            finally { _operations.Release(); }
+        }
+        private async Task CloseCoreAsync(CancellationToken token)
+        {
+            var wasOpen = IsOpen; _isOpen = false;
+            try
+            {
+                if (wasOpen && connection == owner._connection && owner.IsConnected)
+                    await owner.SendAsync(connection, id, MultiplexFrameFlags.Close, ReadOnlyMemory<byte>.Empty, token).ConfigureAwait(false);
+            }
+            finally { lock (owner._gate) if (owner._active.GetValueOrDefault(id) == this) owner._active.Remove(id); }
+        }
+        public async Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+        {
+            await _operations.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!IsOpen) throw new InvalidOperationException("远程串口未打开");
+                await owner.SendAsync(connection, id, MultiplexFrameFlags.Data, data, cancellationToken).ConfigureAwait(false);
+            }
+            finally { _operations.Release(); }
+        }
+        public async ValueTask DisposeAsync()
+        {
+            await _operations.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_disposed) return;
+                _disposed = true;
+                try { await CloseCoreAsync(CancellationToken.None).ConfigureAwait(false); }
+                finally { lock (owner._gate) owner._channels.Remove(this); }
+            }
+            finally { _operations.Release(); }
         }
     }
 }

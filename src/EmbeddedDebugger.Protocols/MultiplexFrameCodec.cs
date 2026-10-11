@@ -11,7 +11,8 @@ public enum MultiplexFrameFlags : byte
     Open = 1,
     Close = 2,
     Heartbeat = 4,
-    Error = 8
+    Error = 8,
+    OpenAcknowledged = 16
 }
 
 public sealed record MultiplexFrame(
@@ -25,6 +26,27 @@ public static class MultiplexFrameCodec
     private const byte Version = 1;
     private const int HeaderSize = 16;
     private const int MaxPayloadSize = 4 * 1024 * 1024;
+    public const int DataChunkSize = 32 * 1024;
+
+    // Exact reads avoid repeatedly copying a partially received large frame.
+    public static async Task<MultiplexFrame?> ReadAsync(Stream stream, CancellationToken token)
+    {
+        var header = new byte[HeaderSize];
+        if (await stream.ReadAsync(header.AsMemory(0, 1), token).ConfigureAwait(false) == 0) return null;
+        await stream.ReadExactlyAsync(header.AsMemory(1), token).ConfigureAwait(false);
+        if (BinaryPrimitives.ReadUInt32BigEndian(header) != Magic || header[4] != Version)
+            throw new InvalidDataException("Invalid serial bridge protocol header.");
+        var flags = (MultiplexFrameFlags)header[5];
+        if (!Enum.IsDefined(flags)) throw new InvalidDataException("Unknown serial bridge frame type.");
+        var length = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(8, 4));
+        var limit = flags == MultiplexFrameFlags.Data ? MaxPayloadSize : 4096;
+        if (length < 0 || length > limit) throw new InvalidDataException("Invalid serial bridge payload length.");
+        var payload = new byte[length];
+        await stream.ReadExactlyAsync(payload, token).ConfigureAwait(false);
+        if (BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(12, 4)) != ComputeChecksum(payload))
+            throw new InvalidDataException("Serial bridge checksum mismatch.");
+        return new(BinaryPrimitives.ReadUInt16BigEndian(header.AsSpan(6, 2)), flags, payload);
+    }
 
     public static byte[] Encode(MultiplexFrame frame)
     {

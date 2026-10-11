@@ -28,7 +28,13 @@ internal static class NetworkToolsChecks
         await using (var server = new StunFixture(NatKind.OpenInternet))
             Require((await Detect(server)).Kind == NatKind.OpenInternet, "Unchanged local address and port are detected as no NAT");
         await using (var server = new StunFixture(NatKind.FullCone, multipleExits: true))
-            Require((await Detect(server)).Kind == NatKind.Unknown, "Different public exit IPs are not automatically classified as Symmetric NAT");
+        {
+            var report = await Detect(server);
+            Require(report.Exits.Count == 2 && report.Exits.All(exit => exit.Kind == NatKind.Unknown && exit.TargetCount == 1),
+                "Each exit needs its own mapping comparison; one target per exit cannot imply Symmetric NAT");
+            Require(report.Label.Contains("2 个公网出口"), "Multiple exits have an explicit summary instead of a single inconclusive NAT verdict");
+        }
+        await CheckGroupedExitsAsync();
         await using (var server = new StunFixture(NatKind.FullCone, badPackets: true))
             Require((await Detect(server)).Kind == NatKind.Unknown, "Wrong transaction IDs and truncated attributes are rejected");
         await using (var server = new StunFixture(NatKind.FullCone, silent: true))
@@ -98,11 +104,118 @@ internal static class NetworkToolsChecks
             }
             finally { nat.Close(); }
         }
+        await using (var first = new StunFixture(NatKind.FullCone))
+        await using (var second = new StunFixture(NatKind.FullCone, publicIp: "198.51.100.20"))
+        {
+            var nat = new NatDetectionWindow();
+            nat.Show();
+            try
+            {
+                ((TextBox)nat.FindName("ServersBox")).Text = string.Join(Environment.NewLine, first.Primary, second.Primary);
+                Click(nat, "StartButton");
+                await WaitAsync(() => ((Button)nat.FindName("StartButton")).IsEnabled);
+                Require(nat.Exits.Count == 2 && nat.Exits.All(exit => exit.Kind == NatKind.FullCone), "NAT window presents both independently classified exits");
+                Require(nat.Results.Count == 2 && nat.Results.All(row => row.Detail == "映射成功"), "Only configured node results appear; auxiliary filtering rows stay removed");
+                // Reproduce a full default-node report, including the longer inferred verdict.
+                nat.Exits[0] = nat.Exits[0] with
+                {
+                    PublicIp = "175.44.158.80", Kind = NatKind.PortRestrictedCone,
+                    Nodes = NatDetector.DefaultServers.Take(3).ToArray(), TargetCount = 4,
+                    Evidence = "此出口在不同目标间的映射端口一致，首节点复测稳定。不同 IP / 端口的响应均超时，原来源复测成功（基于超时推断，丢包或防火墙可能影响结果）。"
+                };
+                nat.Exits[1] = nat.Exits[1] with
+                {
+                    PublicIp = "13.212.127.159", Kind = NatKind.Unknown,
+                    Nodes = NatDetector.DefaultServers.Skip(3).ToArray(), TargetCount = 6,
+                    Evidence = "此出口在不同目标间的映射端口一致，首节点复测稳定（锥形候选）；缺少属于此出口的有效过滤证据，暂不能区分三种锥形 NAT。"
+                };
+                var summary = (TextBlock)nat.FindName("SummaryText");
+                summary.Text = summary.Text.Replace("2/2", "1/2", StringComparison.Ordinal);
+                nat.Results.Clear();
+                foreach (var node in NatDetector.DefaultServers)
+                {
+                    var exit = nat.Exits.Single(group => group.Nodes.Contains(node));
+                    nat.Results.Add(new(node, $"{exit.PublicIp}:{exit.Ports[0]}", "330.2 ms", "映射成功"));
+                }
+                nat.UpdateLayout();
+                var scroll = (ScrollViewer)nat.FindName("ReportScroll");
+                await FileWorkspaceChecks.CaptureAsync(nat, "embedded-debugger-nat-default-layout.png");
+                Require(scroll.ScrollableHeight < 1, "Default size shows both detailed exit verdicts and all nine default node rows without scrolling");
+                nat.Width = nat.MinWidth;
+                nat.Height = nat.MinHeight;
+                foreach (var expander in Descendants<Expander>((ItemsControl)nat.FindName("ExitReports"))) expander.IsExpanded = true;
+                nat.UpdateLayout();
+                Require(scroll.ScrollableHeight > 0 && scroll.ViewportHeight > 100, "Expanded details remain accessible through the report scrollbar at minimum window size");
+                scroll.ScrollToBottom();
+                await FileWorkspaceChecks.CaptureAsync(nat, "embedded-debugger-nat-grouped-small.png");
+                Require(Descendants<DataGrid>(nat).Single().ActualHeight > 100, "Node table retains usable space at minimum window size");
+                ((TextBox)nat.FindName("ServersBox")).Text = first.Primary.ToString();
+                Click(nat, "StartButton");
+                Require(nat.Exits.Count == 0, "A new detection clears previous exit groups");
+                Click(nat, "StopButton");
+                await WaitAsync(() => ((Button)nat.FindName("StartButton")).IsEnabled);
+                Require(nat.Exits.Count == 0, "Canceled detection does not restore stale group verdicts");
+            }
+            finally { nat.Close(); }
+        }
+    }
+
+    private static async Task CheckGroupedExitsAsync()
+    {
+        await using (var first = new StunFixture(NatKind.FullCone))
+        await using (var second = new StunFixture(NatKind.PortRestrictedCone, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, second);
+            Require(report.Exits.Count == 2 && report.Exits[0].Kind == NatKind.FullCone && report.Exits[1].Kind == NatKind.PortRestrictedCone,
+                "Two exits retain different cone classifications without mixing filtering evidence");
+            Require(report.Exits.All(exit => exit.Ports.Count == 1 && exit.TargetCount == 2 && exit.Nodes.Count == 2),
+                "Each exit reports its own targets, mapped ports and configured nodes");
+        }
+        await using (var first = new StunFixture(NatKind.Symmetric))
+        await using (var second = new StunFixture(NatKind.Unknown, advertise: false, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, second);
+            Require(report.Exits[0].Kind == NatKind.Symmetric && report.Exits[0].Ports.Count == 2 && report.Exits[1].Kind == NatKind.Unknown,
+                "Port changes within one exit identify Symmetric NAT even if another exit lacks filtering evidence");
+        }
+        await using (var first = new StunFixture(NatKind.FullCone, filteringIp: "198.51.100.20"))
+        await using (var second = new StunFixture(NatKind.Unknown, advertise: false, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, second);
+            Require(report.Exits.Count == 2 && report.Exits.All(exit => exit.Kind == NatKind.Unknown),
+                "A filtering socket routed to another exit cannot classify either mapping group");
+        }
+        await using (var first = new StunFixture(NatKind.FullCone, rebind: true))
+        await using (var second = new StunFixture(NatKind.FullCone, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, second);
+            Require(report.Exits[0].Kind == NatKind.Unknown && report.Exits[1].Kind == NatKind.FullCone,
+                "A rebind in one exit does not discard the other exit's valid verdict");
+        }
+        await using (var first = new StunFixture(NatKind.FullCone))
+        await using (var sameExit = new StunFixture(NatKind.FullCone))
+        await using (var nextExit = new StunFixture(NatKind.RestrictedCone, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, sameExit, nextExit);
+            Require(report.Exits[1].Kind == NatKind.RestrictedCone, "Two behavior tests on the first exit do not exhaust the next exit's test budget");
+        }
+        await using (var first = new StunFixture(NatKind.FullCone))
+        await using (var conflicting = new StunFixture(NatKind.RestrictedCone))
+        await using (var nextExit = new StunFixture(NatKind.FullCone, publicIp: "198.51.100.20"))
+        {
+            var report = await Detect(first, conflicting, nextExit);
+            Require(report.Exits[0].Kind == NatKind.Unknown && report.Exits[1].Kind == NatKind.FullCone,
+                "Conflicting filtering evidence only invalidates the affected exit");
+        }
     }
 
     private static Task<NatReport> Detect(StunFixture fixture) =>
         new NatDetector(TimeSpan.FromMilliseconds(120)).DetectAsync(
             [fixture.Primary.ToString(), fixture.Other.ToString()], null, CancellationToken.None);
+
+    private static Task<NatReport> Detect(params StunFixture[] fixtures) =>
+        new NatDetector(TimeSpan.FromMilliseconds(120)).DetectAsync(
+            fixtures.SelectMany(fixture => new[] { fixture.Primary.ToString(), fixture.Other.ToString() }), null, CancellationToken.None);
 
     private static void Click(Window window, string name) => ((Button)window.FindName(name)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     private static async Task WaitAsync(Func<bool> predicate)
@@ -133,15 +246,20 @@ internal static class NetworkToolsChecks
         private readonly Task _worker;
         private readonly NatKind _kind;
         private readonly bool _advertise, _ignoreChange, _rebind, _badPackets, _silent, _multipleExits;
+        private readonly IPAddress _publicIp;
+        private readonly IPAddress? _filteringIp;
         private int _mappingPort, _primaryHits;
         public HashSet<int> MappingPorts { get; } = [];
         public IPEndPoint Primary => (IPEndPoint)_primary.Client.LocalEndPoint!;
         public IPEndPoint Other => (IPEndPoint)_other.Client.LocalEndPoint!;
 
-        public StunFixture(NatKind kind, bool advertise = true, bool ignoreChange = false, bool rebind = false, bool badPackets = false, bool silent = false, bool multipleExits = false)
+        public StunFixture(NatKind kind, bool advertise = true, bool ignoreChange = false, bool rebind = false, bool badPackets = false, bool silent = false, bool multipleExits = false,
+            string publicIp = "203.0.113.10", string? filteringIp = null)
         {
             _kind = kind; _advertise = advertise; _ignoreChange = ignoreChange; _rebind = rebind; _badPackets = badPackets; _silent = silent;
             _multipleExits = multipleExits;
+            _publicIp = IPAddress.Parse(publicIp);
+            _filteringIp = filteringIp is null ? null : IPAddress.Parse(filteringIp);
             _portOnly = new(new IPEndPoint(IPAddress.Loopback, Other.Port));
             _worker = Task.WhenAll(Serve(_primary, false), Serve(_other, true));
         }
@@ -152,7 +270,10 @@ internal static class NetworkToolsChecks
             {
                 while (true)
                 {
-                    var packet = await receiver.ReceiveAsync(_stop.Token);
+                    UdpReceiveResult packet;
+                    try { packet = await receiver.ReceiveAsync(_stop.Token); }
+                    // Windows can report an ICMP port-unreachable after the canceled client closes.
+                    catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset) { continue; }
                     if (_silent || packet.Buffer.Length < 20) continue;
                     var request = packet.Buffer;
                     var change = request.Length == 28 ? BinaryPrimitives.ReadUInt32BigEndian(request.AsSpan(24)) : 0;
@@ -165,7 +286,8 @@ internal static class NetworkToolsChecks
                     var responseSocket = change != 0 && !_ignoreChange ? change == 6 ? _other : _portOnly : receiver;
                     var mappedPort = 10000 + sourcePort % 40000 + (_kind == NatKind.Symmetric && other ? 1 : 0);
                     if (_rebind && _primaryHits > 1 && sourcePort == _mappingPort) mappedPort += 2;
-                    var mapped = _kind == NatKind.OpenInternet ? packet.RemoteEndPoint : new IPEndPoint(IPAddress.Parse("203.0.113.10"), mappedPort);
+                    var mapped = _kind == NatKind.OpenInternet ? packet.RemoteEndPoint : new IPEndPoint(
+                        sourcePort != _mappingPort && _filteringIp is not null ? _filteringIp : _publicIp, mappedPort);
                     if (_multipleExits && other) mapped = new(IPAddress.Parse("198.51.100.20"), mappedPort);
                     var bytes = Response(request, mapped, other ? Primary : Other, _advertise && !other);
                     if (_badPackets)

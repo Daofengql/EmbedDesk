@@ -16,17 +16,25 @@
         </Grid>
         <Grid Grid.Row="2">
             <Grid Visibility="{Binding IsBridgeServer, Converter={StaticResource BooleanVisibility}}"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="映射通道" FontWeight="SemiBold" VerticalAlignment="Center" /><Button Grid.Column="1" Style="{StaticResource IconButton}" Command="{Binding ScanSerialPortsCommand}" ToolTip="刷新串口"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" /></Button></Grid>
+                <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="映射通道" FontWeight="SemiBold" /><TextBlock Text="服务端只选择 COM；客户端打开远程标签时才下发波特率和串口参数" Style="{StaticResource MutedText}" FontSize="11" Margin="0,4,0,0" /></StackPanel><Button Grid.Column="1" Style="{StaticResource IconButton}" Command="{Binding ScanSerialPortsCommand}" ToolTip="刷新串口"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" /></Button></Grid>
                 <DataGrid Grid.Row="1" ItemsSource="{Binding SerialPorts}" IsEnabled="{Binding CanConfigureBridge}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" RowHeight="42"><DataGrid.Columns>
                     <DataGridTemplateColumn Header="映射" Width="56"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Style.Triggers><DataTrigger Binding="{Binding IsRemote}" Value="True"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
                     <DataGridTextColumn Header="串口" Binding="{Binding PortName}" IsReadOnly="True" Width="100" />
                     <DataGridTextColumn Header="设备" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
-                    <DataGridTextColumn Header="波特率" Binding="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True}" Width="100" />
+                    <DataGridTemplateColumn Header="串口参数" Width="155">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="客户端打开时设置" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                           ToolTip="服务端只保存 COM 映射；客户端打开远程串口时提供波特率、数据位、校验、停止位和流控" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="状态" Binding="{Binding Status}" IsReadOnly="True" Width="80" />
                 </DataGrid.Columns></DataGrid>
             </Grid>
             <StackPanel><StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding IsBridgeServer}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
                 <TextBlock Text="远程串口" FontWeight="SemiBold" Margin="0,8,0,14" />
+                <TextBlock Text="连接后到串口调试页选择远程 COM，设置波特率等参数，再点击连接。关闭标签或断开映射后，服务端释放 COM。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,14" />
                 <TextBlock Text="{Binding BridgeStatus}" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,14" />
                 <CheckBox Content="创建系统虚拟 COM 设备" IsChecked="{Binding EnableVirtualSerialPorts}" IsEnabled="False" ToolTip="系统虚拟 COM 驱动适配器尚未配置" />
             </StackPanel>

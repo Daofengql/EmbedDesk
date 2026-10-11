@@ -8,8 +8,13 @@ namespace EmbeddedDebugger.Infrastructure.Networking;
 
 public enum NatKind { Unknown, OpenInternet, FullCone, RestrictedCone, PortRestrictedCone, Symmetric }
 public sealed record NatObservation(string Server, string MappedEndpoint, string Latency, string Detail);
-public sealed record NatReport(NatKind Kind, string Evidence)
+public sealed record NatExitReport(string PublicIp, NatKind Kind, string Evidence,
+    IReadOnlyList<string> Nodes, int TargetCount, IReadOnlyList<int> Ports, string LocalEndpoint)
 {
+    public string Heading => $"公网出口 {PublicIp}";
+    public string MappingDetails => $"节点 {Nodes.Count} 个 · 目标 IP {TargetCount} 个（含备用地址） · 映射端口：{string.Join(", ", Ports)}";
+    public string NodesText => "参与节点：" + string.Join("、", Nodes);
+    public string LocalDetails => "本地 UDP：" + LocalEndpoint;
     public string Label => Kind switch
     {
         NatKind.FullCone => "全锥形 NAT / Full Cone NAT",
@@ -20,15 +25,26 @@ public sealed record NatReport(NatKind Kind, string Evidence)
         _ => "暂无法确定 / Inconclusive"
     };
 }
+public sealed record NatReport(IReadOnlyList<NatExitReport> Exits, string Evidence)
+{
+    // There is deliberately no single NAT classification across independent exits.
+    public NatKind Kind => Exits.Count == 1 ? Exits[0].Kind : NatKind.Unknown;
+    public string Label => Exits.Count switch
+    {
+        0 => "暂无法确定 / Inconclusive",
+        1 => Exits[0].Label,
+        _ => $"检测到 {Exits.Count} 个公网出口 / Multiple exits"
+    };
+}
 
 /// <summary>IPv4 UDP mapping comparison and RFC 5780 alternate-source filtering tests.</summary>
 public sealed class NatDetector
 {
     public static IReadOnlyList<string> DefaultServers { get; } =
     [
-        "stun.miwifi.com:3478", "stun.qq.com:3478", "stun.chat.bilibili.com:3478",
-        "stun.hitv.com:3478", "stun.douyucdn.cn:3478",
-        "stun.cloudflare.com:3478", "stun.l.google.com:19302"
+        "stun.miwifi.com:3478", "stun.chat.bilibili.com:3478", "stun.hitv.com:3478",
+        "stun.cdnbye.com:3478", "stun.cloudflare.com:3478", "stun.l.google.com:19302",
+        "stun.voip.blackberry.com:3478", "stun.antisip.com:3478", "stun.telnyx.com:3478"
     ];
     private const uint Cookie = 0x2112A442;
     private readonly TimeSpan _timeout;
@@ -39,9 +55,8 @@ public sealed class NatDetector
         // Every mapping comparison MUST reuse this socket: different local ports create
         // different mappings even on a full-cone NAT.
         using var socket = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
-        var observations = new List<(IPEndPoint Server, IPEndPoint Mapped, IPAddress Local)>();
-        var filters = new HashSet<NatKind>();
-        var behaviorTests = 0;
+        var observations = new List<MappingSample>();
+        var filters = new Dictionary<IPAddress, List<FilteringSample>>();
         foreach (var server in servers.Distinct(StringComparer.OrdinalIgnoreCase).Take(16))
         {
             token.ThrowIfCancellationRequested();
@@ -55,33 +70,29 @@ public sealed class NatDetector
                     progress?.Report(new(server, "—", "—", reply?.Error == true ? "STUN 服务拒绝请求" : "超时 / 无有效响应"));
                     continue;
                 }
-                using var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                route.Connect(remote);
-                observations.Add((remote, reply.Mapped, ((IPEndPoint)route.LocalEndPoint!).Address));
-                progress?.Report(new(server, reply.Mapped.ToString(), $"{Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.0} ms",
-                    reply.Other is null ? "映射成功 · 不支持行为检测" : "映射成功 · 支持备用地址"));
+                var local = LocalAddress(remote);
+                observations.Add(new(server, remote, reply.Mapped, local));
+                progress?.Report(new(server, reply.Mapped.ToString(), $"{Stopwatch.GetElapsedTime(started).TotalMilliseconds:0.0} ms", "映射成功"));
 
-                if (behaviorTests < 2 && ValidAlternate(remote, reply.Other))
+                if (!filters.TryGetValue(reply.Mapped.Address, out var exitFilters))
+                    filters[reply.Mapped.Address] = exitFilters = [];
+                if (exitFilters.Count < 2 && ValidAlternate(remote, reply.Other))
                 {
-                    behaviorTests++;
-                    var filtering = await TestFilteringAsync(remote, token).ConfigureAwait(false);
-                    if (filtering != NatKind.Unknown) filters.Add(filtering);
-                    progress?.Report(new(server + " · 过滤测试", reply.Mapped.ToString(), "—", filtering switch
-                    {
-                        NatKind.FullCone => "已收到不同 IP、不同端口的响应",
-                        NatKind.RestrictedCone => "仅同 IP 的不同端口响应成功",
-                        NatKind.PortRestrictedCone => "备用来源均超时，原来源复测成功（推断）",
-                        _ => "备用来源不可验证，不能细分锥形类型"
-                    }));
+                    // Budget and evidence belong to this exit, not to the whole run.
+                    // A fresh filtering socket can itself be routed to a different exit.
+                    FilteringSample? filtering = null;
+                    try { filtering = await TestFilteringAsync(remote, token).ConfigureAwait(false); }
+                    catch (SocketException) { }
+                    exitFilters.Add(filtering is not null && filtering.PublicIp.Equals(reply.Mapped.Address) && filtering.Local.Equals(local)
+                        ? filtering : new(reply.Mapped.Address, local, NatKind.Unknown));
                     // Additional mapping destination on the same socket, after filtering.
-                    var alternate = await ExchangeAsync(socket, reply.Other!, 0, null, token).ConfigureAwait(false);
-                    if (alternate?.Mapped is not null && !alternate.Error)
+                    try
                     {
-                        using var alternateRoute = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                        alternateRoute.Connect(reply.Other!);
-                        observations.Add((reply.Other!, alternate.Mapped, ((IPEndPoint)alternateRoute.LocalEndPoint!).Address));
-                        progress?.Report(new(server + " · 备用地址", alternate.Mapped.ToString(), "—", "备用映射成功"));
+                        var alternate = await ExchangeAsync(socket, reply.Other!, 0, null, token).ConfigureAwait(false);
+                        if (alternate?.Mapped is not null && !alternate.Error)
+                            observations.Add(new(server, reply.Other!, alternate.Mapped, LocalAddress(reply.Other!)));
                     }
+                    catch (SocketException) { } // Optional diagnostics must not duplicate a successful node row.
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -91,35 +102,67 @@ public sealed class NatDetector
             }
         }
         if (observations.Count == 0)
-            return new(NatKind.Unknown, "没有收到有效响应，可能是节点不可用或 UDP 受限；不能据此确定 NAT 类型。");
+            return new([], "没有收到有效响应，可能是节点不可用或 UDP 受限；不能据此确定 NAT 类型。");
+        var localPort = ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
+        var exits = new List<NatExitReport>();
+        foreach (var group in observations.GroupBy(o => o.Mapped.Address))
+        {
+            token.ThrowIfCancellationRequested();
+            filters.TryGetValue(group.Key, out var exitFilters);
+            var changingExit = group.Any(sample => observations.Any(other =>
+                other.Server.Equals(sample.Server) && !other.Mapped.Address.Equals(sample.Mapped.Address)));
+            exits.Add(await ClassifyExitAsync(socket, group.ToList(), exitFilters ?? [], localPort, changingExit, token).ConfigureAwait(false));
+        }
+        var confirmed = exits.Count(exit => exit.Kind != NatKind.Unknown);
+        return new(exits, $"按公网 IP 分组，{confirmed}/{exits.Count} 个出口已判定。" + (exits.Count > 1
+            ? "不同出口可能来自分流、多出口或 NAT 地址池；各组独立比较，结论仅适用于本次采样路径。"
+            : "结论仅适用于本次 IPv4 / UDP 采样路径。"));
+    }
+
+    private sealed record MappingSample(string Name, IPEndPoint Server, IPEndPoint Mapped, IPAddress Local);
+    private sealed record FilteringSample(IPAddress PublicIp, IPAddress Local, NatKind Kind);
+
+    private static IPAddress LocalAddress(IPEndPoint remote)
+    {
+        using var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        route.Connect(remote);
+        return ((IPEndPoint)route.LocalEndPoint!).Address;
+    }
+
+    private async Task<NatExitReport> ClassifyExitAsync(UdpClient socket, List<MappingSample> observations,
+        List<FilteringSample> filtering, int localPort, bool changingExit, CancellationToken token)
+    {
         var first = observations[0];
         var distinctServers = observations.Select(o => o.Server.Address).Distinct().Count();
         var mappedCount = observations.Select(o => o.Mapped).Distinct().Count();
-        var prefix = $"有效目标 IP {distinctServers} 个 · 公网映射 {mappedCount} 个。";
+        NatExitReport Result(NatKind kind, string evidence) => new(first.Mapped.Address.ToString(), kind, evidence,
+            observations.Select(o => o.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), distinctServers,
+            observations.Select(o => o.Mapped.Port).Distinct().Order().ToArray(),
+            string.Join(", ", observations.Select(o => new IPEndPoint(o.Local, localPort)).Distinct()));
         if (observations.Select(o => o.Local).Distinct().Count() > 1)
-            return new(NatKind.Unknown, prefix + "节点经不同网络出口发送，映射不能直接比较。");
-        if (observations.Select(o => o.Mapped.Address).Distinct().Count() > 1)
-            return new(NatKind.Unknown, prefix + "出现多个公网出口，可能存在 VPN / 代理分流、多出口或 NAT 地址池。请选用同一出口的节点重新检测，不能仅凭公网 IP 不同判为对称型。");
-        var localPort = ((IPEndPoint)socket.Client.LocalEndPoint!).Port;
+            return Result(NatKind.Unknown, "公网 IP 相同，但本地发送接口不同，映射不能直接比较。");
+        if (changingExit || observations.GroupBy(o => o.Server).Any(g => g.Select(o => o.Mapped).Distinct().Count() > 1))
+            return Result(NatKind.Unknown, "同一目标在检测中出现映射变化，可能发生网络切换或映射重建，请复测。");
         if (observations.All(o => o.Mapped.Address.Equals(o.Local) && o.Mapped.Port == localPort))
-            return new(NatKind.OpenInternet, prefix + "公网地址及端口与本地出口一致；入站过滤仍可能由防火墙限制。");
+            return Result(NatKind.OpenInternet, "公网地址及端口与本地出口一致；入站过滤仍可能由防火墙限制。");
         if (distinctServers < 2)
-            return new(NatKind.Unknown, prefix + "需要至少两个不同 IP 的可用节点比较映射。");
+            return Result(NatKind.Unknown, "此出口只有一个有效目标 IP，需要至少两个不同 IP 的可用目标比较映射；其他出口的节点不参与此组判断。");
         // Recheck the initial destination to distinguish destination-dependent mapping
         // from a changing network/mapping during the measurement.
         Reply? recheck;
         try { recheck = await ExchangeAsync(socket, first.Server, 0, null, token).ConfigureAwait(false); }
         catch (SocketException) { recheck = null; }
         if (recheck?.Mapped is null || recheck.Error || !recheck.Mapped.Equals(first.Mapped))
-            return new(NatKind.Unknown, prefix + "首节点复测失败或映射变化，请重试以排除网络切换与映射过期。");
+            return Result(NatKind.Unknown, "此出口首节点复测失败或映射变化，请重试以排除网络切换与映射过期。");
         if (mappedCount > 1)
-            return new(NatKind.Symmetric, prefix + "同一本地 UDP 端口对不同目标产生不同映射，首节点复测一致。");
-        if (filters.Count != 1)
-            return new(NatKind.Unknown, prefix + (filters.Count > 1
+            return Result(NatKind.Symmetric, "同一公网 IP 下，同一本地 UDP 端口访问不同目标时产生不同映射端口，首节点复测一致。");
+        var filters = filtering.Where(f => f.Local.Equals(first.Local) && f.Kind != NatKind.Unknown).Select(f => f.Kind).Distinct().ToArray();
+        if (filters.Length != 1)
+            return Result(NatKind.Unknown, filters.Length > 1
                 ? "节点的过滤测试结果不一致，请复测。"
-                : "映射稳定（锥形候选）；节点未提供有效的备用来源响应，无法区分全锥形、受限锥形与端口受限锥形。"));
+                : "此出口在不同目标间的映射端口一致，首节点复测稳定（锥形候选）；缺少属于此出口的有效过滤证据，暂不能区分三种锥形 NAT。");
         var kind = filters.Single();
-        return new(kind, prefix + "同一本地 UDP 端口的映射稳定。" + (kind switch
+        return Result(kind, "此出口在不同目标间的映射端口一致，首节点复测稳定。" + (kind switch
         {
             NatKind.FullCone => "未事先发送到备用 IP / 端口，也收到其响应。",
             NatKind.RestrictedCone => "不同 IP 的响应超时，同 IP 的不同端口响应成功（基于超时推断）。",
@@ -127,25 +170,27 @@ public sealed class NatDetector
         }));
     }
 
-    private async Task<NatKind> TestFilteringAsync(IPEndPoint primary, CancellationToken token)
+    private async Task<FilteringSample?> TestFilteringAsync(IPEndPoint primary, CancellationToken token)
     {
         // A fresh socket has not contacted the alternate IP/port and therefore has
         // not opened a pinhole that would invalidate restricted-cone filtering tests.
         using var socket = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
         var baseline = await ExchangeAsync(socket, primary, 0, null, token).ConfigureAwait(false);
-        if (baseline?.Mapped is null || !ValidAlternate(primary, baseline.Other)) return NatKind.Unknown;
+        if (baseline?.Mapped is null || baseline.Error || !ValidAlternate(primary, baseline.Other)) return null;
+        var local = LocalAddress(primary);
+        FilteringSample Result(NatKind kind) => new(baseline.Mapped.Address, local, kind);
         var other = baseline.Other!;
         var changed = await ExchangeAsync(socket, primary, 6, other, token).ConfigureAwait(false);
         if (changed is not null)
-            return !changed.Error && changed.Source.Equals(other) && Equals(changed.Mapped, baseline.Mapped)
-                ? NatKind.FullCone : NatKind.Unknown; // A server ignoring CHANGE-REQUEST is not evidence.
+            return Result(!changed.Error && changed.Source.Equals(other) && Equals(changed.Mapped, baseline.Mapped)
+                ? NatKind.FullCone : NatKind.Unknown); // A server ignoring CHANGE-REQUEST is not evidence.
         var changedPort = new IPEndPoint(primary.Address, other.Port);
         var portReply = await ExchangeAsync(socket, primary, 2, changedPort, token).ConfigureAwait(false);
         if (portReply is not null)
-            return !portReply.Error && portReply.Source.Equals(changedPort) && Equals(portReply.Mapped, baseline.Mapped)
-                ? NatKind.RestrictedCone : NatKind.Unknown;
+            return Result(!portReply.Error && portReply.Source.Equals(changedPort) && Equals(portReply.Mapped, baseline.Mapped)
+                ? NatKind.RestrictedCone : NatKind.Unknown);
         var control = await ExchangeAsync(socket, primary, 0, null, token).ConfigureAwait(false);
-        return control is { Error: false } && Equals(control.Mapped, baseline.Mapped) ? NatKind.PortRestrictedCone : NatKind.Unknown;
+        return Result(control is { Error: false } && Equals(control.Mapped, baseline.Mapped) ? NatKind.PortRestrictedCone : NatKind.Unknown);
     }
 
     private static bool ValidAlternate(IPEndPoint primary, IPEndPoint? other) =>

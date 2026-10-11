@@ -106,7 +106,17 @@ internal sealed class SerialPortChannel : ISerialPortChannel
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed != 0, this);
         if (!_port.IsOpen) throw new InvalidOperationException("Serial port is not open.");
-        _port.Write(data.ToArray(), 0, data.Length);
+        // Keep each blocking driver write near 100 ms at the configured baud rate.
+        // A single large Write otherwise hits the 500 ms timeout even on a healthy COM.
+        var chunkSize = Math.Clamp(Settings.BaudRate / 100, 1, 1024);
+        var chunk = new byte[Math.Min(chunkSize, data.Length)];
+        for (var offset = 0; offset < data.Length; offset += chunkSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var count = Math.Min(chunkSize, data.Length - offset);
+            data.Slice(offset, count).CopyTo(chunk);
+            _port.Write(chunk, 0, count);
+        }
         return Task.CompletedTask;
     }
 

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text;
 using System.Windows;
@@ -63,7 +63,8 @@ internal static class SerialTabsChecks
         Require(first.SelectedSerialPort == firstPort && first.IsOpen && second.IsOpen && first.Terminal.ReceivedBytes > 0, "Device refresh retains open tabs, settings and buffers");
         vm.SerialPorts.Single(p => p.PortName == "COM3").IsSelected = true;
         await vm.StartBridgeCommand.ExecuteAsync(null);
-        Require(!vm.IsBridgeRunning, "Serial mapping cannot take a port owned by a debugging tab");
+        Require(vm.IsBridgeRunning && first.IsOpen, "Publishing a mapping does not reopen or take a locally owned COM");
+        await vm.StopBridgeCommand.ExecuteAsync(null);
 
         var window = new MainWindow(vm); window.Show();
         try
