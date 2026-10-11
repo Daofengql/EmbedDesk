@@ -81,6 +81,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<SerialPortRowViewModel> SerialPorts { get; }
     public ObservableCollection<LogEntryViewModel> Logs { get; }
     public RemoteDebugWorkspaceViewModel? RemoteDebug { get; }
+    internal ISerialPortService SerialPortService => _serialPortService;
     public int[] DataBitsOptions { get; } = [5, 6, 7, 8];
     public System.IO.Ports.Parity[] ParityOptions { get; } = [System.IO.Ports.Parity.None, System.IO.Ports.Parity.Odd, System.IO.Ports.Parity.Even, System.IO.Ports.Parity.Mark, System.IO.Ports.Parity.Space];
     public System.IO.Ports.StopBits[] StopBitsOptions { get; } = [System.IO.Ports.StopBits.One, System.IO.Ports.StopBits.OnePointFive, System.IO.Ports.StopBits.Two];

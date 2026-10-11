@@ -1,0 +1,26 @@
+<UserControl x:Class="EmbeddedDebugger.App.Controls.EmbeddedToolsWorkspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="EmbeddedCard" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="72" /><Setter Property="Margin" Value="4" /><Setter Property="Padding" Value="12" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{StaticResource SelectedBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+        <Style x:Key="EmbeddedIcon" TargetType="TextBlock" BasedOn="{StaticResource Icon}"><Setter Property="FontSize" Value="18" /><Setter Property="Foreground" Value="{StaticResource AccentBrush}" /><Setter Property="Margin" Value="0,0,8,0" /></Style>
+    </UserControl.Resources>
+    <Grid Background="{StaticResource PanelBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border Padding="16,12" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1"><StackPanel><TextBlock Text="嵌入式工具" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="固件分析、烧录、镜像和协议辅助工具" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" /></StackPanel></Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel Margin="12,16">
+            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,0,4,8" Margin="4,0,4,10"><TextBlock Text="固件与介质" FontWeight="SemiBold" /></Border>
+            <UniformGrid Columns="3">
+                <Button Tag="Firmware" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="固件烧录"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE896;" Style="{StaticResource EmbeddedIcon}" /><TextBlock Grid.Column="1" Text="固件分析 / 烧录" FontWeight="SemiBold" /></Grid><TextBlock Text="STM32 UART、BIN、HEX、S-Record" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+                <Button Tag="Image" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="镜像写入"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE7F8;" Style="{StaticResource EmbeddedIcon}" /><TextBlock Grid.Column="1" Text="SD / USB 镜像" FontWeight="SemiBold" /></Grid><TextBlock Text="ISO、IMG、BIN 原始写入与进度" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+                <Button Tag="Codec" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="协议与校验"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE8AB;" Style="{StaticResource EmbeddedIcon}" /><TextBlock Grid.Column="1" Text="协议 / 校验" FontWeight="SemiBold" /></Grid><TextBlock Text="HEX、CRC、帧数据与固件指纹" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+            </UniformGrid>
+            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="4,0,4,8" Margin="4,22,4,10"><TextBlock Text="适配器入口" FontWeight="SemiBold" /></Border>
+            <UniformGrid Columns="3">
+                <Button Tag="C51" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="C51 烧录"><StackPanel><TextBlock Text="C51 ISP" FontWeight="SemiBold" /><TextBlock Text="按 STC / Nuvoton / Silicon Labs 型号配置" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+                <Button Tag="Ch347" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="CH347T SPI NAND"><StackPanel><TextBlock Text="CH347T SPI NAND" FontWeight="SemiBold" /><TextBlock Text="芯片 ID、页大小、ECC 与坏块策略" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+                <Button Tag="Logs" Click="OpenTool_Click" Style="{StaticResource EmbeddedCard}" AutomationProperties.Name="日志与回放"><StackPanel><TextBlock Text="日志与回放" FontWeight="SemiBold" /><TextBlock Text="保留原始字节、时间戳和调试过程" Style="{StaticResource MutedText}" FontSize="11" Margin="0,7,0,0" TextWrapping="Wrap" /></StackPanel></Button>
+            </UniformGrid>
+        </StackPanel></ScrollViewer>
+    </Grid>
+</UserControl>

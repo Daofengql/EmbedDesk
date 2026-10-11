@@ -73,6 +73,11 @@ internal sealed class SmokeApplication : Application
                 await SerialBridgeChecks.RunAsync();
                 Shutdown(0); return;
             }
+            if (e.Args.Contains("--firmware-check"))
+            {
+                await FirmwareChecks.RunAsync();
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--live-doh-check"))
             {
                 await DnsQueryChecks.RunLiveDohAsync();
