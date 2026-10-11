@@ -14,6 +14,7 @@ using EmbeddedDebugger.App.Controls;
 using EmbeddedDebugger.App.ViewModels;
 using EmbeddedDebugger.Infrastructure.Diagnostics;
 using EmbeddedDebugger.Infrastructure.Networking;
+using EmbeddedDebugger.Infrastructure.Security;
 
 namespace EmbeddedDebugger.App.SmokeTests;
 
@@ -48,6 +49,26 @@ internal static class UtilityToolsChecks
             cancel.Cancel();
             await ThrowsAsync<OperationCanceledException>(() => TcpPortChecker.CheckAsync("127.0.0.1", [openPort], 1000, 1, token: cancel.Token), "Port detection honors cancellation");
         }
+
+        Require(CertificateCryptoService.ComputeSm3Hex(Encoding.ASCII.GetBytes("abc")) == "66C7F0F462EEEDD9D1F2D46BDC10E4E24167C4875CF2F7A2297DA02B8F4BA8E0", "SM3 matches the GM/T 0004 abc vector");
+        var sm4Key = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
+        var sm4Plain = Convert.FromHexString("0123456789ABCDEFFEDCBA9876543210");
+        var sm4Cipher = CertificateCryptoService.Sm4Cbc(sm4Plain, sm4Key, new byte[16], true);
+        Require(Convert.ToHexString(sm4Cipher).StartsWith("681EDF34D206965E86B3E94F536E4246", StringComparison.Ordinal), "SM4 matches the standard single-block vector");
+        Require(CertificateCryptoService.Sm4Cbc(sm4Cipher, sm4Key, new byte[16], false).SequenceEqual(sm4Plain), "SM4 CBC with PKCS#7 round trips");
+        foreach (var algorithm in Enum.GetValues<CertificateKeyAlgorithm>())
+        {
+            var artifact = CertificateCryptoService.CreateSelfSigned(algorithm, "CN=smoke-test", ["localhost"], 2, false, true, true);
+            var details = CertificateCryptoService.InspectCertificate(artifact.CertificateDer);
+            Require(details.Subject.Contains("smoke-test", StringComparison.Ordinal) && details.Sha256.Length == 64 && details.Pem.Contains("BEGIN CERTIFICATE", StringComparison.Ordinal), $"{algorithm} self-signed certificate parses with SAN and fingerprint");
+            var request = CertificateCryptoService.CreateSigningRequest(algorithm, "CN=smoke-test", ["localhost"]);
+            Require(request.RequestPem.Contains("BEGIN CERTIFICATE REQUEST", StringComparison.Ordinal), $"{algorithm} CSR is PEM encoded");
+        }
+        var ca = CertificateCryptoService.CreateSelfSigned(CertificateKeyAlgorithm.Rsa2048, "CN=smoke-ca", [], 30, true, false, false);
+        var leafRequest = CertificateCryptoService.CreateSigningRequest(CertificateKeyAlgorithm.EcdsaP256, "CN=smoke-leaf", ["localhost"]);
+        var issued = CertificateCryptoService.IssueCertificate(leafRequest.RequestDer, ca.CertificateDer, ca.Key.PrivateKeyPem, 7);
+        var issuedDetails = CertificateCryptoService.InspectCertificate(issued);
+        Require(issuedDetails.Issuer.Contains("smoke-ca", StringComparison.Ordinal) && issuedDetails.Subject.Contains("smoke-leaf", StringComparison.Ordinal), "RSA CA signs an ECDSA CSR and preserves the issuer");
 
         await using var tls = new TlsFixture();
         var cert = await TlsCertificateInspector.InspectAsync("127.0.0.1", tls.Port, "localhost", 5000, false);
@@ -105,6 +126,18 @@ internal static class UtilityToolsChecks
             Require(((TextBlock)tls.FindName("TrustText")).Text.StartsWith("证书校验未通过", StringComparison.Ordinal) && ((TextBox)tls.FindName("PemBox")).Text.Contains("BEGIN CERTIFICATE"), "Certificate window shows validation failure and still makes the certificate inspectable");
             tls.Width = tls.MinWidth; tls.Height = tls.MinHeight;
             await FileWorkspaceChecks.CaptureAsync(tls, "embedded-debugger-tls.png");
+            var toolTabs = Descendants<TabControl>(tls).First();
+            toolTabs.SelectedIndex = 1;
+            tls.UpdateLayout();
+            ((ComboBox)tls.FindName("AlgorithmBox")).SelectedIndex = 2;
+            Descendants<Button>(tls).Single(b => Equals(b.Content, "生成自签名证书")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var generatedPem = ((TextBox)tls.FindName("CertificateOutputBox")).Text;
+            Require(generatedPem.Contains("BEGIN CERTIFICATE", StringComparison.Ordinal), "Certificate tool UI generates an SM2 certificate");
+            toolTabs.SelectedIndex = 3;
+            tls.UpdateLayout();
+            ((TextBox)tls.FindName("InspectInputBox")).Text = generatedPem;
+            Descendants<Button>(tls).Single(b => Equals(b.Content, "解析证书")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(((TextBox)tls.FindName("InspectOutputBox")).Text.Contains("主题: CN=localhost", StringComparison.Ordinal) && ((TextBox)tls.FindName("InspectOutputBox")).Text.Contains("SHA-256:", StringComparison.Ordinal), "Certificate tool UI parses the generated SM2 certificate");
             ((TextBox)tls.FindName("PortBox")).Text = openPort.ToString();
             Click(tls, "StartButton"); Click(tls, "StopButton");
             await Until(() => ((Button)tls.FindName("StartButton")).IsEnabled);

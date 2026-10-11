@@ -70,10 +70,10 @@
                                 <TextBlock Text="UDP、TCP 与 HTTPS 解析" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
-                        <Button Tag="Tls" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="TLS 证书" ToolTip="有效期、证书链与 SNI">
+                        <Button Tag="Tls" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="证书与密码" ToolTip="TLS 诊断、证书生成、CSR 与国密摘要">
                             <StackPanel>
-                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE72E;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="TLS 证书" Style="{StaticResource ToolTitle}" /></Grid>
-                                <TextBlock Text="有效期、证书链与 SNI" Style="{StaticResource ToolDescription}" />
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE72E;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="证书与密码" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="TLS 诊断、证书生成、CSR 与国密" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>
