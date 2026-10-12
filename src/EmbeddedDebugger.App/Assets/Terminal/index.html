@@ -81,6 +81,24 @@ const changeFontSize=(event,size)=>{
   return false;
 };
 terminal.attachCustomKeyEventHandler(event=>{
+  if(event.type !== 'keydown' && event.type !== 'keypress') return true;
+  const code=event.code || '';
+  const numLock=event.getModifierState?.('NumLock') ?? false;
+  const digit=code.match(/^Numpad([0-9])$/);
+  const symbols={NumpadAdd:'+',NumpadSubtract:'-',NumpadMultiply:'*',NumpadDivide:'/',NumpadEnter:'\r'};
+  const numpadInput=digit && numLock ? digit[1]
+    : code==='NumpadDecimal' && numLock ? '.'
+    : Object.prototype.hasOwnProperty.call(symbols,code) ? symbols[code]
+    : null;
+  if(numpadInput !== null) {
+    // The explicit WebView bridge below handles numpad input that Chromium
+    // drops. Cancel the native key event too, or its following keypress is
+    // processed by xterm and sends the same character a second time.
+    event.preventDefault();
+    event.stopPropagation();
+    if(event.type === 'keydown') window.chrome.webview.postMessage(numpadInput);
+    return false;
+  }
   if(event.type !== 'keydown') return true;
   if(event.key==='F11') { event.preventDefault(); event.stopPropagation(); if(!event.repeat) postContext('fullscreen'); return false; }
   if(event.ctrlKey && event.shiftKey && event.key.toLowerCase()==='c') { postContext('copy', terminal.getSelection()); return false; }
@@ -88,13 +106,6 @@ terminal.attachCustomKeyEventHandler(event=>{
   if(event.ctrlKey && !event.altKey && (event.key==='+' || event.key==='=')) return changeFontSize(event,fontSize+1);
   if(event.ctrlKey && !event.altKey && event.key==='-') return changeFontSize(event,fontSize-1);
   if(event.ctrlKey && !event.altKey && event.key==='0') return changeFontSize(event,14);
-  const code=event.code || '';
-  const numLock=event.getModifierState?.('NumLock') ?? false;
-  const digit=code.match(/^Numpad([0-9])$/);
-  if(digit && numLock){ window.chrome.webview.postMessage(digit[1]); return false; }
-  if(code==='NumpadDecimal' && numLock){ window.chrome.webview.postMessage('.'); return false; }
-  const symbols={NumpadAdd:'+',NumpadSubtract:'-',NumpadMultiply:'*',NumpadDivide:'/',NumpadEnter:'\r'};
-  if(Object.prototype.hasOwnProperty.call(symbols,code)){ window.chrome.webview.postMessage(symbols[code]); return false; }
   return true;
 });
 document.addEventListener('contextmenu', event=>{
