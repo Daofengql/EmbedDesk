@@ -22,7 +22,7 @@
 - **HEX / 文本编解码**：HEX、Base64、UTF-8、ASCII、UTF-16 LE 互转，严格报告无效输入；可读取最多 1 MiB 的文件，不自动添加 BOM 或换行。
 - **端口扫描**：扫描单个主机的 TCP 端口列表 / 范围，IPv4 / IPv6、超时、并发与停止控制；列表和复制结果只包含开放端口及连接耗时，摘要保留扫描总数与开放数量，每次最多 1024 个端口。
 - **TLS 证书检查**：连接地址与 SNI 可分别设置，查看有效期、SAN、证书链、名称匹配、指纹、协议和 PEM；可选联网吊销检查。检查模式展示无效证书并标明原因，不发送业务数据；支持直接 TLS，不支持 STARTTLS。
-- **证书与密码工具**：在同一个工具窗口中生成 RSA-2048、ECDSA P-256 和 SM2/SM3 密钥、CSR、自签名证书及标准 PKCS#12；支持 PEM/DER 证书解析、标准 RSA/ECDSA CA 签发、SM3 摘要和 SM4-CBC（PKCS#7）加解密。国密证书和摘要由内置 BouncyCastle 实现，Windows `SslStream` 不会因此获得未实现的国密 TLS 套件支持；SM2 链签发和 SM2 PKCS#12 受平台密钥容器限制。
+- **证书与密码工具**：生成 RSA-2048/3072/4096、ECDSA P-256/P-384/P-521、Ed25519、Ed448、SM2 密钥、CSR 和自签名证书；检查 PEM/DER、导入导出加密 PKCS#12，并验证 CSR 后由 RSA、ECDSA、EdDSA 或 SM2 CA 签发终端证书。算法工具包括 MD5、SHA-1、SHA-2、SHA-3、SM3 与 HMAC；AES-CBC/CTR/ECB/GCM/CCM、SM4-CBC/CTR/ECB/GCM、ChaCha20-Poly1305；RSA-PSS / PKCS#1、ECDSA、EdDSA、SM2 签名，以及多种摘要的 RSA-OAEP 和 SM2 加密。MD5、SHA-1、ECB 只为旧系统互通保留；CBC/CTR 不带完整性认证。国密算法由内置 BouncyCastle 实现，但 TLS/TLCP 国密握手尚未实现，Windows `SslStream` 不会因此获得国密套件支持；EdDSA / SM2 证书能否被目标平台使用取决于其证书与密钥提供程序。详见 [证书与密码算法说明](docs/security-crypto.md)。
 - **iperf3 网络测速**：内置 TCP/UDP 单流客户端和服务端，支持上传 / 下载、IPv4 / IPv6、报文或写入块大小、bit/s 或 UDP 包/s 限速，显示即时速率、两端统计和 UDP 丢包/乱序/抖动。按 ESnet iperf 3.17.1 的 BSD 许可移植，无需外部 EXE。四个公共标准 iperf3 节点已通过 TCP/UDP 正反向实测，可从预设选择或手动填写地址。范围为 `-P 1`、`-O 0`、1–3600 秒按时长测试；不支持多流、双向同时测试、SCTP、认证、CPU 或 TCP 重传统计，见 [协议说明](docs/third-party/iperf3-protocol.md)。
 
 ## 烧录与录制能力

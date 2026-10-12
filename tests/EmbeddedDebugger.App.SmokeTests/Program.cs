@@ -47,6 +47,11 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--crypto-check"))
+            {
+                await CryptoChecks.RunAsync();
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--ssh-protocol-check") && int.TryParse(Environment.GetEnvironmentVariable("EDBG_SSH_PORT"), out var protocolPort))
             {
                 await SshIntegrationChecks.RunProtocolAsync(protocolPort);

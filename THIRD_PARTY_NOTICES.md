@@ -38,7 +38,7 @@ NuGet restores these dependencies during the build. Direct versions are recorded
 | [Microsoft.Extensions.Logging.Abstractions](https://www.nuget.org/packages/Microsoft.Extensions.Logging.Abstractions/8.0.3) | MIT |
 | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports/8.0.0), [System.Management](https://www.nuget.org/packages/System.Management/8.0.0), and System.CodeDom | MIT |
 | [SSH.NET](https://www.nuget.org/packages/SSH.NET/2026.0.0) | MIT |
-| [BouncyCastle.Cryptography](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0) (SSH.NET and standard VNC password authentication) | MIT |
+| [BouncyCastle.Cryptography](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0) (SSH.NET, standard VNC password authentication, X.509/PKCS#12, and bundled digest, signature, and symmetric/asymmetric cipher implementations) | MIT |
 | [Microsoft.Web.WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4191.47) | BSD-3-Clause; see [LICENSE](docs/licenses/WebView2-LICENSE.txt) and [NOTICE](docs/licenses/WebView2-NOTICE.txt) from the package |
 
 The separately installed Microsoft Edge WebView2 Runtime is governed by its own distribution terms; it is not bundled in the single-EXE output. The self-contained publish profile bundles the .NET runtime; retain its applicable licenses and third-party notices when distributing binaries. This dependency overview does not replace the notices supplied by individual packages.

@@ -129,14 +129,16 @@ internal static class UtilityToolsChecks
             var toolTabs = Descendants<TabControl>(tls).First();
             toolTabs.SelectedIndex = 1;
             tls.UpdateLayout();
-            ((ComboBox)tls.FindName("AlgorithmBox")).SelectedIndex = 2;
+            ((ComboBox)tls.FindName("AlgorithmBox")).SelectedValue = CertificateKeyAlgorithm.Sm2;
             Descendants<Button>(tls).Single(b => Equals(b.Content, "生成自签名证书")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => ((Button)tls.FindName("GenerateCertificateButton")).IsEnabled);
             var generatedPem = ((TextBox)tls.FindName("CertificateOutputBox")).Text;
             Require(generatedPem.Contains("BEGIN CERTIFICATE", StringComparison.Ordinal), "Certificate tool UI generates an SM2 certificate");
             toolTabs.SelectedIndex = 3;
             tls.UpdateLayout();
             ((TextBox)tls.FindName("InspectInputBox")).Text = generatedPem;
             Descendants<Button>(tls).Single(b => Equals(b.Content, "解析证书")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => ((Button)tls.FindName("InspectButton")).IsEnabled);
             Require(((TextBox)tls.FindName("InspectOutputBox")).Text.Contains("主题: CN=localhost", StringComparison.Ordinal) && ((TextBox)tls.FindName("InspectOutputBox")).Text.Contains("SHA-256:", StringComparison.Ordinal), "Certificate tool UI parses the generated SM2 certificate");
             ((TextBox)tls.FindName("PortBox")).Text = openPort.ToString();
             Click(tls, "StartButton"); Click(tls, "StopButton");

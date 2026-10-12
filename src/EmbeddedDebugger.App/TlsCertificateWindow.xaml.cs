@@ -15,12 +15,32 @@ public partial class TlsCertificateWindow : Window, IDisposable
 {
     private CancellationTokenSource? _lifetime;
     private bool _closed;
-    private CertificateArtifact? _latestCertificate;
+    private bool _cryptoBusy;
+    private string _generatedLabel = "CERTIFICATE";
     private string _latestInspectedPem = string.Empty;
 
     public TlsCertificateWindow()
     {
         InitializeComponent();
+        AlgorithmBox.ItemsSource = Enum.GetValues<CertificateKeyAlgorithm>().Select(algorithm => new KeyAlgorithmOption(algorithm, algorithm switch
+        {
+            CertificateKeyAlgorithm.Rsa2048 => "RSA · 2048 bit",
+            CertificateKeyAlgorithm.Rsa3072 => "RSA · 3072 bit",
+            CertificateKeyAlgorithm.Rsa4096 => "RSA · 4096 bit",
+            CertificateKeyAlgorithm.EcdsaP256 => "ECDSA · NIST P-256",
+            CertificateKeyAlgorithm.EcdsaP384 => "ECDSA · NIST P-384",
+            CertificateKeyAlgorithm.EcdsaP521 => "ECDSA · NIST P-521",
+            CertificateKeyAlgorithm.Ed25519 => "Ed25519",
+            CertificateKeyAlgorithm.Ed448 => "Ed448",
+            CertificateKeyAlgorithm.Sm2 => "SM2 · sm2p256v1",
+            _ => algorithm.ToString()
+        })).ToArray();
+        AlgorithmBox.SelectedValue = CertificateKeyAlgorithm.Rsa2048;
+        DigestAlgorithmBox.ItemsSource = CryptoOperations.DigestAlgorithms; DigestAlgorithmBox.SelectedIndex = 0;
+        CipherAlgorithmBox.ItemsSource = CryptoOperations.CipherAlgorithms; CipherAlgorithmBox.SelectedIndex = 0;
+        AsymmetricAlgorithmBox.ItemsSource = CryptoOperations.SignatureAlgorithms.Concat(CryptoOperations.AsymmetricEncryptionAlgorithms).ToArray();
+        AsymmetricAlgorithmBox.SelectedIndex = 0;
+        foreach (var box in new[] { DigestFormatBox, AsymmetricFormatBox }) { box.ItemsSource = new[] { "UTF-8", "HEX", "Base64" }; box.SelectedIndex = 0; }
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
     }
@@ -73,141 +93,236 @@ public partial class TlsCertificateWindow : Window, IDisposable
 
     private void Copy_Click(object sender, RoutedEventArgs e) => CopyText(DetailsBox.Text + "\n\n" + PemBox.Text, "已复制检查结果和 PEM 证书。");
 
-    private void GenerateCertificate_Click(object sender, RoutedEventArgs e)
+    private async void GenerateCertificate_Click(object sender, RoutedEventArgs e)
     {
-        try
+        var algorithm = GetAlgorithm(); var subject = SubjectBox.Text; var names = GetNames();
+        var days = ValidityBox.Text; var ca = CaBox.IsChecked == true;
+        var server = ServerBox.IsChecked == true; var client = ClientBox.IsChecked == true; var password = PfxPasswordBox.Password;
+        await RunCryptoAsync(() => CertificateCryptoService.CreateSelfSigned(algorithm, subject, names, ParseDays(days), ca, server, client,
+            string.IsNullOrEmpty(password) ? null : password), artifact =>
         {
-            if (!int.TryParse(ValidityBox.Text, out var days)) throw new FormatException("有效期需要填写整数天数。\n");
-            var artifact = CertificateCryptoService.CreateSelfSigned(GetAlgorithm(), SubjectBox.Text, GetNames(), days,
-                CaBox.IsChecked == true, ServerBox.IsChecked == true, ClientBox.IsChecked == true,
-                string.IsNullOrEmpty(PfxPasswordBox.Password) ? null : PfxPasswordBox.Password);
-            _latestCertificate = artifact;
-            CertificateOutputBox.Text = artifact.CertificatePem;
-            PrivateKeyOutputBox.Text = artifact.Key.PrivateKeyPem;
-            PublicKeyOutputBox.Text = artifact.Key.PublicKeyPem;
-            PfxOutputBox.Text = artifact.Pkcs12 is null ? "当前算法没有生成 PKCS#12。SM2 PFX 需使用支持国密私钥容器的目标系统。" : Convert.ToBase64String(artifact.Pkcs12);
-            StatusText.Text = $"已生成 {artifact.Algorithm} 自签名证书；私钥仅显示在当前窗口。";
-        }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or CryptographicException)
-        {
-            StatusText.Text = ex.Message;
-        }
+            ShowGenerated(artifact.CertificatePem, artifact.Key, "CERTIFICATE");
+        }, "自签名证书已生成；PFX 可使用下方导出按钮保存。");
     }
 
-    private void GenerateCsr_Click(object sender, RoutedEventArgs e)
+    private async void GenerateCsr_Click(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            var artifact = CertificateCryptoService.CreateSigningRequest(GetAlgorithm(), SubjectBox.Text, GetNames());
-            CertificateOutputBox.Text = artifact.RequestPem;
-            PrivateKeyOutputBox.Text = artifact.Key.PrivateKeyPem;
-            PublicKeyOutputBox.Text = artifact.Key.PublicKeyPem;
-            PfxOutputBox.Text = "CSR 不包含 PKCS#12。请安全保存私钥，并将 CSR 提交给 CA。";
-            StatusText.Text = $"已生成 {artifact.Algorithm} CSR；私钥仅显示在当前窗口。";
-        }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or CryptographicException)
-        {
-            StatusText.Text = ex.Message;
-        }
+        var algorithm = GetAlgorithm(); var subject = SubjectBox.Text; var names = GetNames();
+        await RunCryptoAsync(() => CertificateCryptoService.CreateSigningRequest(algorithm, subject, names), artifact =>
+            ShowGenerated(artifact.RequestPem, artifact.Key, "CERTIFICATE REQUEST"), "CSR 已生成（SAN 请求；最终用途由签发 CA 决定）。");
     }
 
-    private void IssueCertificate_Click(object sender, RoutedEventArgs e)
+    private async void GenerateKey_Click(object sender, RoutedEventArgs e)
     {
-        try
+        var algorithm = GetAlgorithm();
+        await RunCryptoAsync(() => CertificateCryptoService.GenerateKey(algorithm), key =>
         {
-            if (!int.TryParse(IssueValidityBox.Text, out var days)) throw new FormatException("有效期需要填写整数天数。\n");
-            var issuer = CertificateCryptoService.ReadCertificate(IssuerCertificateBox.Text);
-            var request = CertificateCryptoService.ReadPem(RequestBox.Text, "CERTIFICATE REQUEST");
-            var privateKey = ReadTextOrPath(IssuerPrivateKeyBox.Text);
-            var der = CertificateCryptoService.IssueCertificate(request, issuer, privateKey, days);
-            IssuedCertificateBox.Text = CertificateCryptoService.ToPem("CERTIFICATE", der);
-            IssueStatusText.Text = "签发完成。请用解析页检查主题、SAN、有效期和签名算法。";
-            StatusText.Text = "已签发证书。";
-        }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or CryptographicException or InvalidOperationException or NotSupportedException)
-        {
-            IssueStatusText.Text = ex.Message;
-            StatusText.Text = "证书签发失败。";
-        }
+            ShowGenerated("", key, "CERTIFICATE"); GeneratedTabs.SelectedIndex = 1;
+        }, "已生成密钥；私钥 PEM 为明文。");
     }
 
-    private void CopyIssued_Click(object sender, RoutedEventArgs e) => CopyText(IssuedCertificateBox.Text, "已复制签发结果。");
-
-    private void InspectCertificate_Click(object sender, RoutedEventArgs e)
+    private void ShowGenerated(string pem, CertificateKeyMaterial key, string label)
     {
-        try
+        CertificateOutputBox.Text = pem; PrivateKeyOutputBox.Text = key.PrivateKeyPem; PublicKeyOutputBox.Text = key.PublicKeyPem;
+        _generatedLabel = label; GeneratedTabs.SelectedIndex = 0;
+    }
+
+    private async void IssueCertificate_Click(object sender, RoutedEventArgs e)
+    {
+        var ca = IssuerCertificateBox.Text; var csr = RequestBox.Text; var key = IssuerPrivateKeyBox.Text; var days = IssueValidityBox.Text;
+        IssuedCertificateBox.Clear();
+        await RunCryptoAsync(() => CertificateCryptoService.IssueCertificate(CertificateCryptoService.ReadPem(csr, "CERTIFICATE REQUEST"),
+            CertificateCryptoService.ReadCertificate(ca), CertificateCryptoService.ReadTextOrPath(key), ParseDays(days)), der =>
+            IssuedCertificateBox.Text = CertificateCryptoService.ToPem("CERTIFICATE", der), "终端证书已签发。");
+    }
+
+    private async void InspectCertificate_Click(object sender, RoutedEventArgs e)
+    {
+        var input = InspectInputBox.Text;
+        InspectOutputBox.Clear(); _latestInspectedPem = "";
+        await RunCryptoAsync(() => CertificateCryptoService.InspectCertificate(CertificateCryptoService.ReadCertificate(input)), details =>
         {
-            var der = CertificateCryptoService.ReadCertificate(InspectInputBox.Text);
-            var details = CertificateCryptoService.InspectCertificate(der);
             _latestInspectedPem = details.Pem;
             InspectOutputBox.Text = $"主题: {details.Subject}\n颁发者: {details.Issuer}\n序列号: {details.SerialNumber}\n生效 (UTC): {details.NotBefore.UtcDateTime:yyyy-MM-dd HH:mm:ss}\n到期 (UTC): {details.NotAfter.UtcDateTime:yyyy-MM-dd HH:mm:ss}\n签名算法: {details.SignatureAlgorithm}\n公钥: {details.PublicKeyAlgorithm} · {details.PublicKeySize}\nCA: {(details.IsCertificateAuthority ? "是" : "否")}\nSAN: {details.SubjectAlternativeNames}\nKey Usage: {details.KeyUsage}\nExtended Key Usage: {details.ExtendedKeyUsage}\nSHA-256: {details.Sha256}\n\n{details.Pem}";
-            StatusText.Text = "证书解析完成。";
-        }
-        catch (Exception ex) when (ex is ArgumentException or FormatException or CryptographicException or IOException)
+        }, "解析完成；本地解析未验证证书信任链。");
+    }
+
+    private void OpenCertificate_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "证书|*.pem;*.cer;*.crt;*.der|所有文件|*.*" };
+        if (dialog.ShowDialog(this) == true) { InspectInputBox.Text = dialog.FileName; InspectCertificate_Click(sender, e); }
+    }
+
+    private async void ImportPfx_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Filter = "PKCS#12|*.pfx;*.p12", Title = "导入证书和私钥（使用 PFX 密码框中的密码）" };
+        if (dialog.ShowDialog(this) != true) return;
+        var password = PfxPasswordBox.Password; var path = dialog.FileName;
+        await RunCryptoAsync(() => CertificateCryptoService.ImportPkcs12(CertificateCryptoService.ReadFile(path), password), result =>
         {
-            InspectOutputBox.Text = ex.Message;
-            StatusText.Text = "证书解析失败。";
-        }
+            CertificateOutputBox.Text = result.CertificatePem; PrivateKeyOutputBox.Text = result.PrivateKeyPem;
+            PublicKeyOutputBox.Clear(); _generatedLabel = "CERTIFICATE"; GeneratedTabs.SelectedIndex = 0;
+        }, "PFX 已导入；证书页包含证书链，私钥页为明文。");
     }
 
+    private async void SavePfx_Click(object sender, RoutedEventArgs e)
+    {
+        if (_generatedLabel != "CERTIFICATE" || string.IsNullOrWhiteSpace(CertificateOutputBox.Text))
+        { StatusText.Text = "请先生成或导入证书及其私钥。"; return; }
+        var pem = CertificateOutputBox.Text; var key = PrivateKeyOutputBox.Text; var password = PfxPasswordBox.Password;
+        byte[]? bytes = null;
+        await RunCryptoAsync(() => CertificateCryptoService.ExportPkcs12(CertificateCryptoService.ReadCertificate(pem), key, password),
+            result => bytes = result, "PFX 已准备。");
+        if (bytes is null || _closed) return;
+        try { await SaveBytesAsync(bytes, "certificate.pfx", "PKCS#12|*.pfx"); }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    private (string Text, string Label) GeneratedOutput() => GeneratedTabs.SelectedIndex switch
+    {
+        1 => (PrivateKeyOutputBox.Text, "PRIVATE KEY"), 2 => (PublicKeyOutputBox.Text, "PUBLIC KEY"),
+        _ => (CertificateOutputBox.Text, _generatedLabel)
+    };
+    private void CopyGenerated_Click(object sender, RoutedEventArgs e) => CopyText(GeneratedOutput().Text, "已复制当前输出。");
+    private async void SaveGenerated_Click(object sender, RoutedEventArgs e)
+    {
+        var output = GeneratedOutput(); await SavePemAsync(output.Text, output.Label);
+    }
+    private void CopyIssued_Click(object sender, RoutedEventArgs e) => CopyText(IssuedCertificateBox.Text, "已复制签发结果。");
+    private async void SaveIssued_Click(object sender, RoutedEventArgs e) => await SavePemAsync(IssuedCertificateBox.Text, "CERTIFICATE");
     private void CopyInspected_Click(object sender, RoutedEventArgs e) => CopyText(_latestInspectedPem, "已复制证书 PEM。");
+    private async void SaveInspected_Click(object sender, RoutedEventArgs e) => await SavePemAsync(_latestInspectedPem, "CERTIFICATE");
 
-    private void Sm3_Click(object sender, RoutedEventArgs e)
+    private async Task SavePemAsync(string pem, string label)
     {
-        try { Sm3OutputBox.Text = CertificateCryptoService.ComputeSm3Hex(Encoding.UTF8.GetBytes(Sm3InputBox.Text)); StatusText.Text = "SM3 计算完成。"; }
-        catch (Exception ex) { Sm3OutputBox.Text = ex.Message; }
-    }
-
-    private void Sm4Encrypt_Click(object sender, RoutedEventArgs e) => RunSm4(true);
-    private void Sm4Decrypt_Click(object sender, RoutedEventArgs e) => RunSm4(false);
-
-    private void RunSm4(bool encrypt)
-    {
+        if (string.IsNullOrWhiteSpace(pem)) { StatusText.Text = "没有可保存的内容。"; return; }
+        var dialog = new SaveFileDialog { Title = label.Contains("PRIVATE", StringComparison.Ordinal) ? "保存明文私钥" : "保存输出",
+            FileName = "output.pem", Filter = "PEM|*.pem|DER（二进制，证书链仅保存首证书）|*.der" };
+        if (dialog.ShowDialog(this) != true) return;
         try
         {
-            var input = ParseHex(Sm4InputBox.Text, "输入");
-            var key = ParseHex(Sm4KeyBox.Text, "密钥");
-            var iv = ParseHex(Sm4IvBox.Text, "IV");
-            Sm4OutputBox.Text = Convert.ToHexString(CertificateCryptoService.Sm4Cbc(input, key, iv, encrypt));
-            StatusText.Text = encrypt ? "SM4 加密完成。" : "SM4 解密完成。";
+            var bytes = dialog.FilterIndex == 2 ? CertificateCryptoService.ReadPem(pem, label) : Encoding.UTF8.GetBytes(pem);
+            try { await File.WriteAllBytesAsync(dialog.FileName, bytes); }
+            finally { if (label.Contains("PRIVATE", StringComparison.Ordinal)) CryptographicOperations.ZeroMemory(bytes); }
+            if (!_closed) StatusText.Text = "文件已保存。";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or FormatException) { StatusText.Text = ex.Message; }
+    }
+    private async Task SaveBytesAsync(byte[] bytes, string filename, string filter)
+    {
+        var dialog = new SaveFileDialog { FileName = filename, Filter = filter };
+        if (dialog.ShowDialog(this) != true) return;
+        try { await File.WriteAllBytesAsync(dialog.FileName, bytes); if (!_closed) StatusText.Text = "文件已保存。"; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { StatusText.Text = ex.Message; }
+    }
+
+    private async void Digest_Click(object sender, RoutedEventArgs e)
+    {
+        var algorithm = (string)DigestAlgorithmBox.SelectedItem; var input = DigestInputBox.Text; var format = DigestFormatBox.SelectedIndex;
+        var hmac = HmacBox.IsChecked == true; var key = HmacKeyBox.Text; DigestOutputBox.Clear();
+        await RunCryptoAsync(() => CryptoOperations.Digest(algorithm, Decode(input, format), hmac ? Decode(key, 1) : null),
+            bytes => DigestOutputBox.Text = Convert.ToHexString(bytes), "摘要 / HMAC 计算完成。");
+    }
+    private void CopyDigest_Click(object sender, RoutedEventArgs e) => CopyText(DigestOutputBox.Text, "已复制摘要。");
+    private async void Encrypt_Click(object sender, RoutedEventArgs e) => await CipherAsync(true);
+    private async void Decrypt_Click(object sender, RoutedEventArgs e) => await CipherAsync(false);
+    private async Task CipherAsync(bool encrypt)
+    {
+        var algorithm = (string)CipherAlgorithmBox.SelectedItem; var input = CipherInputBox.Text;
+        var key = CipherKeyBox.Text; var iv = CipherIvBox.Text; var aad = CipherAadBox.Text;
+        CipherOutputBox.Clear();
+        await RunCryptoAsync(() =>
         {
-            Sm4OutputBox.Text = ex.Message;
-            StatusText.Text = "SM4 操作失败。";
+            var keyBytes = Decode(key, 1);
+            try { return CryptoOperations.Transform(algorithm, Decode(input, 1), keyBytes, Decode(iv, 1), Decode(aad, 1), encrypt); }
+            finally { CryptographicOperations.ZeroMemory(keyBytes); }
+        }, bytes => CipherOutputBox.Text = Convert.ToHexString(bytes), encrypt ? "加密完成。" : "解密完成。");
+    }
+    private void CipherAlgorithm_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (CipherIvBox is null || CipherAlgorithmBox.SelectedItem is not string algorithm) return;
+        var ecb = algorithm.EndsWith("ECB", StringComparison.Ordinal);
+        var aead = algorithm.EndsWith("GCM", StringComparison.Ordinal) || algorithm.EndsWith("CCM", StringComparison.Ordinal) || algorithm == "ChaCha20-Poly1305";
+        CipherIvBox.IsEnabled = !ecb; if (ecb) CipherIvBox.Clear();
+        CipherAadBox.IsEnabled = aead; if (!aead) CipherAadBox.Clear();
+        CipherOutputBox.Clear();
+    }
+    private void RandomCipher_Click(object sender, RoutedEventArgs e)
+    {
+        var algorithm = (string)CipherAlgorithmBox.SelectedItem;
+        CipherKeyBox.Text = Convert.ToHexString(RandomNumberGenerator.GetBytes(algorithm.StartsWith("SM4", StringComparison.Ordinal) ? 16 : 32));
+        CipherIvBox.Text = algorithm.EndsWith("ECB", StringComparison.Ordinal) ? "" : Convert.ToHexString(RandomNumberGenerator.GetBytes(
+            algorithm.EndsWith("GCM", StringComparison.Ordinal) || algorithm.EndsWith("CCM", StringComparison.Ordinal) || algorithm == "ChaCha20-Poly1305" ? 12 : 16));
+    }
+    private void CopyCipher_Click(object sender, RoutedEventArgs e) => CopyText(CipherOutputBox.Text, "已复制结果。");
+    private async void Sign_Click(object sender, RoutedEventArgs e) => await AsymmetricAsync("sign");
+    private async void Verify_Click(object sender, RoutedEventArgs e) => await AsymmetricAsync("verify");
+    private async void AsymmetricEncrypt_Click(object sender, RoutedEventArgs e) => await AsymmetricAsync("encrypt");
+    private async void AsymmetricDecrypt_Click(object sender, RoutedEventArgs e) => await AsymmetricAsync("decrypt");
+    private async Task AsymmetricAsync(string action)
+    {
+        var algorithm = (string)AsymmetricAlgorithmBox.SelectedItem; var key = AsymmetricKeyBox.Text;
+        var input = AsymmetricInputBox.Text; var format = AsymmetricFormatBox.SelectedIndex; var id = Sm2IdBox.Text;
+        var signature = SignatureInputBox.Text; AsymmetricOutputBox.Clear();
+        await RunCryptoAsync(() =>
+        {
+            var bytes = Decode(input, format);
+            return action switch
+            {
+                "sign" => Convert.ToBase64String(CryptoOperations.Sign(bytes, key, algorithm, id)),
+                "verify" => CryptoOperations.Verify(bytes, Decode(signature, 2), key, algorithm, id) ? "验签通过" : "验签失败",
+                _ => Convert.ToBase64String(CryptoOperations.AsymmetricTransform(algorithm, bytes, key, action == "encrypt"))
+            };
+        }, result => AsymmetricOutputBox.Text = result, "操作完成；结果见输出区。");
+    }
+    private void CopyAsymmetric_Click(object sender, RoutedEventArgs e) => CopyText(AsymmetricOutputBox.Text, "已复制结果。");
+
+    private async Task RunCryptoAsync<T>(Func<T> work, Action<T> show, string success)
+    {
+        if (_cryptoBusy || _closed) return;
+        _cryptoBusy = true;
+        SetCryptoEnabled(false); StatusText.Text = "正在处理…";
+        try
+        {
+            var result = await Task.Run(work);
+            if (!_closed) { show(result); StatusText.Text = success; }
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        { if (!_closed) StatusText.Text = "操作失败：" + ex.Message; }
+        finally { _cryptoBusy = false; if (!_closed) SetCryptoEnabled(true); }
     }
-
-    private CertificateKeyAlgorithm GetAlgorithm() => (AlgorithmBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag?.ToString() switch
+    private void SetCryptoEnabled(bool enabled)
     {
-        nameof(CertificateKeyAlgorithm.EcdsaP256) => CertificateKeyAlgorithm.EcdsaP256,
-        nameof(CertificateKeyAlgorithm.Sm2) => CertificateKeyAlgorithm.Sm2,
-        _ => CertificateKeyAlgorithm.Rsa2048
-    };
-
+        foreach (var tab in ToolTabs.Items.Cast<System.Windows.Controls.TabItem>().Skip(1))
+            if (tab.Content is UIElement content) content.IsEnabled = enabled;
+    }
+    private static byte[] Decode(string input, int format)
+    {
+        if (input.Length > CertificateCryptoService.MaxInputBytes) throw new ArgumentException("输入超过 4 MiB 上限。");
+        return format switch
+        {
+            1 => Convert.FromHexString(string.Concat(input.Where(c => !char.IsWhiteSpace(c)))),
+            2 => Convert.FromBase64String(input),
+            _ => new UTF8Encoding(false, true).GetBytes(input)
+        };
+    }
+    private CertificateKeyAlgorithm GetAlgorithm() => (CertificateKeyAlgorithm)AlgorithmBox.SelectedValue;
     private string[] GetNames() => SanBox.Text.Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-    private static byte[] ParseHex(string value, string name)
-    {
-        var compact = new string(value.Where(c => !char.IsWhiteSpace(c)).ToArray());
-        if (compact.Length == 0) throw new FormatException($"{name}不能为空。");
-        try { return Convert.FromHexString(compact); }
-        catch (FormatException) { throw new FormatException($"{name}需要填写偶数长度的十六进制字符串。"); }
-    }
-
-    private static string ReadTextOrPath(string value) => File.Exists(value.Trim()) ? File.ReadAllText(value.Trim()) : value.Trim();
-
+    private static int ParseDays(string value) => int.TryParse(value, out var days) ? days : throw new FormatException("有效期需要填写整数天数。");
     private void CopyText(string text, string message)
     {
         if (string.IsNullOrWhiteSpace(text)) { StatusText.Text = "没有可复制的内容。"; return; }
         try { Clipboard.SetText(text); StatusText.Text = message; }
         catch (System.Runtime.InteropServices.COMException) { StatusText.Text = "剪贴板正被占用，请重试。"; }
     }
-
     public void Dispose()
     {
-        _closed = true;
-        _lifetime?.Cancel();
+        _closed = true; _lifetime?.Cancel();
+        // Drop references on close; managed strings cannot be securely wiped in place.
+        PrivateKeyOutputBox.Clear(); IssuerPrivateKeyBox.Clear(); AsymmetricKeyBox.Clear(); PfxPasswordBox.Clear();
+        CipherKeyBox.Clear(); HmacKeyBox.Clear();
         GC.SuppressFinalize(this);
     }
+
+    private sealed record KeyAlgorithmOption(CertificateKeyAlgorithm Algorithm, string Label);
 }
