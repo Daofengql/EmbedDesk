@@ -1,0 +1,139 @@
+<Window x:Class="EmbedDesk.App.TlsCertificateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="证书与密码工具" Icon="Assets/embeddesk.ico" Width="1120" Height="820" MinWidth="900" MinHeight="640" WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style x:Key="Label" TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="FontSize" Value="11"/><Setter Property="Margin" Value="0,4,0,5"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+        <Style x:Key="CodeBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="FontFamily" Value="Consolas"/><Setter Property="FontSize" Value="12"/><Setter Property="AcceptsReturn" Value="True"/>
+            <Setter Property="VerticalContentAlignment" Value="Top"/><Setter Property="VerticalScrollBarVisibility" Value="Auto"/><Setter Property="HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="MaxLength" Value="4194304"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="20">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel><TextBlock Text="证书与密码工具" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="证书、密钥、签名验签、摘要与加解密 · 本地处理，无需 OpenSSL" Style="{StaticResource Label}"/></StackPanel>
+        <TabControl x:Name="ToolTabs" Grid.Row="1" Margin="0,12,0,0">
+            <TabItem Header="TLS 诊断">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right"><Button x:Name="StartButton" Content="检查" Style="{StaticResource PrimaryButton}" Click="Start_Click" /><Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Margin="8,0,0,0" /><Button x:Name="CopyButton" Content="复制结果" Click="Copy_Click" IsEnabled="False" Margin="8,0,0,0" /></StackPanel>
+                    <StackPanel Grid.Row="1" x:Name="ParametersPanel" Margin="0,14,0,12"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel Margin="0,0,10,0"><TextBlock Text="连接主机 / IP 地址" Style="{StaticResource Label}" /><TextBox x:Name="HostBox" Text="example.com" /></StackPanel><StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="端口" Style="{StaticResource Label}" /><TextBox x:Name="PortBox" Text="443" /></StackPanel><StackPanel Grid.Column="2" Margin="0,0,10,0"><TextBlock Text="SNI / 校验名称 · 留空使用连接主机" Style="{StaticResource Label}" /><TextBox x:Name="SniBox" ToolTip="连接 IP 时可填写对应域名，同时用于 SNI 和证书名称校验。" /></StackPanel><StackPanel Grid.Column="3"><TextBlock Text="总超时 / ms" Style="{StaticResource Label}" /><TextBox x:Name="TimeoutBox" Text="10000" /></StackPanel></Grid><CheckBox x:Name="RevocationBox" Content="检查证书吊销状态（需要联网，可能增加等待时间）" IsChecked="False" Margin="0,10,0,0" /></StackPanel>
+                    <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,10"><StackPanel><TextBlock x:Name="TrustText" Text="等待检查" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock x:Name="SummaryText" Text="将显示有效期、名称校验、证书链、SAN 与 SHA-256 指纹。" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0" /></StackPanel></Border>
+                    <TabControl Grid.Row="3"><TabItem Header="检查结果"><TextBox x:Name="DetailsBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" /></TabItem><TabItem Header="证书 PEM"><TextBox x:Name="PemBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" /></TabItem></TabControl>
+                    <TextBlock x:Name="TlsStatusText" Grid.Row="4" Text="检查模式会展示无效证书并标明原因；不发送登录凭据或业务数据。不支持 STARTTLS。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="生成证书 / CSR">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0"><TextBlock Text="密钥算法" Style="{StaticResource Label}" /><ComboBox x:Name="AlgorithmBox" DisplayMemberPath="Label" SelectedValuePath="Algorithm"/></StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="主题（Subject）" Style="{StaticResource Label}" /><TextBox x:Name="SubjectBox" Text="CN=localhost"/></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="有效期 / 天" Style="{StaticResource Label}" /><TextBox x:Name="ValidityBox" Text="365"/></StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="1" Margin="0,8,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="230"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0"><TextBlock Text="SAN · 域名 / IP，逗号分隔" Style="{StaticResource Label}" /><TextBox x:Name="SanBox" Text="localhost"/></StackPanel>
+                        <StackPanel Grid.Column="1"><TextBlock Text="PFX 密码 · 留空则不生成 PFX" Style="{StaticResource Label}" /><PasswordBox x:Name="PfxPasswordBox"/></StackPanel>
+                    </Grid>
+                    <StackPanel Grid.Row="2">
+                        <WrapPanel Margin="0,0,0,8"><CheckBox x:Name="CaBox" Content="CA 证书（仅自签名）" Margin="0,0,16,0"/><CheckBox x:Name="ServerBox" Content="服务器认证" IsChecked="True" Margin="0,0,16,0"/><CheckBox x:Name="ClientBox" Content="客户端认证" IsChecked="True"/></WrapPanel>
+                        <WrapPanel><Button x:Name="GenerateCertificateButton" Content="生成自签名证书" Click="GenerateCertificate_Click" Margin="0,0,8,6" /><Button x:Name="GenerateCsrButton" Content="生成 CSR" Click="GenerateCsr_Click" Margin="0,0,8,6" /><Button x:Name="GenerateKeyButton" Content="仅生成密钥" Click="GenerateKey_Click" Margin="0,0,8,6" /><Button x:Name="ImportPfxButton" Content="导入 PFX（含私钥）" Click="ImportPfx_Click" Margin="0,0,8,6" /></WrapPanel>
+                    </StackPanel>
+                    <TabControl x:Name="GeneratedTabs" Grid.Row="3">
+                        <TabItem Header="证书 / CSR"><TextBox x:Name="CertificateOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True" /></TabItem>
+                        <TabItem Header="私钥 PEM（明文）"><TextBox x:Name="PrivateKeyOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True" /></TabItem>
+                        <TabItem Header="公钥 PEM"><TextBox x:Name="PublicKeyOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True" /></TabItem>
+                    </TabControl>
+                    <WrapPanel Grid.Row="4" Margin="0,8,0,0"><Button x:Name="CopyGeneratedButton" Content="复制当前输出" Click="CopyGenerated_Click" Margin="0,0,8,6" /><Button x:Name="SaveGeneratedButton" Content="保存当前 PEM / DER" Click="SaveGenerated_Click" Margin="0,0,8,6" /><Button x:Name="SavePfxButton" Content="导出 PFX" Click="SavePfx_Click" Margin="0,0,8,6" /></WrapPanel>
+                </Grid>
+            </TabItem>
+            <TabItem Header="CA 签发">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <TextBlock Text="RSA / ECDSA / SM2 / EdDSA CA · 验证 CSR 签名、CA 权限、私钥匹配及有效期后签发终端证书。" Style="{StaticResource Label}"/>
+                    <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0"><TextBlock Text="CA 证书 PEM、Base64 或文件路径" Style="{StaticResource Label}" /><TextBox x:Name="IssuerCertificateBox" Style="{StaticResource CodeBox}" Height="76"/></StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="CA 私钥 PEM 或文件路径" Style="{StaticResource Label}" /><TextBox x:Name="IssuerPrivateKeyBox" Style="{StaticResource CodeBox}" Height="76"/></StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Text="有效期 / 天" Style="{StaticResource Label}" /><TextBox x:Name="IssueValidityBox" Text="30"/></StackPanel>
+                    </Grid>
+                    <Grid Grid.Row="2" Margin="0,8,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,10,0"><TextBlock Text="CSR PEM、Base64 或文件路径" Style="{StaticResource Label}" /><TextBox x:Name="RequestBox" Style="{StaticResource CodeBox}" Height="76"/></StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Bottom"><Button x:Name="IssueButton" Content="签发证书" Click="IssueCertificate_Click" Margin="0,0,8,6" /><Button x:Name="CopyIssuedButton" Content="复制结果" Click="CopyIssued_Click" Margin="0,0,8,6" /><Button x:Name="SaveIssuedButton" Content="保存 PEM / DER" Click="SaveIssued_Click" Margin="0,0,8,6" /></StackPanel>
+                    </Grid>
+                    <TextBox Grid.Row="3" x:Name="IssuedCertificateBox" Style="{StaticResource CodeBox}" IsReadOnly="True"/>
+                    <TextBlock Grid.Row="4" x:Name="IssueStatusText" Text="签发终端证书使用数字签名用途及服务器/客户端 EKU；不授予下级 CA 权限。" Style="{StaticResource Label}"/>
+                </Grid>
+            </TabItem>
+            <TabItem Header="解析 / 转换">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock Text="证书 PEM、Base64 或文件路径 · 解析为信息展示，不代表证书链受信任。PEM 文件读取第一个证书。" Style="{StaticResource Label}"/>
+                    <TextBox Grid.Row="1" x:Name="InspectInputBox" Style="{StaticResource CodeBox}" Height="100"/>
+                    <WrapPanel Grid.Row="2" Margin="0,8,0,0"><Button x:Name="OpenCertificateButton" Content="选择文件" Click="OpenCertificate_Click" Margin="0,0,8,6" /><Button x:Name="InspectButton" Content="解析证书" Click="InspectCertificate_Click" Margin="0,0,8,6" /><Button x:Name="CopyInspectedButton" Content="复制 PEM" Click="CopyInspected_Click" Margin="0,0,8,6" /><Button x:Name="SaveInspectedButton" Content="保存 PEM / DER" Click="SaveInspected_Click" Margin="0,0,8,6" /></WrapPanel>
+                    <TextBox Grid.Row="3" x:Name="InspectOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True" TextWrapping="Wrap"/>
+                </Grid>
+            </TabItem>
+            <TabItem Header="算法工具">
+                <Grid Margin="4">
+                    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <TabControl x:Name="AlgorithmTabs">
+                        <TabItem Header="摘要 / HMAC">
+                            <Grid Margin="4">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="150"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0"><TextBlock Text="摘要算法" Style="{StaticResource Label}" /><ComboBox x:Name="DigestAlgorithmBox"/></StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="输入格式" Style="{StaticResource Label}" /><ComboBox x:Name="DigestFormatBox"/></StackPanel>
+                                    <CheckBox Grid.Column="2" x:Name="HmacBox" Content="HMAC" VerticalAlignment="Bottom" Margin="0,0,10,10"/>
+                                    <StackPanel Grid.Column="3"><TextBlock Text="HMAC 密钥 · HEX，可为空" Style="{StaticResource Label}" /><TextBox x:Name="HmacKeyBox"/></StackPanel>
+                                </Grid>
+                                <TextBox Grid.Row="1" x:Name="DigestInputBox" Style="{StaticResource CodeBox}" Margin="0,10,0,8"/>
+                                <WrapPanel Grid.Row="2"><Button x:Name="DigestButton" Content="计算摘要 / HMAC" Click="Digest_Click" Margin="0,0,8,6" /><Button x:Name="CopyDigestButton" Content="复制结果" Click="CopyDigest_Click" Margin="0,0,8,6" /></WrapPanel>
+                                <TextBox Grid.Row="3" x:Name="DigestOutputBox" IsReadOnly="True" FontFamily="Consolas" TextWrapping="Wrap" MinHeight="60" MaxHeight="100"/>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="对称加解密">
+                            <Grid Margin="4">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0"><TextBlock Text="算法 / 模式" Style="{StaticResource Label}" /><ComboBox x:Name="CipherAlgorithmBox" SelectionChanged="CipherAlgorithm_Changed"/></StackPanel>
+                                    <StackPanel Grid.Column="1"><TextBlock Text="密钥 · HEX（AES 16/24/32，SM4 16，ChaCha20 32 字节）" Style="{StaticResource Label}" /><TextBox x:Name="CipherKeyBox"/></StackPanel>
+                                </Grid>
+                                <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0"><TextBlock Text="IV / Nonce · HEX（CBC/CTR 16，AEAD 12 字节）" Style="{StaticResource Label}" /><TextBox x:Name="CipherIvBox"/></StackPanel>
+                                    <StackPanel Grid.Column="1"><TextBlock Text="AAD · HEX（仅 GCM / CCM / ChaCha20-Poly1305）" Style="{StaticResource Label}" /><TextBox x:Name="CipherAadBox"/></StackPanel>
+                                </Grid>
+                                <TextBlock Grid.Row="2" Text="输入 / 输出均为 HEX；AEAD 密文末尾附加 16 字节标签。CBC/ECB 使用 PKCS#7，CTR 无填充。" Style="{StaticResource Label}"/>
+                                <TextBox Grid.Row="3" x:Name="CipherInputBox" Style="{StaticResource CodeBox}"/>
+                                <WrapPanel Grid.Row="4" Margin="0,8,0,0"><Button x:Name="EncryptButton" Content="加密" Click="Encrypt_Click" Margin="0,0,8,6" /><Button x:Name="DecryptButton" Content="解密" Click="Decrypt_Click" Margin="0,0,8,6" /><Button x:Name="RandomCipherButton" Content="随机密钥 / IV" Click="RandomCipher_Click" Margin="0,0,8,6" /><Button x:Name="CopyCipherButton" Content="复制结果" Click="CopyCipher_Click" Margin="0,0,8,6" /></WrapPanel>
+                                <TextBox Grid.Row="5" x:Name="CipherOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True"/>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="签名 / 非对称加密">
+                            <Grid Margin="4">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220"/><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0"><TextBlock Text="签名方案 / 加密算法" Style="{StaticResource Label}" /><ComboBox x:Name="AsymmetricAlgorithmBox"/></StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="数据输入格式" Style="{StaticResource Label}" /><ComboBox x:Name="AsymmetricFormatBox"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="SM2 签名 ID · UTF-8" Style="{StaticResource Label}" /><TextBox x:Name="Sm2IdBox" Text="1234567812345678"/></StackPanel>
+                                </Grid>
+                                <StackPanel Grid.Row="1"><TextBlock Text="私钥用于签名/解密；公钥或证书用于验签/加密 · PEM 或文件路径" Style="{StaticResource Label}" /><TextBox x:Name="AsymmetricKeyBox" Style="{StaticResource CodeBox}" Height="68"/></StackPanel>
+                                <Grid Grid.Row="2" Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0"><TextBlock Text="数据（加密时为明文，解密时为密文）" Style="{StaticResource Label}" /><TextBox x:Name="AsymmetricInputBox" Style="{StaticResource CodeBox}" Height="76"/></StackPanel>
+                                    <StackPanel Grid.Column="1"><TextBlock Text="待验证的签名 · Base64" Style="{StaticResource Label}" /><TextBox x:Name="SignatureInputBox" Style="{StaticResource CodeBox}" Height="76"/></StackPanel>
+                                </Grid>
+                                <WrapPanel Grid.Row="3" Margin="0,8,0,0"><Button x:Name="SignButton" Content="签名" Click="Sign_Click" Margin="0,0,8,6" /><Button x:Name="VerifyButton" Content="验签" Click="Verify_Click" Margin="0,0,8,6" /><Button x:Name="AsymmetricEncryptButton" Content="公钥加密" Click="AsymmetricEncrypt_Click" Margin="0,0,8,6" /><Button x:Name="AsymmetricDecryptButton" Content="私钥解密" Click="AsymmetricDecrypt_Click" Margin="0,0,8,6" /><Button x:Name="CopyAsymmetricButton" Content="复制结果" Click="CopyAsymmetric_Click" Margin="0,0,8,6" /></WrapPanel>
+                                <TextBox Grid.Row="4" x:Name="AsymmetricOutputBox" Style="{StaticResource CodeBox}" IsReadOnly="True"/>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+                    <TextBlock Grid.Row="1" Text="签名 / 非对称结果为 Base64；ECDSA/SM2 签名为 DER。MD5、SHA-1、RSA PKCS#1 MD5/SHA-1 仅供旧系统兼容；ECB 仅用于兼容，CBC/CTR 不含认证；同一密钥下勿复用 CTR/AEAD Nonce。此工具不实现 TLS/TLCP 国密握手。" Style="{StaticResource Label}"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <TextBlock x:Name="StatusText" Grid.Row="2" Text="私钥和密码仅在内存中处理；仅在点击保存或复制时导出。SM2 / EdDSA PFX 需要目标软件支持相应算法。" Style="{StaticResource Label}" Margin="0,8,0,0"/>
+    </Grid>
+</Window>

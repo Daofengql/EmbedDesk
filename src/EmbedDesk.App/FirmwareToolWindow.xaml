@@ -1,0 +1,71 @@
+<Window x:Class="EmbedDesk.App.FirmwareToolWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="STM32 烧录工具" Icon="Assets/embeddesk.ico" Width="1000" Height="780" MinWidth="820" MinHeight="680" WindowStartupLocation="CenterOwner">
+    <Grid Margin="20">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="STM32 烧录工具" FontSize="18" FontWeight="SemiBold"/>
+            <TextBlock Text="先选连接方式，再按步骤连接、检查镜像、擦写并校验" Style="{StaticResource MutedText}" Margin="0,6,0,0"/>
+        </StackPanel>
+        <TabControl Grid.Row="1" Margin="0,16,0,0">
+            <TabItem Header="串口 Bootloader">
+                <Grid Margin="0,14,0,0">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <WrapPanel>
+                        <StackPanel Width="240" Margin="0,0,10,8"><TextBlock Text="1 · 串口" Style="{StaticResource MutedText}"/><ComboBox x:Name="PortBox"/></StackPanel>
+                        <StackPanel Width="120" Margin="0,0,10,8"><TextBlock Text="波特率 · 8E1" Style="{StaticResource MutedText}"/><ComboBox x:Name="BaudBox" IsEditable="True"/></StackPanel>
+                        <StackPanel Width="150" Margin="0,0,10,8"><TextBlock Text="BIN / 备份 / 执行地址" Style="{StaticResource MutedText}"/><TextBox x:Name="AddressBox" Text="0x08000000"/></StackPanel>
+                        <StackPanel Width="140" Margin="0,0,10,8"><TextBlock Text="Flash 容量（KiB）" Style="{StaticResource MutedText}"/><TextBox x:Name="CapacityBox" Text="128"/></StackPanel>
+                    </WrapPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,4,0,0">
+                        <StackPanel Width="220" Margin="0,0,10,8"><TextBlock Text="2 · 进入 Bootloader" Style="{StaticResource MutedText}"/><ComboBox x:Name="BootEntryBox"/></StackPanel>
+                        <StackPanel Width="285" Margin="0,0,10,8"><TextBlock Text="DTR / RTS 序列（按板卡原理图选择）" Style="{StaticResource MutedText}"/><ComboBox x:Name="ControlSequenceBox"/></StackPanel>
+                        <TextBlock Text="自动序列只在本地串口适配器可控时生效；否则请手动设置 BOOT0 后复位。" Style="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,15" TextWrapping="Wrap"/>
+                    </WrapPanel>
+                    <WrapPanel Grid.Row="2" Margin="0,4,0,0">
+                        <Button x:Name="SelectFirmwareButton" Content="3 · 选择固件" Click="SelectFirmware_Click" Margin="0,0,8,8"/>
+                        <Button x:Name="ConnectButton" Content="4 · 连接并识别" Click="Connect_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,8,8"/>
+                        <Button x:Name="DisconnectButton" Content="断开" Click="Disconnect_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="EraseButton" Content="全片擦除" Click="Erase_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="WriteButton" Content="擦除并写入" Click="Write_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="VerifyButton" Content="回读校验" Click="Verify_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="BackupButton" Content="备份 Flash" Click="Backup_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="RunButton" Content="执行固件" Click="Run_Click" IsEnabled="False" Margin="0,0,8,8"/>
+                        <Button x:Name="CancelButton" Content="取消" Click="Cancel_Click" IsEnabled="False" Margin="0,0,0,8"/>
+                    </WrapPanel>
+                    <Border Grid.Row="3" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="10" Margin="0,4,0,0">
+                        <TextBlock Text="步骤提示：① 选择实际 COM 和 8E1；② 按板卡说明选择 DTR/RTS 自动序列，或手动把 BOOT0 拉高并复位；③ 连接后先看芯片 ID、Bootloader 版本和命令能力；④ 确认地址与容量，再执行擦除、写入、回读校验。取消或通讯出错后需要重新进入 Bootloader。" TextWrapping="Wrap" Style="{StaticResource MutedText}"/>
+                    </Border>
+                    <TextBox x:Name="FlashLogBox" Grid.Row="4" Margin="0,12,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+                    <StackPanel Grid.Row="5" Margin="0,12,0,0"><ProgressBar x:Name="FlashProgress" Height="7" Minimum="0" Maximum="100"/><TextBlock x:Name="FlashStatus" Text="未连接" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+                </Grid>
+            </TabItem>
+            <TabItem Header="ST-LINK / DAPLink">
+                <Grid Margin="0,14,0,0">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="USB 探针拖拽烧录" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="识别带有 DAPLink / ST-LINK 标记的可移动盘，把 BIN、HEX 或 S-Record 交给探针固件完成 SWD 烧录和校验。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                    </StackPanel>
+                    <WrapPanel Grid.Row="1" Margin="0,14,0,0">
+                        <StackPanel Width="390" Margin="0,0,10,8"><TextBlock Text="1 · 探针目标盘" Style="{StaticResource MutedText}"/><ComboBox x:Name="ProbeDriveBox"/></StackPanel>
+                        <Button x:Name="RefreshProbeButton" Content="刷新探针" Click="RefreshProbe_Click" VerticalAlignment="Bottom" Margin="0,0,10,8"/>
+                        <Button x:Name="FlashProbeButton" Content="选择的固件复制到探针" Click="FlashProbe_Click" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom" Margin="0,0,10,8"/>
+                        <TextBlock x:Name="ProbeInfoText" Text="未扫描" Style="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,15"/>
+                    </WrapPanel>
+                    <Border Grid.Row="2" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" Padding="10" Margin="0,4,0,0">
+                        <TextBlock Text="2 · 先在“固件分析”页选择并检查镜像；3 · 确认目标盘标签和板卡型号；4 · 复制后等待探针处理。此模式使用探针公开的 USB 大容量存储接口，不提供 SWD 调试、读回或地址重定位；若探针生成 FAIL.TXT，会把失败原因显示在日志中。" TextWrapping="Wrap" Style="{StaticResource MutedText}"/>
+                    </Border>
+                    <TextBox x:Name="ProbeLogBox" Grid.Row="3" Margin="0,12,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12"/>
+                    <StackPanel Grid.Row="4" Margin="0,12,0,0"><ProgressBar x:Name="ProbeProgress" Height="7" Minimum="0" Maximum="100"/><TextBlock x:Name="ProbeStatus" Text="未选择探针" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0"/></StackPanel>
+                </Grid>
+            </TabItem>
+            <TabItem Header="固件分析">
+                <Grid Margin="0,14,0,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <WrapPanel><Button x:Name="AnalyzeFileButton" Content="选择固件并分析" Click="SelectFirmware_Click" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0"/><Button x:Name="ClearFileButton" Content="清除" Click="ClearFile_Click"/></WrapPanel>
+                    <TextBox x:Name="AnalysisBox" Grid.Row="1" Margin="0,14,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="13"/>
+                    <TextBlock Grid.Row="2" Text="支持 BIN、Intel HEX 和 Motorola S-Record；校验记录长度、校验和、地址重叠，并计算 SHA-256。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <TextBlock Grid.Row="2" Text="执行固件使用 GO 命令；若程序依赖复位状态，请退出 BOOT 模式后硬件复位。USB 探针模式的最终擦写和校验由探针固件执行。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,14,0,0"/>
+    </Grid>
+</Window>

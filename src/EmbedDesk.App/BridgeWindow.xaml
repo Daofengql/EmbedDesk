@@ -1,0 +1,44 @@
+<Window x:Class="EmbedDesk.App.BridgeWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="网络串口服务" Width="800" Height="620" MinWidth="700" MinHeight="540" WindowStartupLocation="CenterOwner">
+    <Grid Margin="24" Background="{StaticResource PanelBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Grid Margin="0,0,0,20"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="网络串口服务" FontSize="18" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="{Binding BridgeStatus}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" /></Grid>
+        <Grid Grid.Row="1" IsEnabled="{Binding CanConfigureBridge}" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /><ColumnDefinition Width="120" /></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <TextBlock Text="角色" Style="{StaticResource MutedText}" Margin="0,0,0,8" />
+            <ComboBox Grid.Row="1" ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding BridgeMode}" Margin="0,0,14,0" />
+            <StackPanel Grid.Column="1" Grid.RowSpan="2" Margin="0,0,14,0">
+                <TextBlock Margin="0,0,0,8"><TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="Text" Value="远端地址" /><Style.Triggers><DataTrigger Binding="{Binding IsBridgeServer}" Value="True"><Setter Property="Text" Value="监听地址" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+                <TextBox><TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="Text" Value="{Binding BridgeRemoteHost, UpdateSourceTrigger=PropertyChanged}" /><Style.Triggers><DataTrigger Binding="{Binding IsBridgeServer}" Value="True"><Setter Property="Text" Value="{Binding BridgeLocalHost, UpdateSourceTrigger=PropertyChanged}" /></DataTrigger></Style.Triggers></Style></TextBox.Style></TextBox>
+            </StackPanel>
+            <TextBlock Grid.Column="2" Text="端口" Style="{StaticResource MutedText}" Margin="0,0,0,8" />
+            <TextBox Grid.Column="2" Grid.Row="1"><TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Setter Property="Text" Value="{Binding BridgeRemotePort, UpdateSourceTrigger=PropertyChanged}" /><Style.Triggers><DataTrigger Binding="{Binding IsBridgeServer}" Value="True"><Setter Property="Text" Value="{Binding BridgeLocalPort, UpdateSourceTrigger=PropertyChanged}" /></DataTrigger></Style.Triggers></Style></TextBox.Style></TextBox>
+        </Grid>
+        <Grid Grid.Row="2">
+            <Grid Visibility="{Binding IsBridgeServer, Converter={StaticResource BooleanVisibility}}"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid Margin="0,0,0,10"><StackPanel><TextBlock Text="映射通道" FontWeight="SemiBold" /><TextBlock Text="服务端只选择 COM；客户端打开远程标签时才下发波特率和串口参数" Style="{StaticResource MutedText}" FontSize="11" Margin="0,4,0,0" /></StackPanel></Grid>
+                <DataGrid Grid.Row="1" ItemsSource="{Binding SerialPorts}" IsEnabled="{Binding CanConfigureBridge}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" RowHeight="42"><DataGrid.Columns>
+                    <DataGridTemplateColumn Header="映射" Width="56"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}"><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Style.Triggers><DataTrigger Binding="{Binding IsRemote}" Value="True"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTextColumn Header="串口" Binding="{Binding PortName}" IsReadOnly="True" Width="100" />
+                    <DataGridTextColumn Header="设备" Binding="{Binding DisplayName}" IsReadOnly="True" Width="*" />
+                    <DataGridTemplateColumn Header="串口参数" Width="155">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="客户端打开时设置" Style="{StaticResource MutedText}" VerticalAlignment="Center"
+                                           ToolTip="服务端只保存 COM 映射；客户端打开远程串口时提供波特率、数据位、校验、停止位和流控" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" IsReadOnly="True" Width="80" />
+                </DataGrid.Columns></DataGrid>
+            </Grid>
+            <StackPanel><StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding IsBridgeServer}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                <TextBlock Text="远程串口" FontWeight="SemiBold" Margin="0,8,0,14" />
+                <TextBlock Text="连接后到串口调试页选择远程 COM，设置波特率等参数，再点击连接。关闭标签或断开映射后，服务端释放 COM。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                <TextBlock Text="{Binding BridgeStatus}" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,14" />
+                <CheckBox Content="创建系统虚拟 COM 设备" IsChecked="{Binding EnableVirtualSerialPorts}" IsEnabled="False" ToolTip="系统虚拟 COM 驱动适配器尚未配置" />
+            </StackPanel>
+        </Grid>
+        <Grid Grid.Row="3" Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="{Binding ActivityStatus}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,20,0" FontSize="12" Style="{StaticResource MutedText}" /><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="启动服务" Style="{StaticResource PrimaryButton}" Command="{Binding StartBridgeCommand}" /><Button Content="停止" Command="{Binding StopBridgeCommand}" Margin="8,0,0,0" /></StackPanel></Grid>
+    </Grid>
+</Window>

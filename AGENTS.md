@@ -1,4 +1,4 @@
-# Embedded Debugger 项目协作约定
+# EmbedDesk 项目协作约定
 
 本文件记录长期设计、实现和交付约定，不保存聊天原文或个人环境信息。功能细节以代码、`README.md` 和 `docs/` 中的专项文档为准；修改行为时同步相关说明。
 
@@ -68,18 +68,18 @@
 
 ## 项目结构与验证
 
-- `src/EmbeddedDebugger.Core/`：模型与接口；`src/EmbeddedDebugger.Protocols/`：桥接帧协议。
-- `src/EmbeddedDebugger.Infrastructure/`：串口、网络、桥接、远程、烧录及录制实现。
-- `src/EmbeddedDebugger.App/`：WPF 窗口、控件、MVVM、本地终端与嵌入资源。
-- `tests/EmbeddedDebugger.Core.Tests/`：核心测试；`tests/EmbeddedDebugger.App.SmokeTests/`：桌面与协议回归。
+- `src/EmbedDesk.Core/`：模型与接口；`src/EmbedDesk.Protocols/`：桥接帧协议。
+- `src/EmbedDesk.Infrastructure/`：串口、网络、桥接、远程、烧录及录制实现。
+- `src/EmbedDesk.App/`：WPF 窗口、控件、MVVM、本地终端与嵌入资源。
+- `tests/EmbedDesk.Core.Tests/`：核心测试；`tests/EmbedDesk.App.SmokeTests/`：桌面与协议回归。
 - 架构、桥接及性能说明分别见 `docs/Architecture.md`、`docs/SerialBridgeProtocol.md`、`docs/performance.md`。
 
 基础命令（仓库根目录）：
 
 ```powershell
-dotnet build EmbeddedDebugger.sln
-dotnet test tests/EmbeddedDebugger.Core.Tests/EmbeddedDebugger.Core.Tests.csproj
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-check
+dotnet build EmbedDesk.sln
+dotnet test tests/EmbedDesk.Core.Tests/EmbedDesk.Core.Tests.csproj
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 ```
 
 烟雾测试需要可交互的 Windows 桌面，会打开测试窗口。按改动范围选择入口，不必每次运行全部测试：
@@ -104,7 +104,7 @@ dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-check
 
 ## 发布约定
 
-- 用户要求 Release 默认交付为精简的单 EXE，假定目标机器已安装 .NET 8 Desktop Runtime（x64）。默认使用 `dotnet publish src/EmbeddedDebugger.App/EmbeddedDebugger.App.csproj -c Release`，发布配置为 `Compact`，成品在 `artifacts/release/win-x64/EmbeddedDebugger.App.exe`。
+- 用户要求 Release 默认交付为精简的单 EXE，假定目标机器已安装 .NET 8 Desktop Runtime（x64）。默认使用 `dotnet publish src/EmbedDesk.App/EmbedDesk.App.csproj -c Release`，发布配置为 `Compact`，成品在 `artifacts/release/win-x64/EmbedDesk.App.exe`。
 - 默认包不携带 .NET 运行时。只有明确需要自带运行时版本时，才指定 `-p:PublishProfile=SingleFile`，输出到 `artifacts/release-self-contained/win-x64/`。SDK 的单文件压缩仅支持自包含发布，默认精简版不要开启该选项。
 - 终端资源应嵌入程序并从用户缓存加载，不依赖 EXE 旁边的 Assets 文件夹。不要以普通 build 目录作为默认 Release 交付。目标系统仍需 WebView2 Runtime。
 - 发布前验证单文件输出和终端初始化。不要覆盖正在运行的程序或中断用户连接；文件占用时发布到新的输出目录。

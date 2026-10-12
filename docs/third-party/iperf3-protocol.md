@@ -100,5 +100,5 @@ establish all-version compatibility. An opt-in interoperability check generates
 traffic only when explicitly invoked:
 
 ```sh
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-peer-check HOST PORT
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-peer-check HOST PORT
 ```

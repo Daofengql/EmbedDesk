@@ -1,17 +1,17 @@
 # Third-party notices
 
-Embedded Debugger's original code is licensed under GPL-3.0-only. Third-party code and assets retain their original licenses and copyright notices.
+EmbedDesk's original code is licensed under GPL-3.0-only. Third-party code and assets retain their original licenses and copyright notices.
 
 ## Bundled terminal and platform assets
 
 | Component | License | Local notice |
 | --- | --- | --- |
-| [xterm.js](https://github.com/xtermjs/xterm.js) | MIT | [LICENSE-xterm](src/EmbeddedDebugger.App/Assets/Terminal/LICENSE-xterm) |
-| xterm.js fit addon | MIT | [LICENSE-addon-fit](src/EmbeddedDebugger.App/Assets/Terminal/LICENSE-addon-fit) |
-| [Devicon](https://github.com/devicons/devicon) platform logos | MIT | [LICENSE.devicon](src/EmbeddedDebugger.App/Assets/Platforms/LICENSE.devicon) |
-| [Simple Icons](https://github.com/simple-icons/simple-icons) platform logos | CC0-1.0 | [LICENSE.simple-icons.md](src/EmbeddedDebugger.App/Assets/Platforms/LICENSE.simple-icons.md) |
+| [xterm.js](https://github.com/xtermjs/xterm.js) | MIT | [LICENSE-xterm](src/EmbedDesk.App/Assets/Terminal/LICENSE-xterm) |
+| xterm.js fit addon | MIT | [LICENSE-addon-fit](src/EmbedDesk.App/Assets/Terminal/LICENSE-addon-fit) |
+| [Devicon](https://github.com/devicons/devicon) platform logos | MIT | [LICENSE.devicon](src/EmbedDesk.App/Assets/Platforms/LICENSE.devicon) |
+| [Simple Icons](https://github.com/simple-icons/simple-icons) platform logos | CC0-1.0 | [LICENSE.simple-icons.md](src/EmbedDesk.App/Assets/Platforms/LICENSE.simple-icons.md) |
 
-The [platform icon notice](src/EmbeddedDebugger.App/Assets/Platforms/NOTICE.md) records upstream revisions, rendering changes, and regeneration instructions. Logos identify the connected systems; trademarks belong to their respective owners.
+The [platform icon notice](src/EmbedDesk.App/Assets/Platforms/NOTICE.md) records upstream revisions, rendering changes, and regeneration instructions. Logos identify the connected systems; trademarks belong to their respective owners.
 
 ## Design references
 

@@ -1,0 +1,43 @@
+<Window x:Class="EmbedDesk.App.Iperf3Window" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="iperf3 网络测速" Icon="Assets/embeddesk.ico" Width="980" Height="780" MinWidth="820" MinHeight="700" WindowStartupLocation="CenterOwner">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*" MinHeight="90"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel><TextBlock Text="iperf3 网络测速" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="TCP / UDP · 上传 / 下载 · 单流测速" Style="{StaticResource MutedText}" Margin="0,5,0,0"/></StackPanel>
+        <StackPanel Grid.Row="1" x:Name="NodePanel" Margin="0,14,0,8">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="90"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="测速节点" VerticalAlignment="Center"/>
+                <ComboBox Grid.Column="1" x:Name="NodeBox" DisplayMemberPath="Name" SelectionChanged="Node_Changed"/>
+                <Button Grid.Column="2" x:Name="SourceButton" Content="节点来源" Click="Source_Click" Margin="10,0,0,0"/>
+            </Grid>
+            <TextBlock x:Name="NodeHint" Text="填写自己的 iperf3 服务端，或从公共节点填入地址。" Style="{StaticResource MutedText}" FontSize="11" Margin="90,5,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+        <StackPanel Grid.Row="2" x:Name="ParametersPanel">
+            <WrapPanel>
+                <StackPanel Width="104" Margin="0,0,10,8"><TextBlock Text="模式" Style="{StaticResource MutedText}"/><ComboBox x:Name="ModeBox" SelectionChanged="Mode_Changed"><ComboBoxItem Content="客户端"/><ComboBoxItem Content="服务端"/></ComboBox></StackPanel>
+                <StackPanel Width="252" Margin="0,0,10,8"><TextBlock x:Name="HostLabel" Text="远程地址" Style="{StaticResource MutedText}"/><TextBox x:Name="HostBox" Text="127.0.0.1" TextChanged="Endpoint_Changed"/></StackPanel>
+                <StackPanel Width="88" Margin="0,0,10,8"><TextBlock Text="端口" Style="{StaticResource MutedText}"/><TextBox x:Name="PortBox" Text="5201" TextChanged="Endpoint_Changed"/></StackPanel>
+                <StackPanel Width="110" Margin="0,0,10,8"><TextBlock Text="协议" Style="{StaticResource MutedText}"/><ComboBox x:Name="ProtocolBox" SelectionChanged="Protocol_Changed"><ComboBoxItem Content="TCP"/><ComboBoxItem Content="UDP"/></ComboBox></StackPanel>
+                <StackPanel Width="112" Margin="0,0,0,8"><TextBlock Text="方向" Style="{StaticResource MutedText}"/><ComboBox x:Name="DirectionBox" SelectedIndex="0"><ComboBoxItem Content="上传"/><ComboBoxItem Content="下载 (-R)"/></ComboBox></StackPanel>
+            </WrapPanel>
+            <WrapPanel x:Name="ClientOptionsPanel">
+                <StackPanel Width="104" Margin="0,0,10,8"><TextBlock Text="时长（秒）" Style="{StaticResource MutedText}"/><TextBox x:Name="DurationBox" Text="10"/></StackPanel>
+                <StackPanel Width="168" Margin="0,0,10,8"><TextBlock x:Name="BlockLabel" Text="写入块大小（字节）" Style="{StaticResource MutedText}"/><TextBox x:Name="BlockSizeBox" Text="131072"/></StackPanel>
+                <StackPanel Width="148" Margin="0,0,8,8"><TextBlock Text="发送限速（0 不限速）" Style="{StaticResource MutedText}"/><TextBox x:Name="RateBox" Text="20"/></StackPanel>
+                <StackPanel Width="110" Margin="0,0,10,8"><TextBlock Text="速率单位" Style="{StaticResource MutedText}"/><ComboBox x:Name="RateUnitBox" SelectedIndex="0"><ComboBoxItem Content="Mbit/s"/><ComboBoxItem Content="Kbit/s"/><ComboBoxItem Content="Gbit/s"/><ComboBoxItem Content="bit/s"/><ComboBoxItem x:Name="PacketRateItem" Content="包/s (UDP)"/></ComboBox></StackPanel>
+            </WrapPanel>
+            <TextBlock x:Name="ProtocolHint" Text="TCP 的大小表示每次写入的数据块；实际网卡分包由系统决定。" FontSize="11" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Border Grid.Row="3" Background="{StaticResource InputBrush}" CornerRadius="5" Padding="14,10" Margin="0,12,0,10">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.1*"/><ColumnDefinition Width="1*"/><ColumnDefinition Width="1.5*"/></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock x:Name="SpeedCaption" Text="当前速率" Style="{StaticResource MutedText}" FontSize="11"/><TextBlock x:Name="SpeedText" Text="—" FontSize="24" Foreground="{StaticResource AccentBrush}"/></StackPanel>
+                <StackPanel Grid.Column="1" Margin="12,0"><TextBlock Text="本地传输量" Style="{StaticResource MutedText}" FontSize="11"/><TextBlock x:Name="TransferredText" Text="—" FontSize="20" Margin="0,4,0,0"/></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="UDP 接收质量" Style="{StaticResource MutedText}" FontSize="11"/><TextBlock x:Name="UdpSummaryText" Text="—" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"/></StackPanel>
+            </Grid>
+        </Border>
+        <Grid Grid.Row="4" Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock x:Name="CommandHint" VerticalAlignment="Center" Text="对端启动：iperf3 -s -p 5201" FontFamily="Consolas" FontSize="11" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,10,0"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><Button x:Name="StartButton" Content="开始测速" Style="{StaticResource PrimaryButton}" Click="Start_Click" Margin="0,0,8,0"/><Button x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False"/></StackPanel>
+        </Grid>
+        <TextBox Grid.Row="5" x:Name="OutputBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="12" Padding="12" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}"/>
+        <TextBlock Grid.Row="6" x:Name="StatusText" Text="选择节点与参数后开始。公共服务可能繁忙，可更换节点或其公布的端口。" Style="{StaticResource MutedText}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+    </Grid>
+</Window>

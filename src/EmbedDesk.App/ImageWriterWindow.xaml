@@ -1,0 +1,17 @@
+<Window x:Class="EmbedDesk.App.ImageWriterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SD / USB 镜像写入" Icon="Assets/embeddesk.ico"
+        Width="900" Height="640" MinWidth="760" MinHeight="540"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="20">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <StackPanel><TextBlock Text="SD / USB 镜像写入" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="逐字节写入 ISO / IMG / BIN 原始镜像并回读校验；不转换 Windows 安装 ISO。目标盘全部数据会被覆盖。" Style="{StaticResource MutedText}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" /></StackPanel>
+        <StackPanel x:Name="Configuration" Grid.Row="1" Margin="0,18,0,0">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBox x:Name="ImagePathBox" IsReadOnly="True" VerticalContentAlignment="Center" /><Button Grid.Column="1" Content="选择镜像" Click="Choose_Click" Margin="8,0,0,0" /></Grid>
+            <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><ComboBox x:Name="DiskBox" DisplayMemberPath="DisplayName" SelectionChanged="Disk_SelectionChanged" /><TextBox x:Name="LabelBox" Grid.Column="1" Text="EDBG" MaxLength="11" Margin="8,0,0,0" ToolTip="FAT32 卷标，最多 11 个 ASCII 字符" /><Button x:Name="FormatButton" Grid.Column="2" Content="格式化 FAT32" Click="Format_Click" Margin="8,0,0,0" /><Button Grid.Column="3" Content="刷新磁盘" Click="Refresh_Click" Margin="8,0,0,0" /></Grid>
+        </StackPanel>
+        <TextBox x:Name="DetailsBox" Grid.Row="2" Margin="0,14,0,0" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="12" />
+        <StackPanel Grid.Row="3" Margin="0,14,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><ProgressBar x:Name="Progress" Height="8" VerticalAlignment="Center" /><Button Grid.Column="1" x:Name="CancelButton" Content="停止" Click="Cancel_Click" Margin="12,0,0,0" IsEnabled="False" /><Button Grid.Column="2" x:Name="WriteButton" Content="确认并写入" Click="Write_Click" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" IsEnabled="False" /></Grid><TextBlock x:Name="Status" Text="请选择镜像和目标磁盘。" Style="{StaticResource MutedText}" Margin="0,8,0,0" TextWrapping="Wrap" /></StackPanel>
+    </Grid>
+</Window>

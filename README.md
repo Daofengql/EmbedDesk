@@ -1,4 +1,4 @@
-# Embedded Debugger
+# EmbedDesk
 
 面向嵌入式联调的 Windows 桌面工作台，集成串口调试、SSH / RDP / VNC 远程管理和网络调试。使用 .NET 8、WPF、WebView2 与 xterm.js，提供统一的暗色界面。
 
@@ -41,9 +41,9 @@
 工具回归测试（不会擦写物理硬件）：
 
 ```powershell
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --firmware-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --recording-media-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --firmware-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --recording-media-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 ```
 
 ## 开发运行
@@ -51,12 +51,12 @@ dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --iperf3-check
 需要 Windows 10 1809 或更新版本、[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 和 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)。本地终端使用 Windows ConPTY；SSH 文件管理需要远端启用 SFTP。
 
 ```powershell
-dotnet restore .\EmbeddedDebugger.sln
-dotnet build .\EmbeddedDebugger.sln
-dotnet run --project .\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj
+dotnet restore .\EmbedDesk.sln
+dotnet build .\EmbedDesk.sln
+dotnet run --project .\src\EmbedDesk.App\EmbedDesk.App.csproj
 ```
 
-会话配置和密钥路径索引保存在 `%LOCALAPPDATA%\EmbeddedDebugger`；会话密码不写入保存的配置文件。WebView2 和终端资源缓存也保存在用户目录中。
+会话配置和密钥路径索引保存在 `%LOCALAPPDATA%\EmbedDesk`；会话密码不写入保存的配置文件。WebView2 和终端资源缓存也保存在用户目录中。
 
 RDP 需要系统提供 MSTSC ActiveX 控件，服务端启用远程桌面。VNC 首版实现 RFB 3.3 / 3.7 / 3.8、无认证或标准 VNC 密码认证，以及 Raw / CopyRect / DesktopSize；暂不支持 VeNCrypt、TLS 和厂商专用认证。标准 VNC 密码仅使用前 8 个 Latin-1 字符，图像流没有传输加密，适合在可信网络或 VPN 内使用。
 
@@ -67,41 +67,41 @@ TCPing 会额外建立并立即关闭一个 TCP 连接，不发送业务数据�
 默认发布为精简的 Windows x64 单 EXE，不携带 .NET 运行时。假定目标系统已安装 **.NET 8 Desktop Runtime（x64）** 和 WebView2 Runtime：
 
 ```powershell
-dotnet publish .\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj -c Release
+dotnet publish .\src\EmbedDesk.App\EmbedDesk.App.csproj -c Release
 ```
 
-成品为 `artifacts\release\win-x64\EmbeddedDebugger.App.exe`。终端 HTML、JavaScript、样式及其许可文件已嵌入程序，运行时会解包到用户缓存，无需在 EXE 旁放置 `Assets` 目录。发布配置关闭裁剪以兼容 WPF、WebView2 和 SSH。
+成品为 `artifacts\release\win-x64\EmbedDesk.App.exe`。终端 HTML、JavaScript、样式及其许可文件已嵌入程序，运行时会解包到用户缓存，无需在 EXE 旁放置 `Assets` 目录。发布配置关闭裁剪以兼容 WPF、WebView2 和 SSH。
 
 Release 将完整的 BouncyCastle 程序集压缩存放，首次使用 SSH / VNC 时在内存中解压加载，不删减任何算法。精简 EXE 大小随功能版本变化；压缩只减少分发体积。依赖版本不变时，增量构建会复用压缩结果。排查依赖加载时可追加 `-p:PackManagedDependencies=false` 使用常规程序集。SDK 的 `EnableCompressionInSingleFile` 在精简版中仍保持关闭。
 
 如果需要向尚未安装 .NET 运行时的机器交付，可显式生成自带运行时的较大版本：
 
 ```powershell
-dotnet publish .\src\EmbeddedDebugger.App\EmbeddedDebugger.App.csproj -c Release -p:PublishProfile=SingleFile
+dotnet publish .\src\EmbedDesk.App\EmbedDesk.App.csproj -c Release -p:PublishProfile=SingleFile
 ```
 
-自带运行时版本输出至 `artifacts\release-self-contained\win-x64\EmbeddedDebugger.App.exe`，仍需系统安装 WebView2 Runtime。开发编译使用 `dotnet build`，正式单 EXE 交付使用 `dotnet publish`。
+自带运行时版本输出至 `artifacts\release-self-contained\win-x64\EmbedDesk.App.exe`，仍需系统安装 WebView2 Runtime。开发编译使用 `dotnet build`，正式单 EXE 交付使用 `dotnet publish`。
 
 ## 测试
 
 核心协议测试：
 
 ```powershell
-dotnet test .\tests\EmbeddedDebugger.Core.Tests\EmbeddedDebugger.Core.Tests.csproj
+dotnet test .\tests\EmbedDesk.Core.Tests\EmbedDesk.Core.Tests.csproj
 ```
 
 Windows 桌面烟雾测试覆盖终端、侧栏、文件工作区、全屏及会话行为；运行过程中会打开测试窗口并模拟输入，需要可交互的桌面：
 
 ```powershell
-dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.App.SmokeTests.csproj
+dotnet run --project .\tests\EmbedDesk.App.SmokeTests\EmbedDesk.App.SmokeTests.csproj
 ```
 
-真实 SSH 回环测试入口为 `tests/EmbeddedDebugger.App.SmokeTests/loopback_ssh.py`，需要 Python、Paramiko 和 Git Bash。它使用临时主机密钥及固定的本机测试账号，不读取实际会话凭据。
+真实 SSH 回环测试入口为 `tests/EmbedDesk.App.SmokeTests/loopback_ssh.py`，需要 Python、Paramiko 和 Git Bash。它使用临时主机密钥及固定的本机测试账号，不读取实际会话凭据。
 
 新增桌面与网络测试通过本机回环验证 TCP / UDP、HEX 和发送任务、原生 RDP 握手与断开，以及 VNC 认证、图像、尺寸变化和输入，不需要外部服务器：
 
 ```powershell
-dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.App.SmokeTests.csproj -- --desktop-network-check
+dotnet run --project .\tests\EmbedDesk.App.SmokeTests\EmbedDesk.App.SmokeTests.csproj -- --desktop-network-check
 ```
 
 RDP 完整 Windows 登录、证书交互和不同 VNC 服务端的兼容性仍需使用实际目标机器验证。
@@ -109,13 +109,13 @@ RDP 完整 Windows 登录、证书交互和不同 VNC 服务端的兼容性仍�
 网络质量测试覆盖本机 TCP / ICMP 实测、关闭端口、取消与过期结果、滚动统计、探测方式切换，以及各协议的目标选择和生命周期：
 
 ```powershell
-dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.App.SmokeTests.csproj -- --network-quality-check
+dotnet run --project .\tests\EmbedDesk.App.SmokeTests\EmbedDesk.App.SmokeTests.csproj -- --network-quality-check
 ```
 
 DNS 本机回环检查覆盖记录解码、指定服务器与端口、UDP 转 TCP、IPv6、超时取消、损坏报文和查询窗口；不依赖公共 DNS 节点：
 
 ```powershell
-dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.App.SmokeTests.csproj -- --dns-query-check
+dotnet run --project .\tests\EmbedDesk.App.SmokeTests\EmbedDesk.App.SmokeTests.csproj -- --dns-query-check
 ```
 
 ## 性能与资源限制
@@ -126,13 +126,13 @@ dotnet run --project .\tests\EmbeddedDebugger.App.SmokeTests\EmbeddedDebugger.Ap
 
 ```text
 src/
-  EmbeddedDebugger.Core/            模型与接口
-  EmbeddedDebugger.Protocols/       EDBG 多路复用帧编解码
-  EmbeddedDebugger.Infrastructure/  网络、串口、桥接、SSH 与 SFTP
-  EmbeddedDebugger.App/             WPF 界面、本地终端与 MVVM
+  EmbedDesk.Core/            模型与接口
+  EmbedDesk.Protocols/       EDBG 多路复用帧编解码
+  EmbedDesk.Infrastructure/  网络、串口、桥接、SSH 与 SFTP
+  EmbedDesk.App/             WPF 界面、本地终端与 MVVM
 tests/
-  EmbeddedDebugger.Core.Tests/      核心协议测试
-  EmbeddedDebugger.App.SmokeTests/   桌面、终端与 SSH 回归测试
+  EmbedDesk.Core.Tests/      核心协议测试
+  EmbedDesk.App.SmokeTests/   桌面、终端与 SSH 回归测试
 docs/                              架构与串口桥接协议
 scripts/                           图标资源生成脚本
 ```
@@ -150,8 +150,8 @@ scripts/                           图标资源生成脚本
 DoH 传输及新增工具检查（包含本机 TCP / TLS 服务、CRC 标准向量和窗口截图）：
 
 ```powershell
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --dns-query-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --utility-tools-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --dns-query-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --utility-tools-check
 # 可选：实际查询四个公共 DoH 服务
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --live-doh-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --live-doh-check
 ```

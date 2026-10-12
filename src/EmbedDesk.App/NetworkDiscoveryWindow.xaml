@@ -1,0 +1,22 @@
+<Window x:Class="EmbedDesk.App.NetworkDiscoveryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="内网扫描" Icon="Assets/embeddesk.ico" Width="860" Height="620" MinWidth="760" WindowStartupLocation="CenterOwner">
+    <Grid Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <StackPanel><TextBlock Text="内网扫描" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="按选定网卡的 IPv4 子网轮询 ICMP，并用 ARP 和 DNS 补充设备信息。" Style="{StaticResource MutedText}" FontSize="12" Margin="0,6,0,0" /></StackPanel>
+        <Grid Grid.Row="1" Margin="0,20,0,16">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="扫描网卡" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><ComboBox x:Name="InterfaceBox" DisplayMemberPath="Name" SelectionChanged="Interface_Changed" /></StackPanel>
+            <StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="并发数" Style="{StaticResource MutedText}" FontSize="11" Margin="0,0,0,5" /><TextBox x:Name="ConcurrencyBox" Text="64" /></StackPanel>
+            <Button Grid.Column="2" x:Name="StartButton" Content="开始扫描" Style="{StaticResource PrimaryButton}" Click="Start_Click" Margin="12,17,8,0" />
+            <Button Grid.Column="3" x:Name="StopButton" Content="停止" Click="Stop_Click" IsEnabled="False" Margin="0,17,0,0" />
+            <TextBlock Grid.Row="1" x:Name="RangeText" Grid.ColumnSpan="4" Text="" Style="{StaticResource MutedText}" FontSize="11" Margin="0,10,0,0" />
+        </Grid>
+        <DataGrid Grid.Row="2" ItemsSource="{Binding Devices}" x:Name="DeviceGrid" IsReadOnly="True" CanUserResizeRows="False">
+            <DataGrid.Columns><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" /><DataGridTextColumn Header="IP 地址" Binding="{Binding Address}" Width="150" /><DataGridTextColumn Header="主机名" Binding="{Binding HostName}" Width="*" /><DataGridTextColumn Header="MAC / ARP" Binding="{Binding MacAddress}" Width="170" /><DataGridTextColumn Header="延迟" Binding="{Binding Latency}" Width="100" /></DataGrid.Columns>
+        </DataGrid>
+        <Grid Grid.Row="3" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" Text="选择网卡后开始扫描" Style="{StaticResource MutedText}" /><TextBlock Grid.Column="1" x:Name="SummaryText" Style="{StaticResource MutedText}" /></Grid>
+    </Grid>
+</Window>

@@ -33,11 +33,11 @@
 ## 复现与验证
 
 ```powershell
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --performance-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --desktop-network-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests -- --network-quality-check
-dotnet run --project tests/EmbeddedDebugger.App.SmokeTests
-dotnet publish src/EmbeddedDebugger.App -c Release
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --performance-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --desktop-network-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests -- --network-quality-check
+dotnet run --project tests/EmbedDesk.App.SmokeTests
+dotnet publish src/EmbedDesk.App -c Release
 ```
 
 额外以只含测试 EXE 的隔离目录验证 WebView2、嵌入资源、本地 Shell、全屏、原生 RDP 握手及 VNC 认证与局部刷新。`loopback_ssh.py` 设置 `EDBG_SSH_TEST_EXE` 后会运行发布版协议检查：真实 SSH 认证、600 行 MOTD、拆包 UTF-8、性能采集和 TTY 尺寸同步；测试使用临时主机密钥和本机固定测试凭据。

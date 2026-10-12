@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>EmbedDesk.Core.Tests</RootNamespace>
+    <AssemblyName>EmbedDesk.Core.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\EmbedDesk.Core\EmbedDesk.Core.csproj" />
+    <ProjectReference Include="..\..\src\EmbedDesk.Protocols\EmbedDesk.Protocols.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+</Project>

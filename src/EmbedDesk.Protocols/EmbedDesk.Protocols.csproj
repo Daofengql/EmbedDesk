@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>EmbedDesk.Protocols</RootNamespace>
+    <AssemblyName>EmbedDesk.Protocols</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EmbedDesk.Core\EmbedDesk.Core.csproj" />
+  </ItemGroup>
+</Project>

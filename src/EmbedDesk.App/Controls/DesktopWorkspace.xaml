@@ -1,0 +1,28 @@
+<UserControl x:Class="EmbedDesk.App.Controls.DesktopWorkspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:EmbedDesk.App.Controls">
+    <Grid Background="#12171C">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,5">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><TextBlock Text="{Binding ProtocolLabel}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" Margin="0,0,10,0" /><TextBlock Text="{Binding Endpoint}" Style="{StaticResource MutedText}" /></StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Style="{StaticResource IconButton}" Command="{Binding ReconnectCommand}" ToolTip="重新连接"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}" /></Button>
+                    <Button Style="{StaticResource IconButton}" Command="{Binding DisconnectCommand}" ToolTip="断开连接"><TextBlock Text="&#xE8D4;" Style="{StaticResource Icon}" /></Button>
+                    <Button x:Name="PasteButton" Style="{StaticResource IconButton}" Click="Paste_Click" ToolTip="发送本地剪贴板文本到 VNC" IsEnabled="{Binding IsConnected}"><TextBlock Text="&#xE77F;" Style="{StaticResource Icon}" /></Button>
+                    <Button Style="{StaticResource IconButton}" Click="Fullscreen_Click" ToolTip="切换全屏（本地 F11）"><TextBlock Text="&#xE740;" Style="{StaticResource Icon}" /></Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <Grid x:Name="DesktopSurface" Grid.Row="1" ClipToBounds="True" SizeChanged="Surface_SizeChanged">
+            <TextBlock x:Name="Placeholder" Text="{Binding Message}" TextWrapping="Wrap" MaxWidth="620" Margin="28" HorizontalAlignment="Center" VerticalAlignment="Center" Style="{StaticResource MutedText}" />
+        </Grid>
+        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="10,5">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Message}" Style="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,0,16,0" />
+                <local:NetworkStatusIndicator Grid.Column="1" DataContext="{Binding NetworkStatus}" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

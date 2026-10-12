@@ -20,15 +20,15 @@
       ]]></Code>
     </Task>
   </UsingTask>
-  <Target Name="LocatePackedDependency" DependsOnTargets="ResolveReferences" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+  <Target Name="LocatePackedDependency" DependsOnTargets="ResolveReferences" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbedDesk.Infrastructure'">
     <ItemGroup><_PackedSource Include="@(ReferencePath)" Condition="'%(Filename)' == 'BouncyCastle.Cryptography'" /></ItemGroup>
     <Error Condition="'@(_PackedSource)' == ''" Text="Cannot locate the crypto dependency for compression." />
     <PropertyGroup><_PackedFile>$(IntermediateOutputPath)packed/%(_PackedSource.NuGetPackageVersion)/BouncyCastle.Cryptography.deflate</_PackedFile></PropertyGroup>
   </Target>
-  <Target Name="CompressPackedDependency" DependsOnTargets="LocatePackedDependency" Inputs="@(_PackedSource);$(MSBuildThisFileFullPath);$(ProjectAssetsFile)" Outputs="$(_PackedFile)" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+  <Target Name="CompressPackedDependency" DependsOnTargets="LocatePackedDependency" Inputs="@(_PackedSource);$(MSBuildThisFileFullPath);$(ProjectAssetsFile)" Outputs="$(_PackedFile)" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbedDesk.Infrastructure'">
     <CompressManagedAssembly Source="@(_PackedSource)" Destination="$(_PackedFile)" />
   </Target>
-  <Target Name="EmbedPackedDependency" BeforeTargets="AssignTargetPaths" DependsOnTargets="CompressPackedDependency" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbeddedDebugger.Infrastructure'">
+  <Target Name="EmbedPackedDependency" BeforeTargets="AssignTargetPaths" DependsOnTargets="CompressPackedDependency" Condition="'$(PackManagedDependencies)' == 'true' and '$(MSBuildProjectName)' == 'EmbedDesk.Infrastructure'">
     <ItemGroup>
       <EmbeddedResource Include="$(_PackedFile)" LogicalName="PackedDependencies.BouncyCastle.Cryptography" />
       <FileWrites Include="$(_PackedFile)" />

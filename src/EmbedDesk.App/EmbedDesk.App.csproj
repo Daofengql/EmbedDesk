@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>EmbedDesk.App</RootNamespace>
+    <AssemblyName>EmbedDesk.App</AssemblyName>
+    <ApplicationIcon>Assets\embeddesk.ico</ApplicationIcon>
+    <StartupObject>EmbedDesk.App.Program</StartupObject>
+    <PublishProfile Condition="'$(Configuration)' == 'Release' and '$(PublishProfile)' == ''">Compact</PublishProfile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <ProjectReference Include="..\EmbedDesk.Core\EmbedDesk.Core.csproj" />
+    <ProjectReference Include="..\EmbedDesk.Infrastructure\EmbedDesk.Infrastructure.csproj" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\embeddesk.ico" />
+    <Resource Include="Assets\Platforms\*.png" />
+    <EmbeddedResource Include="Assets\Platforms\NOTICE.md;Assets\Platforms\LICENSE.devicon;Assets\Platforms\LICENSE.simple-icons.md" />
+    <EmbeddedResource Include="Assets\Terminal\**\*" LogicalName="TerminalAssets/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\LICENSE;..\..\THIRD_PARTY_NOTICES.md;..\..\docs\third-party\*.txt;..\..\docs\third-party\*.md" LogicalName="ThirdParty/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="ExcludeSingleFileDevelopmentArtifacts" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.pdb' or ('%(ResolvedFileToPublish.Extension)' == '.xml' and $([System.String]::Copy('%(ResolvedFileToPublish.Filename)').StartsWith('Microsoft.Web.WebView2')))" />
+    </ItemGroup>
+  </Target>
+</Project>
