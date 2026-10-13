@@ -54,7 +54,7 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore EmbedDesk.sln
+        run: dotnet restore EmbedDesk.sln -r win-x64
 
       - name: Build
         run: dotnet build EmbedDesk.sln --configuration Release --no-restore

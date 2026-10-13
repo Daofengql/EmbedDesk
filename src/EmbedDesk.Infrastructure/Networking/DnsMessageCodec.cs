@@ -21,8 +21,8 @@ internal static class DnsMessageCodec
         {
             var bytes = address!.GetAddressBytes();
             name = address.AddressFamily == AddressFamily.InterNetwork
-                ? string.Join(".", bytes.Reverse()) + ".in-addr.arpa"
-                : string.Join(".", Convert.ToHexString(bytes).ToLowerInvariant().Reverse()) + ".ip6.arpa";
+                ? string.Join(".", bytes.Reverse().Select(value => value.ToString(CultureInfo.InvariantCulture))) + ".in-addr.arpa"
+                : string.Join(".", Convert.ToHexString(bytes).ToLowerInvariant().ToCharArray().Reverse()) + ".ip6.arpa";
         }
         else if (name != ".")
         {
