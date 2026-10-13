@@ -60,6 +60,19 @@ window.addEventListener('resize',scheduleFit);
 document.fonts.ready.then(scheduleFit);
 document.fonts.addEventListener('loadingdone',scheduleFit);
 terminal.onData(data=>window.chrome.webview.postMessage(data));
+// Pass native file objects, never interpolate dropped paths into terminal input.
+window.directoryDropEnabled = false;
+document.addEventListener('dragover', event => {
+  if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = window.directoryDropEnabled ? 'copy' : 'none';
+});
+document.addEventListener('drop', event => {
+  if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+  event.preventDefault();
+  if (window.directoryDropEnabled)
+    window.chrome.webview.postMessageWithAdditionalObjects(JSON.stringify({type:'directories'}), Array.from(event.dataTransfer.files));
+});
 // Chromium/xterm normally handles the number row and numpad identically, but
 // WebView2 can omit numpad key events when NumLock is enabled. Forward those
 // literal keys explicitly so numeric entry works in shells and TUIs.

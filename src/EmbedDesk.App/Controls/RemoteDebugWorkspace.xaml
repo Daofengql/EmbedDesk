@@ -1,7 +1,8 @@
 <UserControl x:Class="EmbedDesk.App.Controls.RemoteDebugWorkspace"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:controls="clr-namespace:EmbedDesk.App.Controls" xmlns:vm="clr-namespace:EmbedDesk.App.ViewModels">
+             xmlns:controls="clr-namespace:EmbedDesk.App.Controls" xmlns:vm="clr-namespace:EmbedDesk.App.ViewModels"
+             AllowDrop="True" PreviewDragOver="Directory_DragOver" PreviewDrop="Directory_Drop">
     <UserControl.Resources>
         <controls:RemoteProtocolLabelConverter x:Key="RemoteProtocolLabel" />
         <controls:ProfileGlyphConverter x:Key="ProfileGlyph" />
@@ -13,18 +14,20 @@
         <controls:HostPlatformIconConverter x:Key="HostPlatformIcon" />
         <controls:ActiveTabBrushConverter x:Key="ActiveTabBrush" />
         <controls:ActiveTabVisibilityConverter x:Key="ActiveTabVisibility" />
-        <controls:TabCloseVisibilityConverter x:Key="TabCloseVisibility" />
         <DataTemplate DataType="{x:Type vm:LocalShellViewModel}">
-            <StackPanel Orientation="Horizontal"><Image Source="/EmbedDesk.App;component/Assets/Platforms/windows11.png" Width="20" Height="20" Margin="0,0,8,0" /><TextBlock Text="本地 Shell" VerticalAlignment="Center" /></StackPanel>
+            <StackPanel Orientation="Horizontal" ToolTip="{Binding InitialDirectory}"><Image Source="/EmbedDesk.App;component/Assets/Platforms/windows11.png" Width="20" Height="20" Margin="0,0,8,0" /><TextBlock Text="{Binding TabTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /></StackPanel>
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:RemoteWorkspaceViewModel}">
-            <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" ToolTip="{Binding HostPlatform}" /><TextBlock Text="{Binding DisplayTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" ToolTip="{Binding HostPlatform}" /><TextBlock Text="{Binding TabTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:DesktopSessionViewModel}">
-            <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" /><TextBlock Text="{Binding DisplayTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Text="{Binding ProtocolLabel}" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
+            <StackPanel Orientation="Horizontal"><Image Source="{Binding HostPlatform, Converter={StaticResource HostPlatformIcon}}" Width="20" Height="20" Margin="0,0,8,0" /><TextBlock Text="{Binding TabTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Text="{Binding ProtocolLabel}" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="6,0,0,0" /><Ellipse Width="7" Height="7" Fill="{Binding ConnectionStatus, Converter={StaticResource ConnectionStateBrush}}" Margin="8,0,0,0" ToolTip="{Binding ConnectionStatus}" /></StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:S3BrowserViewModel}">
+            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE753;" Style="{StaticResource Icon}" Foreground="{StaticResource AccentBrush}" FontSize="17" Margin="0,0,8,0" /><TextBlock Text="{Binding TabTitle}" MaxWidth="140" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" /><TextBlock Text="S3" FontSize="10" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="7,0,0,0" /></StackPanel>
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:RemoteFileDocumentViewModel}">
-            <StackPanel Orientation="Horizontal" ToolTip="{Binding Location}"><TextBlock Text="&#xE8A5;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="{Binding Title}" MaxWidth="170" TextTrimming="CharacterEllipsis" /></StackPanel>
+            <StackPanel Orientation="Horizontal" ToolTip="{Binding Location}"><TextBlock Text="&#xE8A5;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="{Binding TabTitle}" MaxWidth="170" TextTrimming="CharacterEllipsis" /></StackPanel>
         </DataTemplate>
         <DataTemplate x:Key="TerminalMark">
             <Border Width="24" Height="24" CornerRadius="4" Background="{StaticResource SelectedBrush}">
@@ -38,7 +41,7 @@
                 <TextBlock Style="{StaticResource Icon}" Text="{Binding Protocol, Converter={StaticResource ProfileGlyph}}" FontSize="17" Foreground="{StaticResource AccentBrush}" />
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Text="{Binding Host}" Style="{StaticResource MutedText}" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding EndpointSummary}" Style="{StaticResource MutedText}" FontSize="11" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Grid>
         </DataTemplate>
@@ -51,7 +54,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="远程调试" FontSize="17" FontWeight="SemiBold" />
-                    <TextBlock Text="本地 Shell · SSH / Telnet · RDP / VNC" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
+                    <TextBlock Text="本地 Shell · SSH / Telnet · RDP / VNC · S3 对象存储" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource IconButton}" Click="KeyManager_Click" ToolTip="SSH 密钥管理器"><TextBlock Text="&#xE7EF;" Style="{StaticResource Icon}" /></Button>
@@ -97,32 +100,39 @@
             <Grid Grid.Column="2">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <Border Height="46" Visibility="{Binding IsTerminalFullscreen, Converter={StaticResource InverseBooleanVisibility}}" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="8,0">
+                    <DockPanel>
+                        <Button x:Name="NewLocalShellButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="NewLocalShell_Click" ToolTip="新建本地 Shell 标签 · 拖入目录可在该目录打开" AutomationProperties.Name="新建本地 Shell 标签" Margin="6,0,0,0"><TextBlock Text="&#xE710;" Style="{StaticResource Icon}" /></Button>
                     <ScrollViewer x:Name="TabScroller" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="Tabs_MouseWheel" AllowDrop="True" DragOver="Tabs_DragOver" Drop="Tabs_Drop">
                         <ItemsControl x:Name="TabStrip" ItemsSource="{Binding Tabs}">
                             <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate><DataTemplate>
-                                <Border Height="45" Margin="0,0,4,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4"
+                                <Border Height="45" Margin="0,0,4,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" ToolTip="{Binding TabTitle}"
                                         PreviewMouseLeftButtonDown="Tab_MouseDown" PreviewMouseMove="Tab_MouseMove" AllowDrop="True" DragOver="Tab_DragOver" DragLeave="Tab_DragLeave" Drop="Tab_Drop">
+                                    <Border.ContextMenu>
+                                        <ContextMenu Opened="TabMenu_Opened">
+                                            <MenuItem Header="复制标签" Tag="duplicate" Click="TabMenu_Click" />
+                                            <MenuItem Header="重命名" Tag="rename" Click="TabMenu_Click" />
+                                            <Separator />
+                                            <MenuItem Header="关闭标签" Tag="close" Click="TabMenu_Click" />
+                                        </ContextMenu>
+                                    </Border.ContextMenu>
                                     <Border.Background><MultiBinding Converter="{StaticResource ActiveTabBrush}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Border.Background>
                                     <StackPanel Orientation="Horizontal">
-                                        <Button Click="SelectTab_Click" Padding="10,4" Background="Transparent" BorderThickness="0" Cursor="Hand"><ContentControl Content="{Binding}" /></Button>
-                                        <Button Width="26" Height="26" Style="{StaticResource IconButton}" Tag="CloseTab" Click="CloseTab_Click" ToolTip="关闭标签" Margin="0,0,3,0" Visibility="{Binding Converter={StaticResource TabCloseVisibility}}"><TextBlock Text="×" FontSize="17" Foreground="{StaticResource MutedBrush}" /></Button>
+                                        <Grid MinWidth="96"><Button Click="SelectTab_Click" Padding="10,4" Background="Transparent" BorderThickness="0" Cursor="Hand"><ContentControl Content="{Binding}" /></Button><TextBox x:Name="TabTitleEditor" Visibility="Collapsed" MinWidth="120" MaxWidth="190" Height="28" Padding="6,2" MaxLength="64" ToolTip="Enter 保存 · Esc 取消 · 留空恢复默认名称" PreviewKeyDown="TabTitleEditor_KeyDown" LostKeyboardFocus="TabTitleEditor_LostFocus" /></Grid>
+                                        <Button Width="26" Height="26" Style="{StaticResource IconButton}" Tag="CloseTab" Click="CloseTab_Click" ToolTip="关闭标签" Margin="0,0,3,0"><TextBlock Text="×" FontSize="17" Foreground="{StaticResource MutedBrush}" /></Button>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+                    </DockPanel>
                 </Border>
                 <Grid Grid.Row="1">
-                    <ContentControl Content="{Binding LocalShell}" Visibility="{Binding IsLocalShellSelected, Converter={StaticResource BooleanVisibility}}">
-                        <ContentControl.ContentTemplate>
-                            <DataTemplate>
-                                <Grid Background="{StaticResource InputBrush}">
-                                    <controls:ShellTerminal Buffer="{Binding Terminal}" IsFullscreen="{Binding IsFullscreen}" InputReceived="LocalShell_InputReceived" FullscreenRequested="ToggleLocalFullscreen_Click" />
-                                </Grid>
-                            </DataTemplate>
-                        </ContentControl.ContentTemplate>
-                    </ContentControl>
+                    <ItemsControl ItemsSource="{Binding LocalShells}" Visibility="{Binding IsLocalShellSelected, Converter={StaticResource BooleanVisibility}}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.SelectedLocalShell" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate><DataTemplate><Grid Background="{StaticResource InputBrush}"><controls:ShellTerminal Buffer="{Binding Terminal}" IsFullscreen="{Binding IsFullscreen}" InputReceived="LocalShell_InputReceived" FullscreenRequested="ToggleLocalFullscreen_Click" DirectoriesDropped="LocalShell_DirectoriesDropped" /></Grid></DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <ItemsControl ItemsSource="{Binding Sessions}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
@@ -133,9 +143,20 @@
                         <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate><DataTemplate><controls:DesktopWorkspace /></DataTemplate></ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding S3Sessions}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><Grid /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Visibility"><Setter.Value><MultiBinding Converter="{StaticResource ActiveTabVisibility}"><Binding /><Binding Path="DataContext.ActiveTab" RelativeSource="{RelativeSource AncestorType=controls:RemoteDebugWorkspace}" /></MultiBinding></Setter.Value></Setter></Style></ItemsControl.ItemContainerStyle>
+                        <ItemsControl.ItemTemplate><DataTemplate><controls:S3Workspace /></DataTemplate></ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <ContentControl Content="{Binding SelectedDocument}" Visibility="{Binding IsDocumentSelected, Converter={StaticResource BooleanVisibility}}">
                         <ContentControl.ContentTemplate><DataTemplate><controls:RemoteFileDocument /></DataTemplate></ContentControl.ContentTemplate>
                     </ContentControl>
+                    <StackPanel x:Name="EmptyRemoteState" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding HasTabs, Converter={StaticResource InverseBooleanVisibility}}">
+                        <TextBlock Text="&#xE753;" Style="{StaticResource Icon}" FontSize="40" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,0,0,20" />
+                        <TextBlock Text="建立第一个远程会话" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" />
+                        <TextBlock Text="点击左侧连接标题右上角的 +，或先新建连接配置，再打开 SSH、Telnet、RDP、VNC 或 S3 会话。" Style="{StaticResource MutedText}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,22" />
+                        <Button x:Name="EmptyNewConnectionButton" Content="新建连接" Style="{StaticResource PrimaryButton}" Click="NewConnection_Click" HorizontalAlignment="Center" Padding="24,8" />
+                    </StackPanel>
                 </Grid>
             </Grid>
         </Grid>

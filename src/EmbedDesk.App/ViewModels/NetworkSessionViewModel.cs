@@ -1,6 +1,8 @@
 ﻿using System.Collections.ObjectModel;
 using System.Text;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,15 +15,22 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly ITransportSession _session;
     private readonly Action<string, string, TransportEventKind> _log;
+    private readonly Action<NetworkDisplayPreferences>? _saveDisplayPreferences;
     private readonly HashSet<string> _tcpPeers = new(StringComparer.Ordinal);
     private IPEndPoint? _probePeer;
     private string _state = "未启动", _lastMessage = "就绪", _httpStartLine = string.Empty, _httpHeadersText = string.Empty;
     private string _sendText = string.Empty, _interval = "1000", _jobStatus = "未运行";
     private NetworkPeerTarget _selectedPeerTarget = NetworkPeerTarget.Broadcast;
     private bool _sendAsHex, _appendCrLf, _hexDisplay, _showTime = true, _showSent = true, _autoScroll = true, _queueRepeat, _isSending, _disposed;
-    public NetworkSessionViewModel(ITransportSession session, Action<string, string, TransportEventKind> log)
+    public NetworkSessionViewModel(ITransportSession session, Action<string, string, TransportEventKind> log,
+        NetworkDisplayPreferences? displayPreferences = null,
+        Action<NetworkDisplayPreferences>? saveDisplayPreferences = null)
     {
-        _session = session; _log = log;
+        _session = session; _log = log; _saveDisplayPreferences = saveDisplayPreferences;
+        _hexDisplay = displayPreferences?.HexDisplay ?? false;
+        _showTime = displayPreferences?.ShowTime ?? true;
+        _showSent = displayPreferences?.ShowSent ?? true;
+        _autoScroll = displayPreferences?.AutoScroll ?? true;
         _session.MessageReceived += OnMessageReceived;
         StartStopCommand = new AsyncRelayCommand(ToggleAsync);
         SendCommand = new AsyncRelayCommand(SendCurrentAsync, () => CanSend && SendText.Length > 0);
@@ -39,12 +48,13 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         ? $"{Protocol} · {Endpoint} · {_session.Options.MqttTopic}"
         : $"{Protocol} · {Mode} · {Endpoint}";
     public string LocalEndpoint => _session.BoundLocalEndpoint ?? $"{_session.Options.LocalHost}:{_session.Options.LocalPort}";
+    public bool IsServer => _session.Options.Mode == TransportMode.Server;
+    public string ServerConnectionAddresses => GetServerConnectionAddresses();
     public string SendTargetHint => _session.Options.Mode == TransportMode.Client
         ? _session.Options.Protocol == TransportProtocol.Mqtt ? $"发布到 MQTT 主题 {_session.Options.MqttTopic}" : $"发送到 {Endpoint}"
         : SelectedPeerTarget.IsBroadcast
             ? _session.Options.Protocol == TransportProtocol.Tcp ? "发送到全部已连接的 TCP 客户端" : $"发送到最近的 UDP 对端（尚未收到数据时使用 {_session.Options.RemoteHost}:{_session.Options.RemotePort}）"
             : $"发送到客户端 {SelectedPeerTarget.DisplayName}";
-    public bool IsServer => _session.Options.Mode == TransportMode.Server;
     public bool SupportsPeerTargeting => IsServer;
     public ObservableCollection<NetworkPeerTarget> PeerTargets { get; } = [NetworkPeerTarget.Broadcast];
     public NetworkPeerTarget SelectedPeerTarget
@@ -71,10 +81,10 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public string SendText { get => _sendText; set { if (SetProperty(ref _sendText, value)) NotifyCommands(); } }
     public bool SendAsHex { get => _sendAsHex; set => SetProperty(ref _sendAsHex, value); }
     public bool AppendCrLf { get => _appendCrLf; set => SetProperty(ref _appendCrLf, value); }
-    public bool HexDisplay { get => _hexDisplay; set => SetProperty(ref _hexDisplay, value); }
-    public bool ShowTime { get => _showTime; set => SetProperty(ref _showTime, value); }
-    public bool ShowSent { get => _showSent; set => SetProperty(ref _showSent, value); }
-    public bool AutoScroll { get => _autoScroll; set => SetProperty(ref _autoScroll, value); }
+    public bool HexDisplay { get => _hexDisplay; set { if (SetProperty(ref _hexDisplay, value)) SaveDisplayPreferences(); } }
+    public bool ShowTime { get => _showTime; set { if (SetProperty(ref _showTime, value)) SaveDisplayPreferences(); } }
+    public bool ShowSent { get => _showSent; set { if (SetProperty(ref _showSent, value)) SaveDisplayPreferences(); } }
+    public bool AutoScroll { get => _autoScroll; set { if (SetProperty(ref _autoScroll, value)) SaveDisplayPreferences(); } }
     public string IntervalMs { get => _interval; set => SetProperty(ref _interval, value); }
     public bool QueueRepeat { get => _queueRepeat; set => SetProperty(ref _queueRepeat, value); }
     public bool IsSending { get => _isSending; private set { if (SetProperty(ref _isSending, value)) NotifyCommands(); } }
@@ -140,7 +150,60 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanSend)); OnPropertyChanged(nameof(CanStart)); OnPropertyChanged(nameof(StartStopLabel)); OnPropertyChanged(nameof(StartStopGlyph));
         OnPropertyChanged(nameof(LocalEndpoint)); OnPropertyChanged(nameof(Endpoint)); OnPropertyChanged(nameof(Detail));
         OnPropertyChanged(nameof(SendTargetHint));
+        OnPropertyChanged(nameof(ServerConnectionAddresses));
     }
+    public void RefreshServerAddressHints() => OnPropertyChanged(nameof(ServerConnectionAddresses));
+
+    private void SaveDisplayPreferences() => _saveDisplayPreferences?.Invoke(new NetworkDisplayPreferences
+    {
+        HexDisplay = _hexDisplay,
+        ShowTime = _showTime,
+        ShowSent = _showSent,
+        AutoScroll = _autoScroll
+    });
+
+    private string GetServerConnectionAddresses()
+    {
+        if (!IsServer) return string.Empty;
+        var host = _session.Options.LocalHost;
+        var port = _session.Options.LocalPort;
+        if (!string.IsNullOrWhiteSpace(_session.BoundLocalEndpoint)
+            && IPEndPoint.TryParse(_session.BoundLocalEndpoint, out var bound)) port = bound.Port;
+        if (!IPAddress.TryParse(host, out var boundAddress)) return string.Empty;
+        if (IPAddress.IsLoopback(boundAddress)) return $"仅本机可访问：{FormatEndpoint(boundAddress, port)}";
+
+        IEnumerable<IPAddress> addresses;
+        if (boundAddress.Equals(IPAddress.Any))
+        {
+            addresses = GetLocalAddresses(AddressFamily.InterNetwork);
+        }
+        else if (boundAddress.Equals(IPAddress.IPv6Any))
+        {
+            addresses = GetLocalAddresses(AddressFamily.InterNetworkV6);
+        }
+        else
+        {
+            addresses = [boundAddress];
+        }
+
+        var endpoints = addresses.Distinct().Select(address => FormatEndpoint(address, port)).ToArray();
+        return endpoints.Length == 0 ? "未发现可显示的网卡地址；可复制监听端点并检查网卡状态。" : string.Join("   ·   ", endpoints);
+    }
+
+    private static IEnumerable<IPAddress> GetLocalAddresses(AddressFamily family)
+    {
+        foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces().Where(item => item.OperationalStatus == OperationalStatus.Up))
+        {
+            IPAddress[] addresses;
+            try { addresses = adapter.GetIPProperties().UnicastAddresses.Select(item => item.Address).ToArray(); }
+            catch (NetworkInformationException) { continue; }
+            foreach (var address in addresses)
+                if (address.AddressFamily == family && !IPAddress.IsLoopback(address)) yield return address;
+        }
+    }
+
+    private static string FormatEndpoint(IPAddress address, int port) => address.AddressFamily == AddressFamily.InterNetworkV6
+        ? $"[{address}]:{port}" : $"{address}:{port}";
     private void ReportError(Exception ex) { LastMessage = ex.Message; _log("网络", ex.Message, TransportEventKind.Error); }
     private void OnMessageReceived(object? sender, TransportMessage message)
     {

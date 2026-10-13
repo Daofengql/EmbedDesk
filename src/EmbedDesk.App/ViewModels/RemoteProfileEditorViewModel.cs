@@ -22,6 +22,9 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
             if (Profile.Protocol == value) return;
             var oldDefaultPort = DefaultPort(Profile.Protocol);
             Profile.Protocol = value;
+            if (value == RemoteProtocol.S3) Profile.Host = string.Empty;
+            else if (string.IsNullOrWhiteSpace(Profile.Host)) Profile.Host = "127.0.0.1";
+            OnPropertyChanged(nameof(Host));
             if (Profile.Port == oldDefaultPort)
             {
                 Profile.Port = DefaultPort(value);
@@ -32,6 +35,10 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
             OnPropertyChanged(nameof(ProtocolLabel));
             OnPropertyChanged(nameof(IsSsh));
             OnPropertyChanged(nameof(IsVnc));
+            OnPropertyChanged(nameof(IsS3));
+            OnPropertyChanged(nameof(EndpointLabel));
+            OnPropertyChanged(nameof(HasUsername));
+            OnPropertyChanged(nameof(IsS3));
         }
     }
     public string Host { get => Profile.Host; set { if (Profile.Host == value) return; Profile.Host = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); } }
@@ -42,11 +49,19 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
     public RemoteAuthenticationMode AuthenticationMode { get => Profile.AuthenticationMode; set { if (Profile.AuthenticationMode == value) return; Profile.AuthenticationMode = value; OnPropertyChanged(); } }
     public string PrivateKeyPath { get => Profile.PrivateKeyPath; set { if (Profile.PrivateKeyPath == value) return; Profile.PrivateKeyPath = value; OnPropertyChanged(); } }
     public string PrivateKeyPassphrase { get => Profile.PrivateKeyPassphrase; set { if (Profile.PrivateKeyPassphrase == value) return; Profile.PrivateKeyPassphrase = value; OnPropertyChanged(); } }
-    public string Endpoint => $"{Host}:{Port}";
+    public string S3Region { get => Profile.S3Region; set { if (Profile.S3Region == value) return; Profile.S3Region = value; OnPropertyChanged(); } }
+    public string S3Bucket { get => Profile.S3Bucket; set { if (Profile.S3Bucket == value) return; Profile.S3Bucket = value; OnPropertyChanged(); } }
+    public string S3AccessKeyId { get => Profile.S3AccessKeyId; set { if (Profile.S3AccessKeyId == value) return; Profile.S3AccessKeyId = value; OnPropertyChanged(); } }
+    public string S3SecretKey { get => Profile.S3SecretAccessKey; set { if (Profile.S3SecretAccessKey == value) return; Profile.S3SecretAccessKey = value; OnPropertyChanged(); } }
+    public bool RememberS3Credentials { get => Profile.RememberS3Credentials; set { if (Profile.RememberS3Credentials == value) return; Profile.RememberS3Credentials = value; OnPropertyChanged(); } }
+    public string Endpoint => IsS3 ? (string.IsNullOrWhiteSpace(Host) ? $"AWS S3 · {S3Region}" : $"{Host} · {S3Region}") : $"{Host}:{Port}";
+    public string EndpointLabel => IsS3 ? "服务端点" : "主机地址";
     public bool IsSsh => Protocol == RemoteProtocol.Ssh;
     public bool IsVnc => Protocol == RemoteProtocol.Vnc;
-    public string ProtocolLabel => Protocol switch { RemoteProtocol.Ssh => "SSH", RemoteProtocol.Rdp => "RDP", RemoteProtocol.Vnc => "VNC", _ => "Telnet" };
-    public static int DefaultPort(RemoteProtocol protocol) => protocol switch { RemoteProtocol.Ssh => 22, RemoteProtocol.Rdp => 3389, RemoteProtocol.Vnc => 5900, _ => 23 };
+    public bool IsS3 => Protocol == RemoteProtocol.S3;
+    public bool HasUsername => !IsVnc && !IsS3;
+    public string ProtocolLabel => Protocol switch { RemoteProtocol.Ssh => "SSH", RemoteProtocol.Rdp => "RDP", RemoteProtocol.Vnc => "VNC", RemoteProtocol.S3 => "S3", _ => "Telnet" };
+    public static int DefaultPort(RemoteProtocol protocol) => protocol switch { RemoteProtocol.Ssh => 22, RemoteProtocol.Rdp => 3389, RemoteProtocol.Vnc => 5900, RemoteProtocol.S3 => 443, _ => 23 };
 
     public void NotifyEndpointChanged()
     {
@@ -54,5 +69,8 @@ public sealed class RemoteProfileEditorViewModel : ObservableObject
         OnPropertyChanged(nameof(ProtocolLabel));
             OnPropertyChanged(nameof(IsSsh));
             OnPropertyChanged(nameof(IsVnc));
+        OnPropertyChanged(nameof(IsS3));
+        OnPropertyChanged(nameof(EndpointLabel));
+        OnPropertyChanged(nameof(HasUsername));
     }
 }

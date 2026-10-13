@@ -5,10 +5,15 @@ namespace EmbedDesk.App;
 
 public partial class CidrCalculatorWindow : Window
 {
-    public CidrCalculatorWindow()
+    private readonly Action<CidrCalculatorPreferences>? _savePreferences;
+
+    public CidrCalculatorWindow(CidrCalculatorPreferences? preferences = null, Action<CidrCalculatorPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         WindowTheme.ApplyDarkTitleBar(this);
+        if (preferences is not null) InputBox.Text = preferences.Input;
+        Closed += (_, _) => _savePreferences?.Invoke(new CidrCalculatorPreferences { Input = InputBox.Text });
         Calculate();
     }
 

@@ -13,14 +13,17 @@ public partial class UpnpDiscoveryWindow : Window, IDisposable
 {
     private static readonly IPAddress MulticastAddress = IPAddress.Parse("239.255.255.250");
     private CancellationTokenSource? _lifetime;
+    private readonly Action<UpnpDiscoveryPreferences>? _savePreferences;
 
-    public UpnpDiscoveryWindow()
+    public UpnpDiscoveryWindow(UpnpDiscoveryPreferences? preferences = null, Action<UpnpDiscoveryPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         DataContext = this;
-        SearchTypeBox.SelectedIndex = 0;
+        SearchTypeBox.SelectedIndex = preferences?.SearchTypeIndex ?? 0;
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(new UpnpDiscoveryPreferences { SearchTypeIndex = SearchTypeBox.SelectedIndex });
     }
 
     public ObservableCollection<UpnpDevice> Devices { get; } = [];

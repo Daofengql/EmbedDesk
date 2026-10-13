@@ -194,12 +194,20 @@ internal static class UtilityToolsChecks
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-tools-expanded-small.png");
             var gallery = Descendants<NetworkToolsWorkspace>(main).Single();
             var buttons = Descendants<Button>(gallery).Where(b => b.Tag is string).ToArray();
-            Require(buttons.Length == 9, "Network gallery contains only network tools");
+            Require(buttons.Length == 12, "Network gallery contains only network tools");
             foreach (var button in buttons)
             {
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var dialog = main.OwnedWindows.Cast<Window>().Single(w => w.IsVisible);
                 Require(dialog.Title.Length > 0, "Gallery opens " + button.Tag);
+                if (Equals(button.Tag, "Stcp"))
+                {
+                    dialog.Width = dialog.MinWidth;
+                    dialog.Height = dialog.MinHeight;
+                    await FileWorkspaceChecks.CaptureAsync(dialog, "embeddesk-stcp-small.png");
+                    Require(dialog.FindName("TunnelList") is ListBox && dialog.FindName("SecretBox") is PasswordBox,
+                        "STCP window exposes profile list and password-only secret input");
+                }
                 dialog.Close();
             }
             tabs.SelectedIndex = 4;

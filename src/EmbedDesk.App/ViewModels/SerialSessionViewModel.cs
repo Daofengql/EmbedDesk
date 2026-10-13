@@ -115,7 +115,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         }
         foreach (var port in available)
             if (!SerialPorts.Any(p => string.Equals(p.PortName, port.PortName, StringComparison.OrdinalIgnoreCase)))
-                SerialPorts.Add(new SerialPortRowViewModel(new SerialPortDescriptor(port.PortName, port.DisplayName, port.Description, port.Manufacturer)) { IsRemote = port.IsRemote });
+                SerialPorts.Add(Owner.CreateSerialPortRow(new SerialPortDescriptor(port.PortName, port.DisplayName, port.Description, port.Manufacturer), port.IsRemote));
         if (SelectedSerialPort is null) SelectedSerialPort = SerialPorts.FirstOrDefault();
         if (SelectedSerialPort is { IsAvailable: false } && (IsOpen || IsBusy)) _ = CloseAsync("设备已离线");
         NotifyState();

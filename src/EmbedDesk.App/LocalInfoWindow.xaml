@@ -1,0 +1,59 @@
+<Window x:Class="EmbedDesk.App.LocalInfoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="本地信息" Icon="Assets/embeddesk.ico" Width="1040" Height="760"
+        MinWidth="800" MinHeight="560" WindowStartupLocation="CenterOwner">
+    <Grid Background="{StaticResource PanelBrush}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Border Padding="20,14" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="本地信息" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock x:Name="UpdatedAtText" Text="正在读取本机状态…" Style="{StaticResource MutedText}" FontSize="12" Margin="0,5,0,0" />
+            </StackPanel>
+        </Border>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="18">
+                <TextBlock Text="系统概览" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10" />
+                <UniformGrid Columns="4" Margin="0,0,0,20">
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,8,0"><StackPanel><TextBlock Text="处理器" Style="{StaticResource MutedText}" /><TextBlock x:Name="CpuText" Text="读取中" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0" /><TextBlock x:Name="CpuUsageText" Text="" Style="{StaticResource MutedText}" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,8,0"><StackPanel><TextBlock Text="内存" Style="{StaticResource MutedText}" /><TextBlock x:Name="MemoryText" Text="读取中" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0" /></StackPanel></Border>
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,8,0"><StackPanel><TextBlock Text="系统" Style="{StaticResource MutedText}" /><TextBlock x:Name="OsText" Text="读取中" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0" /><TextBlock x:Name="RuntimeText" Text="" Style="{StaticResource MutedText}" Margin="0,4,0,0" /></StackPanel></Border>
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="12"><StackPanel><TextBlock Text="设备与运行时间" Style="{StaticResource MutedText}" /><TextBlock x:Name="DeviceText" Text="读取中" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,5,0,0" /><TextBlock x:Name="UptimeText" Text="" Style="{StaticResource MutedText}" Margin="0,4,0,0" /></StackPanel></Border>
+                </UniformGrid>
+
+                <TextBlock Text="网络接口" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10" />
+                <ItemsControl x:Name="AdaptersList" Margin="0,0,0,20">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <DockPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold" /><TextBlock Text="{Binding Status}" Style="{StaticResource MutedText}" Margin="10,0,0,0" /><TextBlock Text="{Binding MacAddress, StringFormat=MAC {0}}" Style="{StaticResource MutedText}" HorizontalAlignment="Right" /></DockPanel>
+                                        <TextBlock Text="{Binding Description}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                                        <TextBlock Text="{Binding Addresses, StringFormat=地址：{0}}" TextWrapping="Wrap" Margin="0,7,0,0" />
+                                        <TextBlock Text="{Binding Gateways, StringFormat=网关：{0}}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                        <TextBlock Text="{Binding DnsServers, StringFormat=DNS：{0}}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="复制地址" Tag="{Binding Addresses}" Click="CopyAddresses_Click" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Text="磁盘" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10" />
+                <DataGrid x:Name="DisksGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" MinHeight="120" MaxHeight="280">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="卷" Binding="{Binding Name}" Width="100" />
+                        <DataGridTextColumn Header="类型" Binding="{Binding DriveType}" Width="110" />
+                        <DataGridTextColumn Header="文件系统" Binding="{Binding Format}" Width="110" />
+                        <DataGridTextColumn Header="容量" Binding="{Binding Total}" Width="140" />
+                        <DataGridTextColumn Header="可用空间" Binding="{Binding Free}" Width="140" />
+                        <DataGridTextColumn Header="卷标" Binding="{Binding Label}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (for example v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Windows x64
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve release tag
+        id: release
+        shell: pwsh
+        env:
+          PUSH_TAG: ${{ github.ref_name }}
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: |
+          $tag = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:MANUAL_TAG } else { $env:PUSH_TAG }
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$') {
+            throw "Release tag '$tag' must use a version such as v1.2.3 or v1.2.3-rc.1."
+          }
+          $version = $tag.Substring(1)
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore EmbedDesk.sln
+
+      - name: Build
+        run: dotnet build EmbedDesk.sln --configuration Release --no-restore
+
+      - name: Run core tests
+        run: dotnet test tests/EmbedDesk.Core.Tests/EmbedDesk.Core.Tests.csproj --configuration Release --no-build --no-restore
+
+      - name: Publish compact single-file app
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          dotnet publish src/EmbedDesk.App/EmbedDesk.App.csproj `
+            --configuration Release `
+            --no-restore `
+            -p:PublishProfile=Compact `
+            -p:Version=$env:RELEASE_VERSION `
+            -p:InformationalVersion=$env:RELEASE_TAG
+
+          $exe = Join-Path $env:GITHUB_WORKSPACE 'artifacts/release/win-x64/EmbedDesk.App.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Publish did not produce $exe"
+          }
+
+          $tag = $env:RELEASE_TAG
+          $asset = Join-Path $env:GITHUB_WORKSPACE "artifacts/release/EmbedDesk-$tag-win-x64.exe"
+          Copy-Item -LiteralPath $exe -Destination $asset -Force
+
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $asset)" | Set-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'artifacts/release/SHA256SUMS.txt') -Encoding ascii
+
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'LICENSE') -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts/release/LICENSE.txt') -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $env:GITHUB_WORKSPACE 'artifacts/release/THIRD_PARTY_NOTICES.md') -Force
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts/release'
+          $assets = @(
+            (Join-Path $releaseDir "EmbedDesk-$env:RELEASE_TAG-win-x64.exe"),
+            (Join-Path $releaseDir 'SHA256SUMS.txt'),
+            (Join-Path $releaseDir 'LICENSE.txt'),
+            (Join-Path $releaseDir 'THIRD_PARTY_NOTICES.md')
+          )
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG $assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --title "EmbedDesk $env:RELEASE_TAG" --generate-notes $assets
+          }

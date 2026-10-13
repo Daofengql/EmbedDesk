@@ -1,0 +1,68 @@
+<Window x:Class="EmbedDesk.App.StcpTunnelManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="STCP 隧道配置" Icon="Assets/embeddesk.ico"
+        Width="1080" Height="800" MinWidth="980" MinHeight="760"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,16">
+            <TextBlock Text="STCP 隧道配置" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Text="配置 FRP STCP 的 service / visitor 参数；当前只保存配置，不会启动代理或连接任何服务端。" Style="{StaticResource MutedText}" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,0" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="230" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <TextBlock Text="已保存配置" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <ListBox x:Name="TunnelList" Grid.Row="1" SelectionChanged="TunnelList_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="2,4">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding RoleLabel}" Style="{StaticResource MutedText}" FontSize="11" Margin="0,3,0,0" />
+                                <TextBlock Text="{Binding ReadinessLabel}" Style="{StaticResource MutedText}" FontSize="10" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <Grid Grid.Row="2" Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Button Content="新增" Click="New_Click" />
+                    <Button Grid.Column="2" Content="删除" Click="Delete_Click" />
+                </Grid>
+            </Grid>
+
+            <Border Grid.Column="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5" Padding="18">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <TextBlock Text="配置参数" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,14" />
+                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="本机名称" VerticalAlignment="Center" /><TextBox x:Name="NameBox" Grid.Column="1" /></Grid>
+                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="角色" VerticalAlignment="Center" /><ComboBox x:Name="RoleBox" Grid.Column="1" SelectionChanged="RoleBox_SelectionChanged"><ComboBoxItem Content="Service · 暴露内网指定服务" /><ComboBoxItem Content="Visitor · 映射到本机端口" /></ComboBox></Grid>
+                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="Service 名称" VerticalAlignment="Center" /><TextBox x:Name="ServiceNameBox" Grid.Column="1" ToolTip="两端必须使用相同名称；Visitor 只会请求这个 service" /></Grid>
+                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="FRP 服务端" VerticalAlignment="Center" /><Grid Grid.Column="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><TextBox x:Name="ServerAddressBox" ToolTip="自有 FRP 服务端地址" /><TextBox x:Name="ServerPortBox" Grid.Column="2" /></Grid></Grid>
+
+                        <StackPanel x:Name="ServiceFields" Margin="0,0,0,12">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><TextBlock Text="内网目标" VerticalAlignment="Center" /><TextBox x:Name="TargetHostBox" Grid.Column="1" ToolTip="由内网 Service 端访问的设备地址" /><TextBox x:Name="TargetPortBox" Grid.Column="3" ToolTip="目标服务端口" /></Grid>
+                        </StackPanel>
+                        <StackPanel x:Name="VisitorFields" Margin="0,0,0,12">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="本机监听端口" VerticalAlignment="Center" /><TextBox x:Name="LocalPortBox" Grid.Column="1" ToolTip="连接后本机访问的端口，例如 SSH 可用 22022" /></Grid>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="限速" VerticalAlignment="Center" /><Grid Grid.Column="1"><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBox x:Name="RateBox" Text="0" /><TextBlock Grid.Column="2" Text="字节 / 秒；0 表示不限速" Style="{StaticResource MutedText}" VerticalAlignment="Center" /></Grid></Grid>
+
+                        <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="共享密钥" VerticalAlignment="Center" /><PasswordBox x:Name="SecretBox" Grid.Column="1" ToolTip="两端必须使用同一个至少 16 字符的共享密钥" /><Button Grid.Column="2" Content="生成" Click="GenerateSecret_Click" Margin="8,0,0,0" Padding="10,4" /><Button Grid.Column="3" Content="复制" Click="CopySecret_Click" Margin="8,0,0,0" Padding="10,4" /></Grid>
+                        <CheckBox x:Name="RememberSecretBox" Content="将共享密钥保存到当前 Windows 用户的凭据管理器" Margin="120,0,0,0" />
+                        <TextBlock Text="配置 JSON 不保存共享密钥。若不勾选，密钥只在编辑窗口内临时存在；要在其他电脑配置 Visitor，请通过可信渠道单独传递密钥。" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="120,7,0,0" />
+                        <CheckBox x:Name="EnabledBox" Content="将此配置标记为启用（不会自动启动隧道）" IsChecked="True" Margin="120,15,0,0" />
+                        <Border Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,18,0,0">
+                            <TextBlock Text="STCP 只转发到明确配置的单个服务，不提供网段路由或完整 VPN。当前版本没有内置 frpc 进程，也不会监听端口、连接 FRP 服务端或自动启动隧道。" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="0,16,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" Style="{StaticResource MutedText}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" /><Button Grid.Column="1" Content="关闭" IsCancel="True" Margin="0,0,8,0" /><Button Grid.Column="2" Content="保存配置" Style="{StaticResource PrimaryButton}" Click="Save_Click" /></Grid>
+    </Grid>
+</Window>

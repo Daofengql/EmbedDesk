@@ -15,6 +15,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly ISerialPortService _serialPortService;
     private readonly ISerialBridgeService _serialBridgeService;
     private readonly IRemoteSerialClient _remoteSerialClient;
+    private readonly AppSettingsStore _appSettings;
     private readonly Dictionary<string, SerialSessionViewModel> _serialOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _serialScanGate = new(1, 1);
     private readonly SerialPortAutoRefresh _serialPortAutoRefresh;
@@ -28,6 +29,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _networkAppendCrLf;
     private string? _bridgeId;
     private string _bridgeMode = "服务端";
+    private string _bridgeLocalHost = "0.0.0.0", _bridgeLocalPort = "9100";
+    private string _bridgeRemoteHost = "127.0.0.1", _bridgeRemotePort = "9100";
 
     public MainWindowViewModel(
         ITransportService transportService,
@@ -35,13 +38,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         ISerialBridgeService serialBridgeService,
         IRemoteSerialClient remoteSerialClient,
         IRemoteDebugService? remoteDebugService = null,
-        string? remoteSettingsDirectory = null)
+        string? remoteSettingsDirectory = null,
+        LocalShellStartupOptions? startup = null)
     {
         _transportService = transportService;
         _serialPortService = serialPortService;
         _serialBridgeService = serialBridgeService;
         _remoteSerialClient = remoteSerialClient;
-        RemoteDebug = remoteDebugService is null ? null : new RemoteDebugWorkspaceViewModel(remoteDebugService, remoteSettingsDirectory);
+        _appSettings = new AppSettingsStore(remoteSettingsDirectory);
+        RemoteDebug = remoteDebugService is null ? null : new RemoteDebugWorkspaceViewModel(remoteDebugService, remoteSettingsDirectory, _appSettings, startup);
         _remoteSerialClient.PortsChanged += OnRemotePortsChanged;
         _remoteSerialClient.ConnectionChanged += OnRemoteConnectionChanged;
 
@@ -88,6 +93,25 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<SerialPortRowViewModel> SerialPorts { get; }
     public ObservableCollection<LogEntryViewModel> Logs { get; }
     public RemoteDebugWorkspaceViewModel? RemoteDebug { get; }
+    internal AppSettingsStore AppSettings => _appSettings;
+    internal NetworkDisplayPreferences NetworkDisplayPreferences => _appSettings.Snapshot().NetworkDisplayPreferences;
+    internal IReadOnlyList<NetworkConnectionPreset> GetNetworkPresets() => _appSettings.GetNetworkPresets();
+    internal void SaveNetworkPreset(NetworkConnectionPreset preset) => _appSettings.SaveNetworkPreset(preset);
+    internal void DeleteNetworkPreset(Guid id) => _appSettings.DeleteNetworkPreset(id);
+    internal IReadOnlyList<SerialBridgeClientPreset> GetSerialBridgePresets() => _appSettings.GetSerialBridgePresets();
+    internal void SaveSerialBridgePreset(SerialBridgeClientPreset preset) => _appSettings.SaveSerialBridgePreset(preset);
+    internal void DeleteSerialBridgePreset(Guid id) => _appSettings.DeleteSerialBridgePreset(id);
+    internal ConfigurationMergeResult ImportConfiguration(ImportedConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var result = _appSettings.MergeNetworkPresets(configuration.NetworkPresets)
+            .Add(_appSettings.MergeSerialBridgePresets(configuration.SerialBridgePresets))
+            .Add(_appSettings.MergeStcpTunnels(configuration.StcpTunnels));
+        if (RemoteDebug is not null) result = result.Add(RemoteDebug.MergeProfiles(configuration.RemoteProfiles));
+        return result;
+    }
+    internal void SaveNetworkDisplayPreferences(NetworkDisplayPreferences preferences) =>
+        _appSettings.Update(settings => settings.NetworkDisplayPreferences = preferences);
     internal ISerialPortService SerialPortService => _serialPortService;
     public int[] DataBitsOptions { get; } = [5, 6, 7, 8];
     public System.IO.Ports.Parity[] ParityOptions { get; } = [System.IO.Ports.Parity.None, System.IO.Ports.Parity.Odd, System.IO.Ports.Parity.Even, System.IO.Ports.Parity.Mark, System.IO.Ports.Parity.Space];
@@ -195,10 +219,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public bool NetworkSendAsHex { get => _networkSendAsHex; set => SetProperty(ref _networkSendAsHex, value); }
     public bool NetworkAppendCrLf { get => _networkAppendCrLf; set => SetProperty(ref _networkAppendCrLf, value); }
     public bool EnableVirtualSerialPorts { get; set; }
-    public string BridgeLocalHost { get; set; } = "0.0.0.0";
-    public string BridgeLocalPort { get; set; } = "9100";
-    public string BridgeRemoteHost { get; set; } = "127.0.0.1";
-    public string BridgeRemotePort { get; set; } = "9100";
+    public string BridgeLocalHost { get => _bridgeLocalHost; set => SetProperty(ref _bridgeLocalHost, value); }
+    public string BridgeLocalPort { get => _bridgeLocalPort; set => SetProperty(ref _bridgeLocalPort, value); }
+    public string BridgeRemoteHost { get => _bridgeRemoteHost; set => SetProperty(ref _bridgeRemoteHost, value); }
+    public string BridgeRemotePort { get => _bridgeRemotePort; set => SetProperty(ref _bridgeRemotePort, value); }
     public string BridgeMode { get => _bridgeMode; set { if (SetProperty(ref _bridgeMode, value)) { OnPropertyChanged(nameof(IsBridgeServer)); StartBridgeCommand.NotifyCanExecuteChanged(); } } }
     public bool IsBridgeServer => BridgeMode == "服务端";
     public string BridgeStatus => _remoteSerialClient.IsConnected ? "客户端已连接" : _bridgeId is null ? "未启动" : "服务端运行中";
@@ -231,6 +255,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         foreach (var session in Sessions.ToArray()) await session.DisposeAsync();
         if (_bridgeId is not null) await _serialBridgeService.StopAsync(_bridgeId);
         if (RemoteDebug is not null) await RemoteDebug.DisposeAsync();
+        _appSettings.Dispose();
     }
 
     private async Task AddNetworkSessionAsync(CancellationToken cancellationToken = default)
@@ -273,7 +298,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public async Task<NetworkSessionViewModel> CreateNetworkSessionAsync(TransportOptions options, CancellationToken cancellationToken = default)
     {
-        var vm = new NetworkSessionViewModel(_transportService.CreateSession(options), AddLog);
+        var vm = new NetworkSessionViewModel(_transportService.CreateSession(options), AddLog,
+            _appSettings.Snapshot().NetworkDisplayPreferences, SaveNetworkDisplayPreferences);
         Sessions.Add(vm);
         SelectedSession = vm;
         try
@@ -324,7 +350,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (_disposed) return;
             var ports = await _serialPortService.ScanAsync(cancellationToken);
             var knownPorts = SerialPorts.ToDictionary(port => port.PortName, StringComparer.OrdinalIgnoreCase);
-            var rows = ports.Select(port => knownPorts.TryGetValue(port.PortName, out var row) ? row : new SerialPortRowViewModel(port)).ToList();
+            var rows = ports.Select(port => knownPorts.TryGetValue(port.PortName, out var row) ? row : CreateSerialPortRow(port)).ToList();
             rows.AddRange(SerialPorts.Where(port => port.IsRemote));
             foreach (var row in SerialPorts) row.PropertyChanged -= OnSerialPortChanged;
             SerialPorts.Clear();
@@ -410,6 +436,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         StartBridgeCommand.NotifyCanExecuteChanged();
     }
+    internal SerialPortRowViewModel CreateSerialPortRow(EmbedDesk.Core.Models.SerialPortDescriptor descriptor, bool isRemote = false)
+    {
+        var row = new SerialPortRowViewModel(descriptor) { IsRemote = isRemote };
+        if (!isRemote) AppSettingsStore.ApplySerialSettings(_appSettings.GetSerialPreferences(row.PortName), row);
+        row.SettingsChanged = _appSettings.SaveSerialPreferences;
+        return row;
+    }
     private void NotifyBridgeState()
     {
         OnPropertyChanged(nameof(BridgeStatus));
@@ -438,7 +471,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         foreach (var port in remotePorts.Where(port => SerialPorts.All(row => row.PortName != port.PortName)))
         {
-            var row = new SerialPortRowViewModel(new SerialPortDescriptor(port.PortName, port.DisplayName, "网络串口 · 应用内虚拟端口", "EDBG")) { IsRemote = true };
+            var row = CreateSerialPortRow(new SerialPortDescriptor(port.PortName, port.DisplayName, "网络串口 · 应用内虚拟端口", "EDBG"), isRemote: true);
             row.PropertyChanged += OnSerialPortChanged;
             SerialPorts.Add(row);
         }

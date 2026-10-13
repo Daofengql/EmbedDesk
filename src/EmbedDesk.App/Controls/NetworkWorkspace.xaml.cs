@@ -2,8 +2,10 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
+using System.Net.NetworkInformation;
 using EmbedDesk.App.ViewModels;
 using Microsoft.Win32;
 
@@ -24,12 +26,29 @@ public partial class NetworkWorkspace : UserControl
         Unloaded += (_, _) => Unbind();
         DataContextChanged += (_, _) => { if (IsLoaded) BindViewModel(); };
         ReceiveText.SizeChanged += (_, _) => { if (_session?.AutoScroll == true) Dispatcher.BeginInvoke(new Action(ReceiveText.ScrollToEnd), DispatcherPriority.Background); };
+        Loaded += (_, _) => NetworkChange.NetworkAddressChanged += NetworkAddressChanged;
+        Unloaded += (_, _) => NetworkChange.NetworkAddressChanged -= NetworkAddressChanged;
     }
     private void BindViewModel()
     {
         Unbind(); _vm = DataContext as MainWindowViewModel;
         if (_vm is not null) _vm.PropertyChanged += MainChanged;
+        if (_vm is not null)
+        {
+            var settings = _vm.AppSettings.Snapshot();
+            _paneWidth = Math.Clamp(settings.NetworkSessionPaneWidth, 180, 280);
+            _expanded = settings.NetworkSessionPaneExpanded;
+            ApplySessionPaneLayout();
+        }
         BindSession();
+    }
+    private void NetworkAddressChanged(object? sender, EventArgs e)
+    {
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_vm is not null)
+                foreach (var session in _vm.Sessions) session.RefreshServerAddressHints();
+        }));
     }
     private void Unbind()
     {
@@ -62,7 +81,7 @@ public partial class NetworkWorkspace : UserControl
         if (_vm is null) return;
         var picker = new NetworkTypeSelectionWindow { Owner = Window.GetWindow(this) };
         if (picker.ShowDialog() != true || picker.Protocol is not { } protocol) return;
-        var dialog = new NetworkConnectionWindow(protocol) { Owner = Window.GetWindow(this) };
+        var dialog = new NetworkConnectionWindow(protocol, _vm) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() == true && dialog.Options is { } options) await _vm.CreateNetworkSessionAsync(options);
     }
 
@@ -78,11 +97,38 @@ public partial class NetworkWorkspace : UserControl
     {
         if (_expanded) _paneWidth = SessionColumn.ActualWidth;
         _expanded = !_expanded;
-        SessionColumn.MinWidth = _expanded ? 160 : 0;
-        SessionColumn.Width = new GridLength(_expanded ? _paneWidth : 0);
+        ApplySessionPaneLayout();
+        SaveSessionPanePreferences();
+    }
+    private void ApplySessionPaneLayout()
+    {
+        SessionColumn.MinWidth = _expanded ? 180 : 0;
+        SessionColumn.Width = new GridLength(_expanded ? Math.Clamp(_paneWidth, 180, 280) : 0);
         SessionPane.Visibility = SessionSplitter.Visibility = _expanded ? Visibility.Visible : Visibility.Collapsed;
         SessionToggleGlyph.Text = _expanded ? "\uE76B" : "\uE76C";
         SessionToggle.ToolTip = _expanded ? "收起会话列表" : "显示会话列表";
+    }
+    private void SessionSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        if (!_expanded || _vm is null) return;
+        _paneWidth = Math.Clamp(SessionColumn.ActualWidth, 180, 280);
+        SaveSessionPanePreferences();
+    }
+    private void SaveSessionPanePreferences()
+    {
+        _vm?.AppSettings.Update(settings =>
+        {
+            settings.NetworkSessionPaneWidth = Math.Clamp(_paneWidth, 180, 280);
+            settings.NetworkSessionPaneExpanded = _expanded;
+        });
+    }
+    private void CopyServerAddresses_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string addresses && !string.IsNullOrWhiteSpace(addresses))
+        {
+            try { Clipboard.SetText(addresses); }
+            catch (System.Runtime.InteropServices.ExternalException) { }
+        }
     }
     private async void SaveReceive_Click(object sender, RoutedEventArgs e)
     {

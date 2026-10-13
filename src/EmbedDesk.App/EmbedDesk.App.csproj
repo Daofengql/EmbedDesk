@@ -8,6 +8,7 @@
     <RootNamespace>EmbedDesk.App</RootNamespace>
     <AssemblyName>EmbedDesk.App</AssemblyName>
     <ApplicationIcon>Assets\embeddesk.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>EmbedDesk.App.Program</StartupObject>
     <PublishProfile Condition="'$(Configuration)' == 'Release' and '$(PublishProfile)' == ''">Compact</PublishProfile>
   </PropertyGroup>
@@ -25,7 +26,7 @@
     <Resource Include="Assets\Platforms\*.png" />
     <EmbeddedResource Include="Assets\Platforms\NOTICE.md;Assets\Platforms\LICENSE.devicon;Assets\Platforms\LICENSE.simple-icons.md" />
     <EmbeddedResource Include="Assets\Terminal\**\*" LogicalName="TerminalAssets/%(RecursiveDir)%(Filename)%(Extension)" />
-    <EmbeddedResource Include="..\..\LICENSE;..\..\THIRD_PARTY_NOTICES.md;..\..\docs\third-party\*.txt;..\..\docs\third-party\*.md" LogicalName="ThirdParty/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\LICENSE;..\..\THIRD_PARTY_NOTICES.md;..\..\docs\third-party\*.txt;..\..\docs\third-party\*.md;..\..\docs\licenses\*.txt" LogicalName="ThirdParty/%(Filename)%(Extension)" />
   </ItemGroup>
   <Target Name="ExcludeSingleFileDevelopmentArtifacts" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(PublishSingleFile)' == 'true'">
     <ItemGroup>

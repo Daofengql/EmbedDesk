@@ -72,16 +72,22 @@ internal sealed class TcpUdpSession : ITransportSession
             }
             else
             {
-                var endpoint = new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort);
-                _udpClient = new UdpClient(endpoint);
-                BoundLocalEndpoint = _udpClient.Client.LocalEndPoint?.ToString();
                 if (_options.Mode == TransportMode.Client)
                 {
-                    _udpClient.Connect(_options.RemoteHost, _options.RemotePort);
+                    var localAddress = GetClientLocalAddress();
+                    var remoteAddress = await ResolveRemoteAddressAsync(_options.RemoteHost, localAddress?.AddressFamily, _lifetime.Token).ConfigureAwait(false);
+                    _udpClient = new UdpClient(remoteAddress.AddressFamily);
+                    if (localAddress is not null || _options.LocalPort != 0)
+                        _udpClient.Client.Bind(new IPEndPoint(localAddress ?? GetAnyAddress(remoteAddress.AddressFamily), _options.LocalPort));
+                    _udpClient.Connect(remoteAddress, _options.RemotePort);
+                    BoundLocalEndpoint = _udpClient.Client.LocalEndPoint?.ToString();
                     SetState(TransportSessionState.Connected);
                 }
                 else
                 {
+                    var endpoint = new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort);
+                    _udpClient = new UdpClient(endpoint);
+                    BoundLocalEndpoint = _udpClient.Client.LocalEndPoint?.ToString();
                     SetState(TransportSessionState.Listening);
                 }
                 _worker = ReceiveUdpAsync(_lifetime.Token);
@@ -278,8 +284,12 @@ internal sealed class TcpUdpSession : ITransportSession
             var shouldReconnect = false;
             try
             {
-                using var client = new TcpClient(new IPEndPoint(ParseAddress(_options.LocalHost), _options.LocalPort)) { NoDelay = true };
-                await client.ConnectAsync(_options.RemoteHost, _options.RemotePort, cancellationToken);
+                var localAddress = GetClientLocalAddress();
+                var remoteAddress = await ResolveRemoteAddressAsync(_options.RemoteHost, localAddress?.AddressFamily, cancellationToken).ConfigureAwait(false);
+                using var client = new TcpClient(remoteAddress.AddressFamily) { NoDelay = true };
+                if (localAddress is not null || _options.LocalPort != 0)
+                    client.Client.Bind(new IPEndPoint(localAddress ?? GetAnyAddress(remoteAddress.AddressFamily), _options.LocalPort));
+                await client.ConnectAsync(remoteAddress, _options.RemotePort, cancellationToken);
                 BoundLocalEndpoint = client.Client.LocalEndPoint?.ToString();
                 lock (_gate) _activeClient = client;
                 SetState(TransportSessionState.Connected);
@@ -460,6 +470,36 @@ internal sealed class TcpUdpSession : ITransportSession
         if (IPAddress.TryParse(host, out var address)) return address;
         return Dns.GetHostAddresses(host).First(address => address.AddressFamily == AddressFamily.InterNetwork);
     }
+
+    private IPAddress? GetClientLocalAddress()
+    {
+        var value = _options.ClientLocalAddress;
+        // Preserve callers that used LocalHost to choose a TCP/UDP client's source address before ClientLocalAddress existed.
+        if (string.IsNullOrWhiteSpace(value) && _options.LocalHost is not ("0.0.0.0" or "::" or "*")) value = _options.LocalHost;
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (!IPAddress.TryParse(value, out var address)) throw new ArgumentException("客户端出口地址必须是本机 IP 地址。", nameof(_options.ClientLocalAddress));
+        return address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    }
+
+    private static async Task<IPAddress> ResolveRemoteAddressAsync(string host, AddressFamily? requiredFamily, CancellationToken cancellationToken)
+    {
+        var addresses = IPAddress.TryParse(host, out var literal)
+            ? new[] { literal }
+            : await Dns.GetHostAddressesAsync(host, cancellationToken).ConfigureAwait(false);
+        var usable = addresses.Select(address => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)
+            .Where(address => address.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
+            .Where(address => requiredFamily is null || address.AddressFamily == requiredFamily)
+            .OrderBy(address => address.AddressFamily != AddressFamily.InterNetwork)
+            .FirstOrDefault();
+        return usable ?? throw new SocketException((int)SocketError.AddressFamilyNotSupported);
+    }
+
+    private static IPAddress GetAnyAddress(AddressFamily family) => family switch
+    {
+        AddressFamily.InterNetwork => IPAddress.Any,
+        AddressFamily.InterNetworkV6 => IPAddress.IPv6Any,
+        _ => throw new ArgumentOutOfRangeException(nameof(family))
+    };
 }
 
 

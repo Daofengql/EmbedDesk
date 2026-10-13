@@ -20,10 +20,12 @@ public partial class DnsQueryWindow : Window, IDisposable
     private string _dnsAddress = "";
     private string _dohAddress = "https://dns.alidns.com/dns-query";
     private bool _usingDoh;
+    private readonly Action<DnsQueryPreferences>? _savePreferences;
     private static readonly string[] DohServers = ["https://dns.alidns.com/dns-query", "https://doh.pub/dns-query", "https://cloudflare-dns.com/dns-query", "https://dns.google/dns-query"];
 
-    public DnsQueryWindow()
+    public DnsQueryWindow(DnsQueryPreferences? preferences = null, Action<DnsQueryPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         DataContext = this;
         TypeBox.ItemsSource = new[] { AutomaticType }.Concat(DnsLookupClient.RecordTypes).ToArray();
@@ -31,9 +33,40 @@ public partial class DnsQueryWindow : Window, IDisposable
         ClassBox.ItemsSource = new[] { "IN", "CH", "HS" };
         ClassBox.SelectedIndex = TransportBox.SelectedIndex = 0;
         PopulateServers();
+        if (preferences is not null) ApplyPreferences(preferences);
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(CapturePreferences());
     }
+
+    private void ApplyPreferences(DnsQueryPreferences preferences)
+    {
+        QueryBox.Text = preferences.Query;
+        TypeBox.Text = preferences.RecordType;
+        ClassBox.SelectedIndex = preferences.QueryClassIndex;
+        PortBox.Text = preferences.Port.ToString(CultureInfo.InvariantCulture);
+        TimeoutBox.Text = preferences.TimeoutMilliseconds.ToString(CultureInfo.InvariantCulture);
+        RetriesBox.Text = preferences.Retries.ToString(CultureInfo.InvariantCulture);
+        RecursionBox.IsChecked = preferences.RecursionDesired;
+        TransportBox.SelectedIndex = preferences.TransportIndex;
+        _dnsAddress = string.IsNullOrWhiteSpace(preferences.DnsServer) ? _dnsServers.FirstOrDefault() ?? string.Empty : preferences.DnsServer;
+        _dohAddress = preferences.DohEndpoint;
+        ServerBox.Text = _usingDoh ? _dohAddress : _dnsAddress;
+    }
+
+    private DnsQueryPreferences CapturePreferences() => new()
+    {
+        Query = QueryBox.Text,
+        RecordType = TypeBox.Text,
+        QueryClassIndex = ClassBox.SelectedIndex,
+        TransportIndex = TransportBox.SelectedIndex,
+        DnsServer = _usingDoh ? _dnsAddress : ServerBox.Text,
+        DohEndpoint = _usingDoh ? ServerBox.Text : _dohAddress,
+        Port = int.TryParse(PortBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) ? port : 53,
+        TimeoutMilliseconds = int.TryParse(TimeoutBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var timeout) ? timeout : 2000,
+        Retries = int.TryParse(RetriesBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var retries) ? retries : 1,
+        RecursionDesired = RecursionBox.IsChecked == true
+    };
 
     public ObservableCollection<DnsResourceRecord> Results { get; } = [];
 

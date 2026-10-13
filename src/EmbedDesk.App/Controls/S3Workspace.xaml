@@ -1,0 +1,42 @@
+<UserControl x:Class="EmbedDesk.App.Controls.S3Workspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:EmbedDesk.App.Controls">
+    <UserControl.Resources><local:S3ObjectTypeConverter x:Key="S3ObjectType" /></UserControl.Resources>
+    <Grid Background="{StaticResource PanelBrush}" Margin="16">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="14,10">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="220" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="S3 对象浏览器" FontSize="16" FontWeight="SemiBold" /><TextBlock Text="{Binding ConnectionDetail}" Style="{StaticResource MutedText}" FontSize="11" Margin="0,4,0,0" /></StackPanel>
+                <TextBlock Grid.Column="1" Text="桶" VerticalAlignment="Center" Margin="18,0,8,0" />
+                <ComboBox Grid.Column="2" ItemsSource="{Binding Buckets}" DisplayMemberPath="Name" SelectedItem="{Binding SelectedBucket}" IsEnabled="{Binding CanChangeBucket}" />
+                <Button Grid.Column="3" Content="重连" Click="Reconnect_Click" Margin="8,0,0,0" />
+            </Grid>
+        </Border>
+        <Grid Grid.Row="1" Margin="0,12,0,10">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Button Content="上级" Click="GoUp_Click" IsEnabled="{Binding CanUseBucket}" Margin="0,0,8,0" />
+            <Button Grid.Column="1" Content="刷新" Click="Refresh_Click" IsEnabled="{Binding CanUseBucket}" Margin="0,0,8,0" />
+            <TextBox x:Name="PrefixBox" Grid.Column="2" Text="{Binding Prefix, UpdateSourceTrigger=PropertyChanged}" KeyDown="Prefix_KeyDown" MinHeight="30" Padding="8,5" ToolTip="对象前缀；按 Enter 跳转" />
+            <Button Grid.Column="3" Content="上传" Click="Upload_Click" IsEnabled="{Binding CanUseBucket}" Margin="8,0,0,0" />
+            <Button Grid.Column="4" Content="下载" Click="Download_Click" IsEnabled="{Binding CanDownloadSelected}" Margin="8,0,0,0" />
+            <Button Grid.Column="5" Content="删除" Click="Delete_Click" IsEnabled="{Binding CanDownloadSelected}" Margin="8,0,0,0" />
+            <Button Grid.Column="6" Content="取消传输" Click="CancelTransfer_Click" IsEnabled="{Binding IsTransferActive}" Margin="8,0,0,0" />
+            <Button Grid.Column="7" Content="更多" Click="LoadMore_Click" IsEnabled="{Binding HasMoreObjects}" Margin="8,0,0,0" />
+        </Grid>
+        <DataGrid x:Name="ObjectGrid" Grid.Row="2" ItemsSource="{Binding Objects}" SelectedItem="{Binding SelectedObject}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" SelectionUnit="FullRow" RowHeight="30" ColumnHeaderHeight="30" MouseDoubleClick="Object_DoubleClick">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" />
+                <DataGridTextColumn Header="类型" Binding="{Binding IsDirectory, Converter={StaticResource S3ObjectType}}" Width="90" />
+                <DataGridTextColumn Header="大小" Binding="{Binding Size, StringFormat={}{0:N0} B}" Width="140" />
+                <DataGridTextColumn Header="修改时间" Binding="{Binding Modified, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" Width="170" />
+            </DataGrid.Columns>
+        </DataGrid>
+        <Grid Grid.Row="3" Margin="2,10,2,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="{Binding Status}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding TransferStatus}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" /></StackPanel>
+            <ProgressBar Grid.Column="1" Value="{Binding TransferProgress, Mode=OneWay}" Maximum="100" Height="5" VerticalAlignment="Center" Visibility="{Binding IsBusy, Converter={StaticResource BooleanVisibility}}" />
+        </Grid>
+    </Grid>
+</UserControl>

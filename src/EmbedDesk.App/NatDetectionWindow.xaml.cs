@@ -8,14 +8,22 @@ public partial class NatDetectionWindow : Window, IDisposable
 {
     private CancellationTokenSource? _lifetime;
     private bool _closed;
+    private readonly Action<NatDetectionPreferences>? _savePreferences;
 
-    public NatDetectionWindow()
+    public NatDetectionWindow(NatDetectionPreferences? preferences = null, Action<NatDetectionPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         DataContext = this;
-        ServersBox.Text = string.Join(Environment.NewLine, NatDetector.DefaultServers);
+        ServersBox.Text = preferences?.Servers ?? string.Join(Environment.NewLine, NatDetector.DefaultServers);
+        ServerSettings.IsExpanded = preferences?.ShowServerSettings == true;
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(new NatDetectionPreferences
+        {
+            Servers = ServersBox.Text,
+            ShowServerSettings = ServerSettings.IsExpanded
+        });
     }
 
     public ObservableCollection<NatObservation> Results { get; } = [];

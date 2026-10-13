@@ -31,10 +31,10 @@ public sealed class SerialPortRowViewModel : ObservableObject
     public bool IsRemote { get; init; }
     public bool IsAvailable { get => _isAvailable; set { if (SetProperty(ref _isAvailable, value)) OnPropertyChanged(nameof(SelectionLabel)); } }
     public string SelectionLabel => $"{PortName}  ·  {DisplayName}{(IsAvailable ? string.Empty : " · 离线")}";
-    public int DataBits { get => _dataBits; set => SetProperty(ref _dataBits, value); }
-    public System.IO.Ports.Parity Parity { get => _parity; set => SetProperty(ref _parity, value); }
-    public System.IO.Ports.StopBits StopBits { get => _stopBits; set => SetProperty(ref _stopBits, value); }
-    public System.IO.Ports.Handshake Handshake { get => _handshake; set => SetProperty(ref _handshake, value); }
+    public int DataBits { get => _dataBits; set { if (SetProperty(ref _dataBits, value)) SettingsChanged?.Invoke(this); } }
+    public System.IO.Ports.Parity Parity { get => _parity; set { if (SetProperty(ref _parity, value)) SettingsChanged?.Invoke(this); } }
+    public System.IO.Ports.StopBits StopBits { get => _stopBits; set { if (SetProperty(ref _stopBits, value)) SettingsChanged?.Invoke(this); } }
+    public System.IO.Ports.Handshake Handshake { get => _handshake; set { if (SetProperty(ref _handshake, value)) SettingsChanged?.Invoke(this); } }
     public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
     public bool IsOpen
     {
@@ -46,13 +46,14 @@ public sealed class SerialPortRowViewModel : ObservableObject
     public int BaudRate
     {
         get => _baudRate;
-        set { if (SetProperty(ref _baudRate, value)) OnPropertyChanged(nameof(EffectiveBaudRate)); }
+        set { if (SetProperty(ref _baudRate, value)) { OnPropertyChanged(nameof(EffectiveBaudRate)); SettingsChanged?.Invoke(this); } }
     }
     public int CustomBaudRate
     {
         get => _customBaudRate;
-        set { if (SetProperty(ref _customBaudRate, value)) { OnPropertyChanged(nameof(EffectiveBaudRate)); OnPropertyChanged(nameof(CustomBaudRateText)); } }
+        set { if (SetProperty(ref _customBaudRate, value)) { OnPropertyChanged(nameof(EffectiveBaudRate)); OnPropertyChanged(nameof(CustomBaudRateText)); SettingsChanged?.Invoke(this); } }
     }
+    internal Action<SerialPortRowViewModel>? SettingsChanged { get; set; }
     public string CustomBaudRateText
     {
         get => CustomBaudRate > 0 ? CustomBaudRate.ToString() : string.Empty;

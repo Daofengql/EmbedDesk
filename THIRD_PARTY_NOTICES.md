@@ -10,6 +10,7 @@ EmbedDesk's original code is licensed under GPL-3.0-only. Third-party code and a
 | xterm.js fit addon | MIT | [LICENSE-addon-fit](src/EmbedDesk.App/Assets/Terminal/LICENSE-addon-fit) |
 | [Devicon](https://github.com/devicons/devicon) platform logos | MIT | [LICENSE.devicon](src/EmbedDesk.App/Assets/Platforms/LICENSE.devicon) |
 | [Simple Icons](https://github.com/simple-icons/simple-icons) platform logos | CC0-1.0 | [LICENSE.simple-icons.md](src/EmbedDesk.App/Assets/Platforms/LICENSE.simple-icons.md) |
+| [Octicons v19.0.0](https://github.com/primer/octicons/tree/v19.0.0) GitHub mark (`mark-github-16.svg`, rendered as a WPF Path) | MIT | [octicons-MIT.txt](docs/third-party/octicons-MIT.txt) |
 
 The [platform icon notice](src/EmbedDesk.App/Assets/Platforms/NOTICE.md) records upstream revisions, rendering changes, and regeneration instructions. Logos identify the connected systems; trademarks belong to their respective owners.
 
@@ -39,6 +40,7 @@ NuGet restores these dependencies during the build. Direct versions are recorded
 | [System.IO.Ports](https://www.nuget.org/packages/System.IO.Ports/8.0.0), [System.Management](https://www.nuget.org/packages/System.Management/8.0.0), and System.CodeDom | MIT |
 | [SSH.NET](https://www.nuget.org/packages/SSH.NET/2026.0.0) | MIT |
 | [BouncyCastle.Cryptography](https://www.nuget.org/packages/BouncyCastle.Cryptography/2.7.0) (SSH.NET, standard VNC password authentication, X.509/PKCS#12, and bundled digest, signature, and symmetric/asymmetric cipher implementations) | MIT |
+| [AWS SDK for .NET](https://www.nuget.org/packages/AWSSDK.S3/4.0.104) (`AWSSDK.S3` 4.0.104 and transitive `AWSSDK.Core` 4.0.102.8) | Apache-2.0; see [license text](docs/licenses/Apache-2.0.txt) |
 | [Microsoft.Web.WebView2 SDK](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4191.47) | BSD-3-Clause; see [LICENSE](docs/licenses/WebView2-LICENSE.txt) and [NOTICE](docs/licenses/WebView2-NOTICE.txt) from the package |
 
 The separately installed Microsoft Edge WebView2 Runtime is governed by its own distribution terms; it is not bundled in the single-EXE output. The self-contained publish profile bundles the .NET runtime; retain its applicable licenses and third-party notices when distributing binaries. This dependency overview does not replace the notices supplied by individual packages.

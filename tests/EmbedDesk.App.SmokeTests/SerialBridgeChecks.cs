@@ -135,7 +135,8 @@ internal static class SerialBridgeChecks
     private static async Task CheckUiAsync(int port, Ports service)
     {
         await using var remote = new RemoteSerialClient();
-        await using var vm = new MainWindowViewModel(new TcpUdpTransportService(), new FakeSerialService(), new FakeBridge(), remote);
+        using var settings = new TemporarySettingsDirectory();
+        await using var vm = new MainWindowViewModel(new TcpUdpTransportService(), new FakeSerialService(), new FakeBridge(), remote, remoteSettingsDirectory: settings.DirectoryPath);
         await vm.InitializeAsync();
         var bridgeWindow = new BridgeWindow { DataContext = vm }; bridgeWindow.Show();
         await FileWorkspaceChecks.CaptureAsync(bridgeWindow, "embeddesk-deferred-bridge.png");

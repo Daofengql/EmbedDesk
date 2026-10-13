@@ -48,8 +48,10 @@ internal static class DesktopNetworkChecks
             await Task.Delay(100);
             var port = FreePort();
             var server = await vm.CreateNetworkSessionAsync(new TransportOptions { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = port, AutoReconnect = false });
-            var client = await vm.CreateNetworkSessionAsync(new TransportOptions { LocalHost = "127.0.0.1", LocalPort = 0, RemoteHost = "127.0.0.1", RemotePort = port, AutoReconnect = false });
+            var client = await vm.CreateNetworkSessionAsync(new TransportOptions { LocalPort = 0, ClientLocalAddress = IPAddress.Loopback.ToString(), RemoteHost = "127.0.0.1", RemotePort = port, AutoReconnect = false });
             await WaitAsync(() => client.CanSend && server.CanSend);
+            Require(IPEndPoint.TryParse(client.LocalEndpoint, out var selectedTcpSource) && selectedTcpSource.Address.Equals(IPAddress.Loopback),
+                "TCP client binds its selected local interface address");
             await WaitAsync(() => client.NetworkStatus.Milliseconds.HasValue);
             Require(client.NetworkStatus.Target?.TcpPort == port && client.Terminal.ReceivedBytes == 0 && client.Terminal.SentBytes == 0, "TCP client probes its actual service port without contaminating debug traffic");
             client.SendText = "串口与网络 · TCP 回环测试"; client.AppendCrLf = true;
@@ -111,7 +113,9 @@ internal static class DesktopNetworkChecks
 
             var udpPort = FreePort();
             var udpServer = await vm.CreateNetworkSessionAsync(new TransportOptions { Protocol = TransportProtocol.Udp, Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = udpPort });
-            var udpClient = await vm.CreateNetworkSessionAsync(new TransportOptions { Protocol = TransportProtocol.Udp, LocalHost = "127.0.0.1", LocalPort = 0, RemoteHost = "127.0.0.1", RemotePort = udpPort });
+            var udpClient = await vm.CreateNetworkSessionAsync(new TransportOptions { Protocol = TransportProtocol.Udp, LocalPort = 0, ClientLocalAddress = IPAddress.Loopback.ToString(), RemoteHost = "127.0.0.1", RemotePort = udpPort });
+            Require(IPEndPoint.TryParse(udpClient.LocalEndpoint, out var selectedUdpSource) && selectedUdpSource.Address.Equals(IPAddress.Loopback),
+                "UDP client binds its selected local interface address");
             udpClient.SendText = "udp-ping"; await udpClient.SendCommand.ExecuteAsync(null);
             await WaitAsync(() => udpServer.Terminal.ReceivedBytes == 8);
             udpServer.SendText = "udp-pong"; await udpServer.SendCommand.ExecuteAsync(null);
@@ -175,8 +179,12 @@ internal static class DesktopNetworkChecks
             Descendants<Button>(connectionDialog).Single(b => Equals(b.Content, "保存")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Require(connectionDialog.IsVisible && ((TextBlock)connectionDialog.FindName("ValidationMessage")).Text.Contains("有效端口"), "Invalid port input cannot silently save the previous value");
             connectionDialog.Close();
-            var networkDialog = new NetworkConnectionWindow { Owner = window }; networkDialog.Show();
+            var networkDialog = new NetworkConnectionWindow(TransportProtocol.Tcp, vm) { Owner = window }; networkDialog.Show();
             await FileWorkspaceChecks.CaptureAsync(networkDialog, "embeddesk-network-profile.png");
+            var sourceSelector = (ComboBox)networkDialog.FindName("ClientSourceAddressBox");
+            Require(sourceSelector.Items.Cast<NetworkListenAddressOption>().First().Address == string.Empty
+                && sourceSelector.Items.Cast<NetworkListenAddressOption>().Any(option => option.Address == IPAddress.Loopback.ToString()),
+                "Network client source selector offers system routing and a loopback interface");
             networkDialog.Close();
             var profile = new RemoteConnectionProfile { Name = "远程桌面测试", Protocol = RemoteProtocol.Rdp, Host = "127.0.0.1", Port = 3389, Username = "regression", Password = "memory-only" };
             var editor = new RemoteProfileEditorViewModel(profile);

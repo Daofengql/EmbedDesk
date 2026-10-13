@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using EmbedDesk.App.ViewModels;
 
 namespace EmbedDesk.App.Controls;
 
@@ -10,19 +11,28 @@ public partial class NetworkToolsWorkspace : UserControl
     private void OpenTool_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tool }) return;
+        var workspace = DataContext as MainWindowViewModel;
+        var toolPreferences = workspace?.AppSettings.GetNetworkToolPreferences();
+        var settings = workspace?.AppSettings;
         Window window = tool switch
         {
-            "Cidr" => new CidrCalculatorWindow(),
-            "Ping" => new NetworkProbeToolWindow(),
-            "Iperf3" => new Iperf3Window(),
-            "Discovery" => new NetworkDiscoveryWindow(),
-            "Nat" => new NatDetectionWindow(),
-            "Upnp" => new UpnpDiscoveryWindow(),
-            "Dns" => new DnsQueryWindow(),
+            "Cidr" => new CidrCalculatorWindow(toolPreferences?.CidrCalculator, settings is null ? null : new Action<CidrCalculatorPreferences>(settings.SaveCidrCalculatorPreferences)),
+            "Ping" => workspace is null
+                ? new NetworkProbeToolWindow()
+                : new NetworkProbeToolWindow(preferences: workspace.AppSettings.GetNetworkProbePreferences(),
+                    savePreferences: workspace.AppSettings.SaveNetworkProbePreferences),
+            "Iperf3" => new Iperf3Window(toolPreferences?.Iperf3, settings is null ? null : new Action<Iperf3ToolPreferences>(settings.SaveIperf3ToolPreferences)),
+            "Discovery" => new NetworkDiscoveryWindow(toolPreferences?.NetworkDiscovery, settings is null ? null : new Action<NetworkDiscoveryPreferences>(settings.SaveNetworkDiscoveryPreferences)),
+            "Nat" => new NatDetectionWindow(toolPreferences?.NatDetection, settings is null ? null : new Action<NatDetectionPreferences>(settings.SaveNatDetectionPreferences)),
+            "Upnp" => new UpnpDiscoveryWindow(toolPreferences?.UpnpDiscovery, settings is null ? null : new Action<UpnpDiscoveryPreferences>(settings.SaveUpnpDiscoveryPreferences)),
+            "Dns" => new DnsQueryWindow(toolPreferences?.DnsQuery, settings is null ? null : new Action<DnsQueryPreferences>(settings.SaveDnsQueryPreferences)),
             "Checksum" => new ByteToolWindow(checksum: true),
             "Codec" => new ByteToolWindow(),
-            "Ports" => new TcpPortCheckWindow(),
-            "Tls" => new TlsCertificateWindow(),
+            "Ports" => new TcpPortCheckWindow(toolPreferences?.TcpPortScan, settings is null ? null : new Action<TcpPortScanPreferences>(settings.SaveTcpPortScanPreferences)),
+            "Tls" => new TlsCertificateWindow(toolPreferences?.TlsDiagnostic, settings is null ? null : new Action<TlsDiagnosticPreferences>(settings.SaveTlsDiagnosticPreferences)),
+            "LocalInfo" => new LocalInfoWindow(),
+            "Hosts" => new HostsManagerWindow(settings is null ? AppDataPaths.SettingsDirectory : System.IO.Path.GetDirectoryName(settings.FilePath)!),
+            "Stcp" when settings is not null => new StcpTunnelManagerWindow(settings),
             _ => throw new InvalidOperationException($"Unknown network tool: {tool}")
         };
         window.Owner = Window.GetWindow(this);

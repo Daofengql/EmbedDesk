@@ -12,13 +12,43 @@ public partial class Iperf3Window : Window, IDisposable
     private CancellationTokenSource? _operation;
     private bool _closed;
     private bool _fillingNode;
-    public Iperf3Window()
+    private readonly Action<Iperf3ToolPreferences>? _savePreferences;
+    public Iperf3Window(Iperf3ToolPreferences? preferences = null, Action<Iperf3ToolPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         NodeBox.ItemsSource = new[] { new PublicIperf3Server("自定义 iperf3 服务端", "", 5201, 5201, "") }.Concat(PublicIperf3Servers.All).ToArray();
         NodeBox.SelectedIndex = 0; ProtocolBox.SelectedIndex = 0; ModeBox.SelectedIndex = 0;
+        if (preferences is not null) ApplyPreferences(preferences);
         WindowTheme.ApplyDarkTitleBar(this); Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(CapturePreferences());
     }
+
+    private void ApplyPreferences(Iperf3ToolPreferences preferences)
+    {
+        ModeBox.SelectedIndex = preferences.ModeIndex;
+        HostBox.Text = preferences.Host;
+        PortBox.Text = preferences.Port.ToString(CultureInfo.InvariantCulture);
+        ProtocolBox.SelectedIndex = preferences.ProtocolIndex;
+        BlockSizeBox.Text = preferences.BlockSizeBytes.ToString(CultureInfo.InvariantCulture);
+        DirectionBox.SelectedIndex = preferences.DirectionIndex;
+        DurationBox.Text = preferences.DurationSeconds.ToString(CultureInfo.InvariantCulture);
+        RateBox.Text = preferences.Rate;
+        RateUnitBox.SelectedIndex = preferences.RateUnitIndex;
+    }
+
+    private Iperf3ToolPreferences CapturePreferences() => new()
+    {
+        ModeIndex = ModeBox.SelectedIndex,
+        Host = HostBox.Text,
+        Port = int.TryParse(PortBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) ? port : 5201,
+        ProtocolIndex = ProtocolBox.SelectedIndex,
+        DirectionIndex = DirectionBox.SelectedIndex,
+        DurationSeconds = int.TryParse(DurationBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var duration) ? duration : 10,
+        BlockSizeBytes = int.TryParse(BlockSizeBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var blockSize) ? blockSize : 131072,
+        Rate = RateBox.Text,
+        RateUnitIndex = RateUnitBox.SelectedIndex
+    };
     private void Mode_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (StatusText is null) return;

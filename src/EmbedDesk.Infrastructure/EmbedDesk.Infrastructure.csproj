@@ -12,6 +12,7 @@
     <PackageReference Include="System.Management" />
     <PackageReference Include="SSH.NET" />
     <PackageReference Include="MQTTnet" />
+    <PackageReference Include="AWSSDK.S3" />
   </ItemGroup>
   <ItemGroup><PackageReference Include="BouncyCastle.Cryptography" /></ItemGroup>
 </Project>

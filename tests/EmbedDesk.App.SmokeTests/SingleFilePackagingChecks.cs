@@ -19,6 +19,13 @@ internal static class SingleFilePackagingChecks
         window.Show();
         try
         {
+            await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-main-default.png");
+            var originalSize = new Size(window.Width, window.Height);
+            window.Width = window.MinWidth;
+            window.Height = window.MinHeight;
+            await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-main-small.png");
+            window.Width = originalSize.Width;
+            window.Height = originalSize.Height;
             Descendants<TabControl>(window).First().SelectedIndex = 1;
             window.UpdateLayout();
             var terminal = Descendants<ShellTerminal>(window).First();

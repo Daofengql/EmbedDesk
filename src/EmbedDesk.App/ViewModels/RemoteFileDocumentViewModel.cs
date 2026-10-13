@@ -7,7 +7,7 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace EmbedDesk.App.ViewModels;
 
-public sealed class RemoteFileDocumentViewModel : ObservableObject, IDisposable
+public sealed class RemoteFileDocumentViewModel : ObservableObject, IDisposable, IRemoteTabViewModel
 {
     private readonly Func<string, string, Task> _upload;
     private Encoding _encoding = new UTF8Encoding(false, true);
@@ -16,6 +16,7 @@ public sealed class RemoteFileDocumentViewModel : ObservableObject, IDisposable
     private string _savedText = string.Empty;
     private string _status = string.Empty;
     private bool _saving;
+    private string _customTitle = string.Empty;
 
     private RemoteFileDocumentViewModel(RemoteWorkspaceViewModel owner, string remotePath, string cachePath, Func<string, string, Task> upload)
     {
@@ -34,13 +35,24 @@ public sealed class RemoteFileDocumentViewModel : ObservableObject, IDisposable
     public string CachePath { get; }
     public string Location => $"{Owner.Username}@{Owner.Host}:{RemotePath}";
     public string Title => Name + (IsDirty ? " •" : string.Empty);
+    public string CustomTitle
+    {
+        get => _customTitle;
+        set
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (!SetProperty(ref _customTitle, normalized)) return;
+            OnPropertyChanged(nameof(TabTitle));
+        }
+    }
+    public string TabTitle => (string.IsNullOrWhiteSpace(CustomTitle) ? Name : CustomTitle) + (IsDirty ? " •" : string.Empty);
     public bool IsImage => Image is not null;
     public bool IsText => !IsImage;
     public ImageSource? Image { get; private set; }
     public string Text
     {
         get => _text;
-        set { if (SetProperty(ref _text, value)) { OnPropertyChanged(nameof(IsDirty)); OnPropertyChanged(nameof(Title)); SaveCommand.NotifyCanExecuteChanged(); } }
+        set { if (SetProperty(ref _text, value)) { OnPropertyChanged(nameof(IsDirty)); OnPropertyChanged(nameof(Title)); OnPropertyChanged(nameof(TabTitle)); SaveCommand.NotifyCanExecuteChanged(); } }
     }
     public bool IsDirty => _text != _savedText;
     public bool IsSaving => _saving;
@@ -99,7 +111,7 @@ public sealed class RemoteFileDocumentViewModel : ObservableObject, IDisposable
             await File.WriteAllBytesAsync(CachePath, bytes);
             await _upload(CachePath, RemotePath);
             _savedText = snapshot;
-            OnPropertyChanged(nameof(IsDirty)); OnPropertyChanged(nameof(Title));
+            OnPropertyChanged(nameof(IsDirty)); OnPropertyChanged(nameof(Title)); OnPropertyChanged(nameof(TabTitle));
             Status = "已保存到远程";
         }
         catch (Exception ex) { Status = $"保存失败：{ex.Message}"; }

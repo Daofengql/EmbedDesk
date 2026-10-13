@@ -18,9 +18,11 @@ public partial class TlsCertificateWindow : Window, IDisposable
     private bool _cryptoBusy;
     private string _generatedLabel = "CERTIFICATE";
     private string _latestInspectedPem = string.Empty;
+    private readonly Action<TlsDiagnosticPreferences>? _saveDiagnosticPreferences;
 
-    public TlsCertificateWindow()
+    public TlsCertificateWindow(TlsDiagnosticPreferences? preferences = null, Action<TlsDiagnosticPreferences>? saveDiagnosticPreferences = null)
     {
+        _saveDiagnosticPreferences = saveDiagnosticPreferences;
         InitializeComponent();
         AlgorithmBox.ItemsSource = Enum.GetValues<CertificateKeyAlgorithm>().Select(algorithm => new KeyAlgorithmOption(algorithm, algorithm switch
         {
@@ -41,9 +43,27 @@ public partial class TlsCertificateWindow : Window, IDisposable
         AsymmetricAlgorithmBox.ItemsSource = CryptoOperations.SignatureAlgorithms.Concat(CryptoOperations.AsymmetricEncryptionAlgorithms).ToArray();
         AsymmetricAlgorithmBox.SelectedIndex = 0;
         foreach (var box in new[] { DigestFormatBox, AsymmetricFormatBox }) { box.ItemsSource = new[] { "UTF-8", "HEX", "Base64" }; box.SelectedIndex = 0; }
+        if (preferences is not null)
+        {
+            HostBox.Text = preferences.Host;
+            PortBox.Text = preferences.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            SniBox.Text = preferences.ServerName;
+            TimeoutBox.Text = preferences.TimeoutMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            RevocationBox.IsChecked = preferences.CheckRevocation;
+        }
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
+        Closed += (_, _) => _saveDiagnosticPreferences?.Invoke(CaptureDiagnosticPreferences());
     }
+
+    private TlsDiagnosticPreferences CaptureDiagnosticPreferences() => new()
+    {
+        Host = HostBox.Text,
+        Port = int.TryParse(PortBox.Text, out var port) ? port : 443,
+        ServerName = SniBox.Text,
+        TimeoutMilliseconds = int.TryParse(TimeoutBox.Text, out var timeout) ? timeout : 10000,
+        CheckRevocation = RevocationBox.IsChecked == true
+    };
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {

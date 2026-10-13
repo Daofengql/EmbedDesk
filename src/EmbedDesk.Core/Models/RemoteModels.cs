@@ -7,7 +7,8 @@ public enum RemoteProtocol
     Ssh,
     Telnet,
     Rdp,
-    Vnc
+    Vnc,
+    S3
 }
 
 public enum RemoteAuthenticationMode
@@ -37,6 +38,12 @@ public sealed class RemoteConnectionProfile : INotifyPropertyChanged
     private RemoteAuthenticationMode _authenticationMode = RemoteAuthenticationMode.Password;
     private string _privateKeyPath = string.Empty;
     private string _privateKeyPassphrase = string.Empty;
+    private string _s3CredentialTarget = string.Empty;
+    private string _s3Region = "us-east-1";
+    private string _s3Bucket = string.Empty;
+    private bool _rememberS3Credentials;
+    private string _s3AccessKeyId = string.Empty;
+    private string _s3SecretAccessKey = string.Empty;
 
     public string Name { get => _name; set => Set(ref _name, value); }
     public RemoteProtocol Protocol { get => _protocol; set => Set(ref _protocol, value); }
@@ -47,6 +54,18 @@ public sealed class RemoteConnectionProfile : INotifyPropertyChanged
     public bool AcceptUnknownHostKey { get => _acceptUnknownHostKey; set => Set(ref _acceptUnknownHostKey, value); }
     public RemoteAuthenticationMode AuthenticationMode { get => _authenticationMode; set => Set(ref _authenticationMode, value); }
     public string PrivateKeyPath { get => _privateKeyPath; set => Set(ref _privateKeyPath, value); }
+    public string S3CredentialTarget { get => _s3CredentialTarget; set => Set(ref _s3CredentialTarget, value); }
+    public string S3Region { get => _s3Region; set => Set(ref _s3Region, value); }
+    public string S3Bucket { get => _s3Bucket; set => Set(ref _s3Bucket, value); }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EndpointSummary => Protocol == RemoteProtocol.S3
+        ? string.IsNullOrWhiteSpace(Host) ? $"AWS S3 · {S3Region}" : $"{Host} · {S3Region}"
+        : $"{Host}:{Port}";
+    public bool RememberS3Credentials { get => _rememberS3Credentials; set => Set(ref _rememberS3Credentials, value); }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string S3AccessKeyId { get => _s3AccessKeyId; set => Set(ref _s3AccessKeyId, value); }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string S3SecretAccessKey { get => _s3SecretAccessKey; set => Set(ref _s3SecretAccessKey, value); }
     [System.Text.Json.Serialization.JsonIgnore]
     public string PrivateKeyPassphrase { get => _privateKeyPassphrase; set => Set(ref _privateKeyPassphrase, value); }
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -56,6 +75,8 @@ public sealed class RemoteConnectionProfile : INotifyPropertyChanged
         if (EqualityComparer<T>.Default.Equals(field, value)) return;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        if (propertyName is nameof(Protocol) or nameof(Host) or nameof(Port) or nameof(S3Region))
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EndpointSummary)));
     }
 }
 

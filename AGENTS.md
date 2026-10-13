@@ -88,10 +88,14 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | --- | --- |
 | 终端综合回归 | 不传参数 |
 | 会话表单与串口标签 | `--connection-layout-check`、`--serial-tabs-check` |
+| 远程标签菜单与本地 Shell 多开 | `--remote-tabs-check` |
+| 远程调试空状态入口 | `--remote-empty-check` |
+| 本地 Shell 目录拖放与启动路径 | `--shell-directory-check` |
 | 网络串口桥接 | `--serial-bridge-check` |
 | RDP / VNC / 网络调试 | `--desktop-network-check` |
 | 连接质量与网络工具 | `--network-quality-check`、`--network-tools-check` |
 | DNS / DoH 与工具窗口 | `--dns-query-check`、`--utility-tools-check` |
+| Hosts 管理器与旧方案迁移 | `--hosts-check`、`--hosts-window-check` |
 | iperf3 协议、限速与界面 | `--iperf3-check` |
 | 固件协议模拟 | `--firmware-check`，或专项 `--esp-check`、`--ch347-check` |
 | 录制回放与镜像文件流 | `--recording-media-check` |
@@ -104,8 +108,10 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 
 ## 发布约定
 
+- 应用 EXE 使用 `requireAdministrator` 清单，在启动时申请管理员权限；不要在工具窗口中再次重启提权。开发时从已提权的终端运行，或启动生成的 EXE。
 - 用户要求 Release 默认交付为精简的单 EXE，假定目标机器已安装 .NET 8 Desktop Runtime（x64）。默认使用 `dotnet publish src/EmbedDesk.App/EmbedDesk.App.csproj -c Release`，发布配置为 `Compact`，成品在 `artifacts/release/win-x64/EmbedDesk.App.exe`。
 - 默认包不携带 .NET 运行时。只有明确需要自带运行时版本时，才指定 `-p:PublishProfile=SingleFile`，输出到 `artifacts/release-self-contained/win-x64/`。SDK 的单文件压缩仅支持自包含发布，默认精简版不要开启该选项。
 - 终端资源应嵌入程序并从用户缓存加载，不依赖 EXE 旁边的 Assets 文件夹。不要以普通 build 目录作为默认 Release 交付。目标系统仍需 WebView2 Runtime。
 - 发布前验证单文件输出和终端初始化。不要覆盖正在运行的程序或中断用户连接；文件占用时发布到新的输出目录。
+- GitHub Release 使用 `.github/workflows/release.yml`：推送符合 `vMAJOR.MINOR.PATCH`（可带预发布后缀）的标签后，在 Windows x64 上运行核心测试并发布精简单文件 EXE、SHA-256 校验和及许可证说明；工作流不会自动创建或推送标签。
 - Release 默认通过 `build/PackedDependencies.targets` 将完整的 BouncyCastle 依赖压缩嵌入基础设施程序集，首次使用 SSH / VNC 时按需加载；不裁剪密码算法。压缩结果按版本缓存到 obj，增量构建复用。排查加载问题时可用 `-p:PackManagedDependencies=false` 生成常规版本。此机制与 SDK 的单文件压缩选项独立。

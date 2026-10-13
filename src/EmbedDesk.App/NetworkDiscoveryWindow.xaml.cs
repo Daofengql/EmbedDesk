@@ -20,15 +20,33 @@ public partial class NetworkDiscoveryWindow : Window, IDisposable
     private NetworkRangeChoice? _selectedRange;
     private int _scanned;
     private int _online;
+    private readonly Action<NetworkDiscoveryPreferences>? _savePreferences;
 
-    public NetworkDiscoveryWindow()
+    public NetworkDiscoveryWindow(NetworkDiscoveryPreferences? preferences = null, Action<NetworkDiscoveryPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         DataContext = this;
         PopulateInterfaces();
+        if (preferences is not null) ApplyPreferences(preferences);
         WindowTheme.ApplyDarkTitleBar(this);
         Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(CapturePreferences());
     }
+
+    private void ApplyPreferences(NetworkDiscoveryPreferences preferences)
+    {
+        ConcurrencyBox.Text = preferences.Concurrency.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (string.IsNullOrWhiteSpace(preferences.LocalAddress)) return;
+        InterfaceBox.SelectedItem = _ranges.FirstOrDefault(range => string.Equals(range.LocalAddress, preferences.LocalAddress, StringComparison.OrdinalIgnoreCase))
+            ?? InterfaceBox.SelectedItem;
+    }
+
+    private NetworkDiscoveryPreferences CapturePreferences() => new()
+    {
+        LocalAddress = _selectedRange?.LocalAddress ?? string.Empty,
+        Concurrency = int.TryParse(ConcurrencyBox.Text, out var concurrency) ? concurrency : 64
+    };
 
     public ObservableCollection<NetworkDiscoveryDevice> Devices { get; } = [];
 

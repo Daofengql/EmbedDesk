@@ -21,7 +21,8 @@ internal static class SerialTabsChecks
     {
         var serial = new Ports();
         await using var remote = new RemotePorts();
-        await using var vm = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote);
+        using var settings = new TemporarySettingsDirectory();
+        await using var vm = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteSettingsDirectory: settings.DirectoryPath);
         await vm.InitializeAsync();
         var first = vm.SelectedSerialSession!;
         first.SelectedSerialPort!.BaudRate = 9600;

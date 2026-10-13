@@ -47,9 +47,110 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--shell-directory-check"))
+            {
+                await ShellDirectoryChecks.RunAsync(viewModel);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--remote-tabs-check"))
+            {
+                await RemoteTabsChecks.RunAsync(viewModel, remoteDebug);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--remote-empty-check"))
+            {
+                await RemoteTabsChecks.RunEmptyStateAsync(viewModel);
+                Shutdown(0); return;
+            }
             if (e.Args.Contains("--crypto-check"))
             {
                 await CryptoChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--app-settings-check"))
+            {
+                await AppSettingsChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--hosts-check"))
+            {
+                await HostsChecks.RunAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--configuration-transfer-window-check"))
+            {
+                var transferWindow = new ConfigurationTransferWindow(viewModel) { Owner = null };
+                transferWindow.Closed += (_, _) => Shutdown(0);
+                transferWindow.Loaded += (_, _) => transferWindow.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var width = Math.Max(1, (int)Math.Ceiling(transferWindow.ActualWidth));
+                    var height = Math.Max(1, (int)Math.Ceiling(transferWindow.ActualHeight));
+                    var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(transferWindow);
+                    var screenshotPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-configuration-transfer-window.png");
+                    using (var stream = new System.IO.FileStream(screenshotPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                        new PngBitmapEncoder { Frames = { BitmapFrame.Create(bitmap) } }.Save(stream);
+                    Console.WriteLine($"UI SCREENSHOT {screenshotPath}");
+                    transferWindow.Close();
+                }));
+                transferWindow.Show();
+                return;
+            }
+            if (e.Args.Contains("--configuration-import-preview-check"))
+            {
+                var previewWindow = new ConfigurationImportPreviewWindow(new ImportedConfiguration(
+                    [new RemoteConnectionProfile { Name = "示例 SSH", Protocol = RemoteProtocol.Ssh, Host = "HOST", Port = 22, Username = "user" }],
+                    [new NetworkConnectionPreset { Name = "示例 TCP", Protocol = TransportProtocol.Tcp, Mode = TransportMode.Client, RemoteHost = "HOST", RemotePort = 9000 }],
+                    [new SerialBridgeClientPreset { Name = "示例串口", Host = "HOST", Port = 9100 }])) { Owner = null };
+                previewWindow.Closed += (_, _) => Shutdown(0);
+                previewWindow.Loaded += (_, _) => previewWindow.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var width = Math.Max(1, (int)Math.Ceiling(previewWindow.ActualWidth));
+                    var height = Math.Max(1, (int)Math.Ceiling(previewWindow.ActualHeight));
+                    var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(previewWindow);
+                    var screenshotPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-configuration-import-preview.png");
+                    using (var stream = new System.IO.FileStream(screenshotPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                        new PngBitmapEncoder { Frames = { BitmapFrame.Create(bitmap) } }.Save(stream);
+                    Console.WriteLine($"UI SCREENSHOT {screenshotPath}");
+                    previewWindow.Close();
+                }));
+                previewWindow.Show();
+                return;
+            }
+            if (e.Args.Contains("--local-info-window-check"))
+            {
+                var localInfoWindow = new LocalInfoWindow();
+                localInfoWindow.Closed += (_, _) => Shutdown(0);
+                localInfoWindow.Loaded += (_, _) => localInfoWindow.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    var width = Math.Max(1, (int)Math.Ceiling(localInfoWindow.ActualWidth));
+                    var height = Math.Max(1, (int)Math.Ceiling(localInfoWindow.ActualHeight));
+                    var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(localInfoWindow);
+                    var screenshotPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-local-info-window.png");
+                    using (var stream = new System.IO.FileStream(screenshotPath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+                        new PngBitmapEncoder { Frames = { BitmapFrame.Create(bitmap) } }.Save(stream);
+                    Console.WriteLine($"UI SCREENSHOT {screenshotPath}");
+                    localInfoWindow.Close();
+                }));
+                localInfoWindow.Show();
+                return;
+            }
+            if (e.Args.Contains("--hosts-window-check"))
+            {
+                await HostsChecks.RunWindowAsync();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--preset-layout-check"))
+            {
+                new NetworkConnectionWindow(TransportProtocol.Tcp, viewModel).ShowDialog();
+                new BridgeWindow { DataContext = viewModel }.ShowDialog();
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--collaboration-protocol-check"))
+            {
+                await CollaborationProtocolChecks.RunAsync();
                 Shutdown(0); return;
             }
             if (e.Args.Contains("--ssh-protocol-check") && int.TryParse(Environment.GetEnvironmentVariable("EDBG_SSH_PORT"), out var protocolPort))
@@ -137,6 +238,18 @@ internal sealed class SmokeApplication : Application
             if (e.Args.Contains("--connection-layout-check"))
             {
                 await ConnectionLayoutChecks.RunAsync(viewModel.RemoteDebug!);
+                Shutdown(0); return;
+            }
+            if (e.Args.Contains("--s3-check"))
+            {
+                await viewModel.InitializeAsync();
+                var s3Window = new MainWindow(viewModel) { Left = 10, Top = 10, Width = 1240, Height = 820 };
+                s3Window.Show();
+                await Task.Delay(200);
+                Find<TabControl>(s3Window).SelectedIndex = 1;
+                await Task.Delay(100);
+                await S3Checks.RunAsync(s3Window, Find<RemoteDebugWorkspace>(s3Window), viewModel.RemoteDebug!, settingsDirectory);
+                s3Window.Close();
                 Shutdown(0); return;
             }
             if (e.Args.Contains("--serial-tabs-check"))
@@ -339,7 +452,7 @@ internal sealed class SmokeApplication : Application
         catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-current-failure.txt"), ex.ToString()); Console.Error.WriteLine(ex); Shutdown(1); }
         finally
         {
-            foreach (var file in new[] { "remote-profiles.json", "ssh-keys.json" })
+            foreach (var file in new[] { "remote-profiles.json", "ssh-keys.json", "app-settings.json", "app-settings.json.tmp" })
             {
                 var path = System.IO.Path.Combine(settingsDirectory, file);
                 if (System.IO.File.Exists(path)) System.IO.File.Delete(path);

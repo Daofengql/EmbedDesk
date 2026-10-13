@@ -59,8 +59,9 @@ internal static class RecordingMediaChecks
         Require(captured == TerminalBufferViewModel.MaxHistoryBytes + 19 && buffer.Entries[0].Data.Length == TerminalBufferViewModel.MaxHistoryBytes, "Capture sees full raw data before bounded UI history truncates it");
 
         var serial = new FakeSerialService();
+        using var settings = new TemporarySettingsDirectory();
         await using (var remote = new RemoteSerialClient())
-        await using (var sessions = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote))
+        await using (var sessions = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteSettingsDirectory: settings.DirectoryPath))
         {
             await sessions.InitializeAsync();
             var session = sessions.SelectedSerialSession!;

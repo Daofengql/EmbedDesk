@@ -4,11 +4,12 @@ using EmbedDesk.Core.Models;
 
 namespace EmbedDesk.App.ViewModels;
 
-public sealed class DesktopSessionViewModel : ObservableObject, IDisposable
+public sealed class DesktopSessionViewModel : ObservableObject, IDisposable, IRemoteTabViewModel
 {
     private string _connectionStatus = "连接中";
     private string _message = "正在初始化远程桌面…";
     private bool _isFullscreen;
+    private string _customTitle = string.Empty;
     public DesktopSessionViewModel(RemoteConnectionProfile profile)
     {
         Profile = profile;
@@ -18,6 +19,17 @@ public sealed class DesktopSessionViewModel : ObservableObject, IDisposable
     public RemoteConnectionProfile Profile { get; }
     public NetworkStatusViewModel NetworkStatus { get; } = new();
     public string DisplayTitle => Profile.Name;
+    public string CustomTitle
+    {
+        get => _customTitle;
+        set
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (!SetProperty(ref _customTitle, normalized)) return;
+            OnPropertyChanged(nameof(TabTitle));
+        }
+    }
+    public string TabTitle => string.IsNullOrWhiteSpace(CustomTitle) ? DisplayTitle : CustomTitle;
     public string ProtocolLabel => Profile.Protocol == RemoteProtocol.Rdp ? "RDP" : "VNC";
     public string Endpoint => $"{Profile.Host}:{Profile.Port}";
     public string HostPlatform => Profile.Protocol == RemoteProtocol.Rdp ? "windows" : "unknown";

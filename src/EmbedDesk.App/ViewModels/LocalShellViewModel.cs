@@ -9,7 +9,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace EmbedDesk.App.ViewModels;
 
 // ConPTY gives full-screen TUI programs terminal mode, cursor and resize semantics.
-public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
+public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable, IRemoteTabViewModel
 {
     private readonly object _writeGate = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -23,12 +23,44 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
     private bool _isRunning;
     private string _shellName = "PowerShell";
     private bool _isFullscreen;
+    private string _customTitle = string.Empty;
+    private bool _disposed;
+    private readonly bool _hasExplicitDirectory;
 
-    public LocalShellViewModel() => _ = StartAsync();
+    public LocalShellViewModel(int number = 1, string? workingDirectory = null)
+    {
+        Number = Math.Max(1, number);
+        _hasExplicitDirectory = workingDirectory is not null;
+        InitialDirectory = workingDirectory is null ? Environment.CurrentDirectory
+            : new LocalShellStartupOptions([workingDirectory]).Directories[0];
+        if (workingDirectory is not null)
+        {
+            _customTitle = Path.GetFileName(InitialDirectory);
+            if (_customTitle.Length == 0) _customTitle = InitialDirectory;
+        }
+        _ = StartAsync();
+    }
+    public int Number { get; }
+    public string InitialDirectory { get; }
     public TerminalBufferViewModel Terminal { get; } = new();
     public bool IsRunning { get => _isRunning; private set => SetProperty(ref _isRunning, value); }
     public string ShellName { get => _shellName; private set => SetProperty(ref _shellName, value); }
     public bool IsFullscreen { get => _isFullscreen; set => SetProperty(ref _isFullscreen, value); }
+    public bool IsDisposed => _disposed;
+    public event EventHandler? Disposed;
+    public string CustomTitle
+    {
+        get => _customTitle;
+        set
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (!SetProperty(ref _customTitle, normalized)) return;
+            OnPropertyChanged(nameof(TabTitle));
+        }
+    }
+    public string TabTitle => string.IsNullOrWhiteSpace(CustomTitle)
+        ? Number == 1 ? "本地 Shell" : $"本地 Shell {Number}"
+        : CustomTitle;
 
     public async Task StartAsync()
     {
@@ -37,8 +69,10 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
         var outputRead = IntPtr.Zero; var outputWrite = IntPtr.Zero; var attributeList = IntPtr.Zero;
         try
         {
-            if (IsRunning) return;
+            if (_disposed || IsRunning) return;
+            var previousRead = _readTask;
             DisposeCore();
+            if (previousRead is not null) await previousRead;
             var generation = Interlocked.Increment(ref _shellGeneration);
             var powershell = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
             var command = File.Exists(powershell) ? powershell : Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
@@ -54,15 +88,20 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
             var pseudoConsole = _pseudoConsole;
             if (!UpdateProcThreadAttribute(attributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, pseudoConsole, (IntPtr)IntPtr.Size, IntPtr.Zero, IntPtr.Zero)) ThrowWin32("UpdateProcThreadAttribute");
             var startup = new STARTUPINFOEX { StartupInfo = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFOEX>() }, lpAttributeList = attributeList };
-            var commandLine = new StringBuilder($"\"{command}\" {(ShellName == "PowerShell" ? "-NoLogo -NoProfile" : "/Q")}");
+            var arguments = ShellName == "PowerShell" ? "-NoLogo -NoProfile" : "/Q";
+            if (ShellName == "PowerShell" && _hasExplicitDirectory)
+                // Windows PowerShell interprets brackets in its initial directory as a wildcard.
+                // Carry the path as data and explicitly select it literally before the first prompt.
+                arguments += " -NoExit -Command \"try { Set-Location -LiteralPath $env:EMBEDDESK_START_DIRECTORY -ErrorAction Stop } finally { Remove-Item -LiteralPath Env:\\EMBEDDESK_START_DIRECTORY }\"";
+            var commandLine = new StringBuilder($"\"{command}\" {arguments}");
             const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
             const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
-            var environment = CreateTerminalEnvironment();
+            var environment = CreateTerminalEnvironment(ShellName == "PowerShell" && _hasExplicitDirectory ? InitialDirectory : null);
             try
             {
                 if (!CreateProcess(null, commandLine, IntPtr.Zero, IntPtr.Zero, false,
                     EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, environment,
-                    Environment.CurrentDirectory, ref startup, out var processInfo)) ThrowWin32("CreateProcess");
+                    InitialDirectory, ref startup, out var processInfo)) ThrowWin32("CreateProcess");
                 _processHandle = processInfo.hProcess; CloseHandle(processInfo.hThread);
             }
             finally { Marshal.FreeHGlobal(environment); }
@@ -71,7 +110,9 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
             _input = new FileStream(new SafeFileHandle(inputWrite, true), FileAccess.Write, 4096, isAsync: false);
             _output = new FileStream(new SafeFileHandle(outputRead, true), FileAccess.Read, 16384, isAsync: false);
             inputWrite = IntPtr.Zero; outputRead = IntPtr.Zero; _readCts = new CancellationTokenSource(); IsRunning = true;
-            _readTask = Task.Run(() => ReadOutputLoop(_output, _readCts.Token, generation));
+            var output = _output;
+            var cancellationToken = _readCts.Token;
+            _readTask = Task.Run(() => ReadOutputLoop(output, cancellationToken, generation));
         }
         catch (Exception exception)
         {
@@ -94,12 +135,13 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
 
     public async Task SendAsync(string text)
     {
+        if (_disposed) return;
         if (!IsRunning) await StartAsync();
         if (string.IsNullOrEmpty(text)) return;
         await _lifecycleGate.WaitAsync();
         try
         {
-            if (!IsRunning || _input is null) return;
+            if (_disposed || !IsRunning || _input is null) return;
             var bytes = Encoding.UTF8.GetBytes(text);
             lock (_writeGate)
             {
@@ -129,7 +171,8 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 var count = output.Read(buffer, 0, buffer.Length); if (count <= 0) break;
-                var copy = buffer[..count].ToArray(); RunOnUi(() => Terminal.Add(DateTimeOffset.Now, true, copy));
+                var copy = buffer[..count].ToArray();
+                RunOnUi(() => { if (!_disposed && generation == Volatile.Read(ref _shellGeneration)) Terminal.Add(DateTimeOffset.Now, true, copy); });
             }
         }
         catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) { }
@@ -140,7 +183,16 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _lifecycleGate.WaitAsync();
-        try { DisposeCore(); }
+        try
+        {
+            if (_disposed) return;
+            _disposed = true;
+            IsFullscreen = false;
+            var reading = _readTask;
+            DisposeCore();
+            if (reading is not null) await reading;
+            Disposed?.Invoke(this, EventArgs.Empty);
+        }
         finally { _lifecycleGate.Release(); }
     }
 
@@ -161,7 +213,7 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
 
     private static void ThrowWin32(string operation) => throw new InvalidOperationException($"{operation} 失败: {Marshal.GetLastWin32Error()}");
 
-    private static IntPtr CreateTerminalEnvironment()
+    private static IntPtr CreateTerminalEnvironment(string? initialDirectory)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
@@ -172,6 +224,7 @@ public sealed class LocalShellViewModel : ObservableObject, IAsyncDisposable
         values["TERM"] = "xterm-256color";
         values["COLORTERM"] = "truecolor";
         values["TERM_PROGRAM"] = "EmbedDesk";
+        if (initialDirectory is not null) values["EMBEDDESK_START_DIRECTORY"] = initialDirectory;
         // The desktop app is commonly launched from a Codex process, whose
         // environment contains NO_COLOR=1. Claude Code honors that variable
         // even inside a real ConPTY and consequently renders a monochrome UI.

@@ -47,6 +47,8 @@ public sealed class TransportOptions
     public TransportMode Mode { get; init; } = TransportMode.Client;
     public string LocalHost { get; init; } = "0.0.0.0";
     public int LocalPort { get; init; } = 9000;
+    /// <summary>Optional local source address for TCP/UDP clients; null uses the system routing table.</summary>
+    public string? ClientLocalAddress { get; init; }
     public string RemoteHost { get; init; } = "127.0.0.1";
     public int RemotePort { get; init; } = 9000;
     public int ReceiveBufferSize { get; init; } = 64 * 1024;

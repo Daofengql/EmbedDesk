@@ -5,7 +5,7 @@
         <Style x:Key="ToolCard" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="MinHeight" Value="68" />
             <Setter Property="Padding" Value="10,10" />
-            <Setter Property="Margin" Value="4,0" />
+            <Setter Property="Margin" Value="4,4" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Template">
@@ -54,10 +54,10 @@
         </Border>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <Grid Margin="12,16" VerticalAlignment="Top">
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,20">
                     <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="地址与证书" FontSize="12" FontWeight="SemiBold" /></Border>
-                    <UniformGrid Columns="3" Rows="1">
+                    <UniformGrid Columns="3" Rows="2">
                         <Button Tag="Cidr" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="CIDR 计算" ToolTip="子网掩码与地址范围">
                             <StackPanel>
                                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE8EF;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="CIDR 计算" Style="{StaticResource ToolTitle}" /></Grid>
@@ -74,6 +74,18 @@
                             <StackPanel>
                                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE72E;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="证书与密码" Style="{StaticResource ToolTitle}" /></Grid>
                                 <TextBlock Text="TLS 诊断、证书生成、CSR 与国密" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="LocalInfo" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="本地信息" ToolTip="查看本机网卡、处理器、内存、磁盘与运行环境">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE770;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="本地信息" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="网卡、IP、CPU、内存与磁盘" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Tag="Hosts" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="Hosts 管理器" ToolTip="管理域名与 IP 映射、切换方案与备份恢复">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="Hosts 管理器" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="域名映射、方案与备份恢复" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>
@@ -120,6 +132,17 @@
                             <StackPanel>
                                 <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE701;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="UPnP 发现" Style="{StaticResource ToolTitle}" /></Grid>
                                 <TextBlock Text="设备信息与端口映射" Style="{StaticResource ToolDescription}" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </StackPanel>
+                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,20">
+                    <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="连接与中转" FontSize="12" FontWeight="SemiBold" /></Border>
+                    <UniformGrid Columns="3" Rows="1">
+                        <Button Tag="Stcp" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="STCP 隧道" ToolTip="管理 FRP STCP service / visitor 配置">
+                            <StackPanel>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="STCP 隧道" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="配置指定服务的安全中转" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>

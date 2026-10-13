@@ -21,10 +21,12 @@ public partial class ShellTerminal : UserControl, IDisposable
     private bool _disposed;
     private Window? _ownerWindow;
     private TerminalBufferViewModel? _buffer;
+    private LocalShellViewModel? _localShell;
     private readonly Queue<byte[]> _pendingWrites = new();
     private readonly DispatcherTimer _flushTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
     private int _writeOffset;
     private bool _writing, _resetPending;
+    private NativeDirectoryDropTarget? _directoryDrop;
 
     public static readonly DependencyProperty BufferProperty = DependencyProperty.Register(nameof(Buffer), typeof(TerminalBufferViewModel), typeof(ShellTerminal), new PropertyMetadata(null, OnBufferChanged));
     public TerminalBufferViewModel? Buffer { get => (TerminalBufferViewModel?)GetValue(BufferProperty); set => SetValue(BufferProperty, value); }
@@ -37,10 +39,21 @@ public partial class ShellTerminal : UserControl, IDisposable
     public event EventHandler<string>? InputReceived;
     public event EventHandler<TerminalSize>? ResizeReceived;
     public event EventHandler? FullscreenRequested;
+    public event EventHandler<string[]>? DirectoriesDropped;
 
     public ShellTerminal()
     {
         InitializeComponent();
+        DataContextChanged += (_, args) =>
+        {
+            if (_localShell is not null) _localShell.Disposed -= LocalShell_Disposed;
+            _localShell = args.NewValue as LocalShellViewModel;
+            if (_localShell is not null)
+            {
+                if (_localShell.IsDisposed) Dispose();
+                else _localShell.Disposed += LocalShell_Disposed;
+            }
+        };
         _flushTimer.Tick += async (_, _) => { _flushTimer.Stop(); await FlushWritesAsync(); };
         Loaded += InitializeAsync;
         Browser.SizeChanged += async (_, _) => await UpdateViewportAsync();
@@ -53,7 +66,11 @@ public partial class ShellTerminal : UserControl, IDisposable
             if (!e.IsRepeat)
                 Dispatcher.BeginInvoke(new Action(() => { if (!_disposed) FullscreenRequested?.Invoke(this, EventArgs.Empty); }));
         };
-        IsVisibleChanged += (_, _) => { if (IsVisible) InitializeAsync(this, new RoutedEventArgs()); };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) InitializeAsync(this, new RoutedEventArgs());
+            if (_directoryDrop is not null) _directoryDrop.Enabled = IsVisible && !_disposed;
+        };
     }
 
     private async void InitializeAsync(object sender, RoutedEventArgs e)
@@ -87,6 +104,15 @@ public partial class ShellTerminal : UserControl, IDisposable
                 try
                 {
                     var node = JsonNode.Parse(message);
+                    if (node is JsonObject drop && drop["type"]?.GetValue<string>() == "directories")
+                    {
+                        if (_localShell is not null && IsVisible && args.Source == "https://terminal.local/index.html")
+                        {
+                            var paths = args.AdditionalObjects?.OfType<CoreWebView2File>().Select(file => file.Path).ToArray() ?? [];
+                            QueueDirectoryDrop(paths);
+                        }
+                        return;
+                    }
                     if (node is JsonObject obj && obj["type"]?.GetValue<string>() == "resize")
                     {
                         var size = new TerminalSize(node["cols"]?.GetValue<int>() ?? 120, node["rows"]?.GetValue<int>() ?? 40);
@@ -104,7 +130,17 @@ public partial class ShellTerminal : UserControl, IDisposable
                 catch (InvalidOperationException) { }
                 InputReceived?.Invoke(this, message);
             };
-            Browser.NavigationCompleted += async (_, args) => { _navigationPending = false; if (!_disposed && args.IsSuccess) { _ready = true; UpdateFullscreen(); await UpdateViewportAsync(); await ReplayAsync(); } };
+            Browser.NavigationCompleted += async (_, args) =>
+            {
+                _navigationPending = false;
+                if (!_disposed && args.IsSuccess)
+                {
+                    _ready = true;
+                    InitializeDirectoryDrop();
+                    await Browser.ExecuteScriptAsync($"window.directoryDropEnabled = {(_localShell is not null ? "true" : "false")}");
+                    UpdateFullscreen(); await UpdateViewportAsync(); await ReplayAsync();
+                }
+            };
             // A tab can be hidden and restored between Source assignment and NavigationCompleted.
             // Keep initialization reserved until navigation ends so restoring never reloads a live TUI.
             _navigationPending = true;
@@ -119,6 +155,28 @@ public partial class ShellTerminal : UserControl, IDisposable
         }
         finally { _initializing = false; }
     }
+
+    private void InitializeDirectoryDrop()
+    {
+        if (_localShell is null) return;
+        _directoryDrop ??= new NativeDirectoryDropTarget(QueueDirectoryDrop,
+            message => Dispatcher.BeginInvoke(new Action(() =>
+                _localShell?.Terminal.Add(DateTimeOffset.Now, true, System.Text.Encoding.UTF8.GetBytes("目录拖放失败：" + message + "\r\n")))));
+        try
+        {
+            _directoryDrop.Attach(Browser.Handle, includeChildren: true);
+            _directoryDrop.Enabled = IsVisible;
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _localShell.Terminal.Add(DateTimeOffset.Now, true, System.Text.Encoding.UTF8.GetBytes("目录拖放初始化失败：" + ex.Message + "\r\n"));
+        }
+    }
+
+    private void QueueDirectoryDrop(string[] paths) => Dispatcher.BeginInvoke(new Action(() =>
+    {
+        if (!_disposed && IsVisible && _localShell is not null) DirectoriesDropped?.Invoke(this, paths);
+    }));
 
     private async Task UpdateViewportAsync()
     {
@@ -202,6 +260,7 @@ public partial class ShellTerminal : UserControl, IDisposable
         finally { ArrayPool<byte>.Shared.Return(batch); _writing = false; }
     }
     private void OwnerWindow_Closed(object? sender, EventArgs e) => Dispose();
+    private void LocalShell_Disposed(object? sender, EventArgs e) => Dispose();
     public void Dispose()
     {
         if (_disposed) return;
@@ -210,6 +269,8 @@ public partial class ShellTerminal : UserControl, IDisposable
         _flushTimer.Stop(); _pendingWrites.Clear();
         if (_buffer is not null) _buffer.Entries.CollectionChanged -= OnEntriesChanged;
         if (_ownerWindow is not null) _ownerWindow.Closed -= OwnerWindow_Closed;
+        if (_localShell is not null) _localShell.Disposed -= LocalShell_Disposed;
+        _directoryDrop?.Dispose();
         Browser.Dispose();
     }
 

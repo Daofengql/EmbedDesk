@@ -10,13 +10,33 @@ public partial class TcpPortCheckWindow : Window, IDisposable
     private CancellationTokenSource? _lifetime;
     private bool _closed;
     private int _scannedCount;
+    private readonly Action<TcpPortScanPreferences>? _savePreferences;
     public ObservableCollection<PortCheckResult> Results { get; } = [];
 
-    public TcpPortCheckWindow()
+    public TcpPortCheckWindow(TcpPortScanPreferences? preferences = null, Action<TcpPortScanPreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent(); DataContext = this;
+        if (preferences is not null)
+        {
+            HostBox.Text = preferences.Host;
+            PortsBox.Text = preferences.Ports;
+            FamilyBox.SelectedIndex = preferences.AddressFamilyIndex;
+            TimeoutBox.Text = preferences.TimeoutMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            ConcurrencyBox.Text = preferences.Concurrency.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         WindowTheme.ApplyDarkTitleBar(this); Closed += (_, _) => Dispose();
+        Closed += (_, _) => _savePreferences?.Invoke(CapturePreferences());
     }
+
+    private TcpPortScanPreferences CapturePreferences() => new()
+    {
+        Host = HostBox.Text,
+        Ports = PortsBox.Text,
+        AddressFamilyIndex = FamilyBox.SelectedIndex,
+        TimeoutMilliseconds = int.TryParse(TimeoutBox.Text, out var timeout) ? timeout : 3000,
+        Concurrency = int.TryParse(ConcurrencyBox.Text, out var concurrency) ? concurrency : 16
+    };
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {

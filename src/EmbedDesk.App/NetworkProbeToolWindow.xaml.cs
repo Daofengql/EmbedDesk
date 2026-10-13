@@ -11,7 +11,6 @@ using EmbedDesk.Infrastructure.Networking;
 
 namespace EmbedDesk.App;
 
-public enum NetworkProbeToolMode { Icmp, Tcping, Traceroute }
 public sealed record NetworkProbeSample(string Time, string Outcome, string Latency, string Detail);
 public sealed record TracerouteHop(int Hop, string Address, string HostName, string Latency, string Status);
 
@@ -24,16 +23,38 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
     private int _failed;
     private int _pingInterfaceIndex;
     private bool _wasTrace;
+    private readonly Action<NetworkProbePreferences>? _savePreferences;
 
-    public NetworkProbeToolWindow(NetworkProbeToolMode mode = NetworkProbeToolMode.Icmp)
+    public NetworkProbeToolWindow(NetworkProbeToolMode mode = NetworkProbeToolMode.Icmp,
+        NetworkProbePreferences? preferences = null, Action<NetworkProbePreferences>? savePreferences = null)
     {
+        _savePreferences = savePreferences;
         InitializeComponent();
         DataContext = this;
         FamilyBox.SelectedIndex = 0;
         PopulateInterfaces();
+        if (preferences is not null)
+        {
+            HostBox.Text = preferences.Host;
+            PortBox.Text = preferences.TcpPort.ToString(CultureInfo.InvariantCulture);
+            PacketSizeBox.Text = preferences.PacketSize.ToString(CultureInfo.InvariantCulture);
+            CountBox.Text = preferences.Count.ToString(CultureInfo.InvariantCulture);
+            IntervalBox.Text = preferences.IntervalMilliseconds.ToString(CultureInfo.InvariantCulture);
+            MaxHopsBox.Text = preferences.MaxHops.ToString(CultureInfo.InvariantCulture);
+            TimeoutBox.Text = preferences.TimeoutMilliseconds.ToString(CultureInfo.InvariantCulture);
+            ResolveNamesBox.IsChecked = preferences.ResolveNames;
+            FamilyBox.SelectedIndex = (int)preferences.AddressFamily;
+            InterfaceBox.SelectedItem = InterfaceBox.Items.Cast<NetworkInterfaceChoice>()
+                .FirstOrDefault(item => string.Equals(item.Address, preferences.LocalAddress, StringComparison.Ordinal)) ?? InterfaceBox.Items[0];
+            mode = preferences.Mode;
+        }
         ModeBox.SelectedIndex = (int)mode;
         WindowTheme.ApplyDarkTitleBar(this);
-        Closed += (_, _) => Dispose();
+        Closed += (_, _) =>
+        {
+            _savePreferences?.Invoke(CapturePreferences());
+            Dispose();
+        };
     }
 
     public ObservableCollection<NetworkProbeSample> Samples { get; } = [];
@@ -55,6 +76,28 @@ public partial class NetworkProbeToolWindow : Window, IDisposable
     }
 
     private bool IsTrace => ModeBox.SelectedIndex == 2;
+
+    private NetworkProbePreferences CapturePreferences()
+    {
+        var interfaceIndex = _wasTrace ? _pingInterfaceIndex : InterfaceBox.SelectedIndex;
+        var localAddress = interfaceIndex >= 0 && interfaceIndex < InterfaceBox.Items.Count
+            ? ((NetworkInterfaceChoice)InterfaceBox.Items[interfaceIndex]).Address ?? string.Empty
+            : string.Empty;
+        return new NetworkProbePreferences
+        {
+            Host = HostBox.Text.Trim(),
+            Mode = (NetworkProbeToolMode)Math.Clamp(ModeBox.SelectedIndex, 0, 2),
+            AddressFamily = (NetworkProbeAddressFamily)Math.Clamp(FamilyBox.SelectedIndex, 0, 2),
+            LocalAddress = localAddress,
+            TcpPort = int.TryParse(PortBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var port) ? port : 22,
+            PacketSize = int.TryParse(PacketSizeBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var packetSize) ? packetSize : 32,
+            Count = int.TryParse(CountBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var count) ? count : 0,
+            IntervalMilliseconds = int.TryParse(IntervalBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var interval) ? interval : 1000,
+            MaxHops = int.TryParse(MaxHopsBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var hops) ? hops : 30,
+            TimeoutMilliseconds = int.TryParse(TimeoutBox.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var timeout) ? timeout : 1000,
+            ResolveNames = ResolveNamesBox.IsChecked == true
+        };
+    }
 
     private void Mode_Changed(object sender, SelectionChangedEventArgs e)
     {

@@ -10,7 +10,7 @@ using EmbedDesk.Core.Models;
 
 namespace EmbedDesk.App.ViewModels;
 
-public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncDisposable
+public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncDisposable, IRemoteTabViewModel
 {
     private readonly IRemoteDebugService _service;
     private IRemoteDebugSession? _session;
@@ -36,6 +36,7 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
     private bool _workspaceInitialized;
     private int _terminalColumns = 120;
     private int _terminalRows = 40;
+    private string _customTitle = string.Empty;
 
     public RemoteWorkspaceViewModel(IRemoteDebugService service, RemoteConnectionProfile? profile = null)
     {
@@ -90,6 +91,7 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
             OnPropertyChanged(nameof(AcceptUnknownHostKey));
             OnPropertyChanged(nameof(ConnectionDetail));
             OnPropertyChanged(nameof(DisplayTitle));
+            OnPropertyChanged(nameof(TabTitle));
             OnPropertyChanged(nameof(SupportsDirectoryManagement));
             OnPropertyChanged(nameof(DirectoryStatus));
         }
@@ -131,13 +133,14 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
             OnPropertyChanged();
             OnPropertyChanged(nameof(ConnectionDetail));
             OnPropertyChanged(nameof(DisplayTitle));
+            OnPropertyChanged(nameof(TabTitle));
             OnPropertyChanged(nameof(SupportsDirectoryManagement));
             OnPropertyChanged(nameof(DirectoryStatus));
             NotifyCommands();
         }
     }
-    public string Host { get => Profile.Host; set { if (Profile.Host == value) return; Profile.Host = value; OnPropertyChanged(); OnPropertyChanged(nameof(ConnectionDetail)); OnPropertyChanged(nameof(DisplayTitle)); } }
-    public int Port { get => Profile.Port; set { if (Profile.Port == value) return; Profile.Port = value; OnPropertyChanged(); OnPropertyChanged(nameof(ConnectionDetail)); OnPropertyChanged(nameof(DisplayTitle)); } }
+    public string Host { get => Profile.Host; set { if (Profile.Host == value) return; Profile.Host = value; OnPropertyChanged(); OnPropertyChanged(nameof(ConnectionDetail)); OnPropertyChanged(nameof(DisplayTitle)); OnPropertyChanged(nameof(TabTitle)); } }
+    public int Port { get => Profile.Port; set { if (Profile.Port == value) return; Profile.Port = value; OnPropertyChanged(); OnPropertyChanged(nameof(ConnectionDetail)); OnPropertyChanged(nameof(DisplayTitle)); OnPropertyChanged(nameof(TabTitle)); } }
     public string Username { get => Profile.Username; set { if (Profile.Username == value) return; Profile.Username = value; OnPropertyChanged(); } }
     public string Password { get => Profile.Password; set { if (Profile.Password == value) return; Profile.Password = value; OnPropertyChanged(); } }
     public bool AcceptUnknownHostKey { get => Profile.AcceptUnknownHostKey; set { if (Profile.AcceptUnknownHostKey == value) return; Profile.AcceptUnknownHostKey = value; OnPropertyChanged(); } }
@@ -153,6 +156,17 @@ public sealed partial class RemoteWorkspaceViewModel : ObservableObject, IAsyncD
     public bool IsTerminalFullscreen { get => _isTerminalFullscreen; set => SetProperty(ref _isTerminalFullscreen, value); }
     public string ConnectionDetail { get => _connectionDetail; private set => SetProperty(ref _connectionDetail, value); }
     public string DisplayTitle => string.IsNullOrWhiteSpace(Profile.Name) ? $"{ProtocolLabel} · {Host}" : Profile.Name;
+    public string CustomTitle
+    {
+        get => _customTitle;
+        set
+        {
+            var normalized = value?.Trim() ?? string.Empty;
+            if (!SetProperty(ref _customTitle, normalized)) return;
+            OnPropertyChanged(nameof(TabTitle));
+        }
+    }
+    public string TabTitle => string.IsNullOrWhiteSpace(CustomTitle) ? DisplayTitle : CustomTitle;
     public string LastError { get => _lastError; private set => SetProperty(ref _lastError, value); }
     public string Path { get => _path; private set { if (SetProperty(ref _path, value)) GoUpCommand.NotifyCanExecuteChanged(); } }
     public string ParentPath => GetParentPath(Path);

@@ -11,9 +11,10 @@ public partial class App : Application
 {
     private ServiceProvider? _services;
 
-    public static ServiceProvider CreateServices()
+    public static ServiceProvider CreateServices(LocalShellStartupOptions? startup = null)
     {
         var services = new ServiceCollection();
+        services.AddSingleton(startup ?? new LocalShellStartupOptions([]));
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
         services.AddEmbedDeskInfrastructure();
         services.AddSingleton<MainWindowViewModel>();
@@ -26,9 +27,20 @@ public partial class App : Application
         base.OnStartup(e);
         try
         {
-            _services = CreateServices();
+            LocalShellStartupOptions startup;
+            string? argumentError = null;
+            try { startup = new LocalShellStartupOptions(e.Args); }
+            catch (Exception ex) when (ex is ArgumentException or System.IO.IOException or UnauthorizedAccessException)
+            {
+                startup = new LocalShellStartupOptions([]);
+                argumentError = ex.Message;
+            }
+            _services = CreateServices(startup);
             MainWindow = _services.GetRequiredService<MainWindow>();
+            if (startup.Directories.Count > 0) ((MainWindow)MainWindow).ShowLocalShellWorkspace();
             MainWindow.Show();
+            if (argumentError is not null)
+                MessageBox.Show(MainWindow, argumentError, "打开本地 Shell", MessageBoxButton.OK, MessageBoxImage.Information);
             await _services.GetRequiredService<MainWindowViewModel>().InitializeAsync();
         }
         catch (Exception exception)

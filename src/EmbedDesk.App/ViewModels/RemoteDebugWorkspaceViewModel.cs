@@ -13,6 +13,7 @@ namespace EmbedDesk.App.ViewModels;
 public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly IRemoteDebugService _service;
+    private readonly AppSettingsStore? _appSettings;
     private readonly string _settingsDirectory;
     private readonly string _profilePath;
     private RemoteConnectionProfile? _selectedProfile;
@@ -25,21 +26,37 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     private double _sessionPaneWidth = 236;
     private RemoteFileDocumentViewModel? _selectedDocument;
     private DesktopSessionViewModel? _selectedDesktop;
+    private S3BrowserViewModel? _selectedS3;
+    private LocalShellViewModel? _selectedLocalShell;
+    private int _localShellNumber;
 
     public RemoteDebugWorkspaceViewModel(IRemoteDebugService service, string? settingsDirectory = null)
+        : this(service, settingsDirectory, null)
+    {
+    }
+
+    internal RemoteDebugWorkspaceViewModel(IRemoteDebugService service, string? settingsDirectory, AppSettingsStore? appSettings,
+        LocalShellStartupOptions? startup = null)
     {
         _service = service;
+        _appSettings = appSettings;
         _settingsDirectory = settingsDirectory ?? AppDataPaths.SettingsDirectory;
         _profilePath = Path.Combine(_settingsDirectory, "remote-profiles.json");
+        var persisted = appSettings?.Snapshot();
+        _isSessionPaneExpanded = persisted?.RemoteSessionPaneExpanded ?? true;
+        _sessionPaneWidth = Math.Clamp(persisted?.RemoteSessionPaneWidth ?? 236, 160, 236);
         Profiles = new ObservableCollection<RemoteConnectionProfile>(LoadProfiles());
         if (Profiles.Count == 0 && !File.Exists(_profilePath)) Profiles.Add(CreateDefaultProfile());
         Sessions = new ObservableCollection<RemoteWorkspaceViewModel>();
         SshKeys = new ObservableCollection<string>(LoadSshKeys());
-        LocalShell = new LocalShellViewModel();
-        Tabs.Add(LocalShell);
+        LocalShells = new ObservableCollection<LocalShellViewModel>();
+        if (startup?.Directories is { Count: > 0 } directories)
+            foreach (var directory in directories) AddLocalShell(directory);
+        else AddLocalShell();
         Sessions.CollectionChanged += (_, _) => SyncTabs();
         Documents.CollectionChanged += (_, _) => SyncTabs();
         DesktopSessions.CollectionChanged += (_, _) => SyncTabs();
+        S3Sessions.CollectionChanged += (_, _) => SyncTabs();
         ProtocolOptions = Enum.GetValues<RemoteProtocol>();
 
         OpenProfileCommand = new AsyncRelayCommand(OpenProfileAsync, () => SelectedProfile is not null && !IsBusy);
@@ -49,7 +66,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         CloseSessionCommand = new AsyncRelayCommand<RemoteWorkspaceViewModel>(CloseSessionAsync);
         ShowManagerCommand = new RelayCommand(() => IsManagerView = true);
         SelectSessionCommand = new RelayCommand<RemoteWorkspaceViewModel>(SelectSession);
-        SelectLocalShellCommand = new RelayCommand(() => { SelectedDesktop = null; SelectedDocument = null; SelectedSession = null; IsManagerView = false; });
+        SelectLocalShellCommand = new RelayCommand(() => { if ((SelectedLocalShell ?? LocalShell) is { } shell) SelectLocalShell(shell); else AddLocalShell(); });
         SelectDocumentCommand = new RelayCommand<RemoteFileDocumentViewModel>(document => { if (document is not null) { IsLocalShellFullscreen = false; SelectedDocument = document; } });
         ToggleSessionPaneCommand = new RelayCommand(() => IsSessionPaneExpanded = !IsSessionPaneExpanded);
         SelectedProfile = Profiles.FirstOrDefault();
@@ -61,8 +78,22 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public ObservableCollection<RemoteFileDocumentViewModel> Documents { get; } = [];
     public ObservableCollection<object> Tabs { get; } = [];
     public ObservableCollection<DesktopSessionViewModel> DesktopSessions { get; } = [];
+    public ObservableCollection<S3BrowserViewModel> S3Sessions { get; } = [];
+    public ObservableCollection<LocalShellViewModel> LocalShells { get; }
     public ObservableCollection<string> SshKeys { get; }
-    public LocalShellViewModel LocalShell { get; }
+    /// <summary>Compatibility alias for the first local shell.</summary>
+    public LocalShellViewModel? LocalShell => LocalShells.FirstOrDefault();
+    public LocalShellViewModel? SelectedLocalShell
+    {
+        get => _selectedLocalShell;
+        private set
+        {
+            if (!SetProperty(ref _selectedLocalShell, value)) return;
+            OnPropertyChanged(nameof(ActiveTab));
+            OnPropertyChanged(nameof(IsLocalShellSelected));
+            NotifyFullscreenLayout();
+        }
+    }
     public IReadOnlyList<RemoteProtocol> ProtocolOptions { get; }
     public IReadOnlyList<RemoteAuthenticationMode> AuthenticationOptions { get; } = Enum.GetValues<RemoteAuthenticationMode>();
     public IAsyncRelayCommand OpenProfileCommand { get; }
@@ -75,6 +106,27 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public IRelayCommand SelectLocalShellCommand { get; }
     public IRelayCommand ToggleSessionPaneCommand { get; }
     public IRelayCommand<RemoteFileDocumentViewModel> SelectDocumentCommand { get; }
+
+    public LocalShellViewModel AddLocalShell(string? workingDirectory = null)
+    {
+        var shell = new LocalShellViewModel(++_localShellNumber, workingDirectory);
+        LocalShells.Add(shell);
+        Tabs.Add(shell);
+        OnPropertyChanged(nameof(LocalShell));
+        OnPropertyChanged(nameof(HasTabs));
+        SelectLocalShell(shell);
+        return shell;
+    }
+
+    public async Task CloseLocalShellAsync(LocalShellViewModel shell)
+    {
+        if (!LocalShells.Contains(shell)) return;
+        await shell.DisposeAsync();
+        LocalShells.Remove(shell);
+        SyncTabs();
+        if (ReferenceEquals(SelectedLocalShell, shell)) SelectedLocalShell = LocalShell;
+        OnPropertyChanged(nameof(LocalShell));
+    }
 
     public RemoteConnectionProfile? SelectedProfile
     {
@@ -110,7 +162,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         get => _selectedSession;
         set
         {
-            if (value is not null) SelectedDesktop = null;
+            if (value is not null) { SelectedDesktop = null; SelectedS3 = null; }
             if (ReferenceEquals(_selectedSession, value)) return;
             if (_selectedSession is not null)
             {
@@ -132,7 +184,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         get => _selectedDocument;
         set
         {
-            if (value is not null) SelectedDesktop = null;
+            if (value is not null) { SelectedDesktop = null; SelectedS3 = null; }
             if (!SetProperty(ref _selectedDocument, value)) return;
             OnPropertyChanged(nameof(IsDocumentSelected));
             OnPropertyChanged(nameof(IsLocalShellSelected));
@@ -153,7 +205,22 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         {
             if (ReferenceEquals(value, _selectedDesktop)) return;
             if (_selectedDesktop is not null) _selectedDesktop.IsFullscreen = false;
+            if (value is not null) { IsLocalShellFullscreen = false; SelectedS3 = null; }
             SetProperty(ref _selectedDesktop, value);
+            OnPropertyChanged(nameof(IsLocalShellSelected));
+            OnPropertyChanged(nameof(IsRemoteSessionSelected));
+            OnPropertyChanged(nameof(ActiveTab));
+            NotifyFullscreenLayout();
+        }
+    }
+    public S3BrowserViewModel? SelectedS3
+    {
+        get => _selectedS3;
+        set
+        {
+            if (ReferenceEquals(value, _selectedS3)) return;
+            if (value is not null) IsLocalShellFullscreen = false;
+            SetProperty(ref _selectedS3, value);
             OnPropertyChanged(nameof(IsLocalShellSelected));
             OnPropertyChanged(nameof(IsRemoteSessionSelected));
             OnPropertyChanged(nameof(ActiveTab));
@@ -165,6 +232,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         IsLocalShellFullscreen = false;
         SelectedDocument = null;
         SelectedSession = null;
+        SelectedS3 = null;
         var desktop = new DesktopSessionViewModel(Clone(profile));
         desktop.PropertyChanged += DesktopChanged;
         DesktopSessions.Add(desktop);
@@ -186,16 +254,97 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         DesktopSessions.Remove(desktop);
         if (SelectedDesktop == desktop) SelectedDesktop = DesktopSessions.LastOrDefault();
     }
+    public async Task OpenS3BrowserAsync(RemoteConnectionProfile profile)
+    {
+        IsLocalShellFullscreen = false;
+        SelectedDocument = null;
+        SelectedSession = null;
+        SelectedDesktop = null;
+        var browser = new S3BrowserViewModel(Clone(profile));
+        browser.PropertyChanged += S3BrowserChanged;
+        S3Sessions.Add(browser);
+        SelectedS3 = browser;
+        IsManagerView = false;
+        Status = $"正在打开 S3 · {browser.DisplayTitle}";
+        await browser.ConnectAsync();
+        Status = $"S3 · {browser.DisplayTitle} · {browser.Status}";
+    }
+    private void S3BrowserChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (sender is S3BrowserViewModel browser && ReferenceEquals(SelectedS3, browser) && e.PropertyName == nameof(S3BrowserViewModel.Status))
+            Status = $"S3 · {browser.DisplayTitle} · {browser.Status}";
+    }
+    public async Task CloseS3BrowserAsync(S3BrowserViewModel browser)
+    {
+        browser.PropertyChanged -= S3BrowserChanged;
+        await browser.DisposeAsync();
+        S3Sessions.Remove(browser);
+        if (ReferenceEquals(SelectedS3, browser)) SelectedS3 = S3Sessions.LastOrDefault();
+        if (S3Sessions.Count == 0 && Sessions.Count == 0 && DesktopSessions.Count == 0) IsManagerView = true;
+    }
+
+    public async Task CloseTabAsync(object tab)
+    {
+        switch (tab)
+        {
+            case LocalShellViewModel shell:
+                await CloseLocalShellAsync(shell);
+                break;
+            case RemoteWorkspaceViewModel session:
+                await CloseSessionAsync(session);
+                break;
+            case DesktopSessionViewModel desktop:
+                CloseDesktop(desktop);
+                break;
+            case S3BrowserViewModel browser:
+                await CloseS3BrowserAsync(browser);
+                break;
+            case RemoteFileDocumentViewModel document:
+                CloseDocument(document);
+                break;
+        }
+    }
+
+    public async Task DuplicateTabAsync(object tab)
+    {
+        if (!Tabs.Contains(tab)) return;
+        switch (tab)
+        {
+            case LocalShellViewModel local:
+                AddLocalShell(local.InitialDirectory);
+                break;
+            case RemoteWorkspaceViewModel session:
+                await OpenProfileInNewTabAsync(session.Profile, saveProfiles: false);
+                break;
+            case DesktopSessionViewModel desktop:
+                OpenDesktop(desktop.Profile);
+                break;
+            case S3BrowserViewModel browser:
+                await OpenS3BrowserAsync(browser.Profile);
+                break;
+            default:
+                Status = "文件预览标签不能复制";
+                break;
+        }
+    }
+
+    public void SetTabTitle(object tab, string title)
+    {
+        if (Tabs.Contains(tab) && tab is IRemoteTabViewModel remoteTab) remoteTab.CustomTitle = title.Trim();
+    }
     public bool IsDocumentSelected => SelectedDocument is not null;
-    public object ActiveTab => (object?)SelectedDesktop ?? (object?)SelectedDocument ?? (object?)SelectedSession ?? LocalShell;
-    public bool IsLocalShellSelected => SelectedDesktop is null && SelectedSession is null && SelectedDocument is null;
-    public bool IsRemoteSessionSelected => SelectedDesktop is null && SelectedSession is not null && SelectedDocument is null;
+    public object? ActiveTab => (object?)SelectedS3 ?? (object?)SelectedDesktop ?? (object?)SelectedDocument ?? (object?)SelectedSession ?? SelectedLocalShell;
+    public bool HasTabs => Tabs.Count > 0;
+    public bool IsLocalShellSelected => SelectedS3 is null && SelectedDesktop is null && SelectedSession is null && SelectedDocument is null && SelectedLocalShell is not null;
+    public bool IsRemoteSessionSelected => SelectedS3 is null && SelectedDesktop is null && SelectedSession is not null && SelectedDocument is null;
     public void SelectTab(object tab)
     {
+        if (!Tabs.Contains(tab)) return;
         if (tab is DesktopSessionViewModel desktop) { IsLocalShellFullscreen = false; SelectedDocument = null; SelectedSession = null; SelectedDesktop = desktop; }
+        else if (tab is S3BrowserViewModel s3) { IsLocalShellFullscreen = false; SelectedDocument = null; SelectedSession = null; SelectedDesktop = null; SelectedS3 = s3; IsManagerView = false; }
         else if (tab is RemoteWorkspaceViewModel session) SelectSession(session);
         else if (tab is RemoteFileDocumentViewModel document) SelectDocumentCommand.Execute(document);
-        else if (ReferenceEquals(tab, LocalShell)) SelectLocalShellCommand.Execute(null);
+        else if (tab is LocalShellViewModel shell) SelectLocalShell(shell);
     }
     public void MoveTab(object tab, object target, bool after)
     {
@@ -207,9 +356,20 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     }
     private void SyncTabs()
     {
-        var current = new HashSet<object>(Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions)) { LocalShell };
+        var active = ActiveTab;
+        var index = active is null ? 0 : Math.Max(0, Tabs.IndexOf(active));
+        var current = new HashSet<object>(Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions).Concat(S3Sessions).Concat(LocalShells));
         foreach (var removed in Tabs.Where(tab => !current.Contains(tab)).ToArray()) Tabs.Remove(removed);
-        foreach (var added in Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions).Where(tab => !Tabs.Contains(tab))) Tabs.Add(added);
+        foreach (var added in Sessions.Cast<object>().Concat(Documents).Concat(DesktopSessions).Concat(S3Sessions).Where(tab => !Tabs.Contains(tab))) Tabs.Add(added);
+        OnPropertyChanged(nameof(HasTabs));
+        if (active is null || current.Contains(active)) return;
+        IsLocalShellFullscreen = false;
+        SelectedS3 = null;
+        SelectedDesktop = null;
+        SelectedDocument = null;
+        SelectedSession = null;
+        SelectedLocalShell = null;
+        if (Tabs.Count > 0) SelectTab(Tabs[Math.Min(index, Tabs.Count - 1)]);
     }
     public GridLength SessionPaneWidth
     {
@@ -219,6 +379,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
             if (!IsSessionPaneVisible) return;
             _sessionPaneWidth = Math.Clamp(value.Value, 160, 236);
             OnPropertyChanged();
+            SavePanePreferences();
         }
     }
     public double SessionPaneMinWidth => IsSessionPaneVisible ? 160 : 0;
@@ -228,7 +389,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         set
         {
             if (!SetProperty(ref _isLocalShellFullscreen, value)) return;
-            LocalShell.IsFullscreen = value;
+            if (SelectedLocalShell is not null) SelectedLocalShell.IsFullscreen = value;
             NotifyFullscreenLayout();
         }
     }
@@ -243,6 +404,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
             OnPropertyChanged(nameof(SessionPaneToggleGlyph));
             OnPropertyChanged(nameof(SessionPaneMinWidth));
             OnPropertyChanged(nameof(SessionPaneWidth));
+            SavePanePreferences();
         }
     }
     public bool IsTerminalFullscreen => IsLocalShellSelected ? IsLocalShellFullscreen
@@ -250,6 +412,15 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public bool IsSessionPaneVisible => !IsTerminalFullscreen && IsSessionPaneExpanded;
     public string SessionPaneToggleTooltip => IsSessionPaneExpanded ? "收起会话列表" : "显示会话列表";
     public string SessionPaneToggleGlyph => IsSessionPaneExpanded ? "\uE76B" : "\uE76C";
+
+    private void SavePanePreferences()
+    {
+        _appSettings?.Update(settings =>
+        {
+            settings.RemoteSessionPaneWidth = _sessionPaneWidth;
+            settings.RemoteSessionPaneExpanded = _isSessionPaneExpanded;
+        });
+    }
 
     private void SelectedSession_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -277,10 +448,12 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public bool IsPasswordAuthentication => ProfileEditor?.AuthenticationMode != RemoteAuthenticationMode.PrivateKey;
     public bool IsKeyAuthentication => ProfileEditor?.AuthenticationMode == RemoteAuthenticationMode.PrivateKey;
     public string Status { get => _status; private set => SetProperty(ref _status, value); }
+    internal void ReportDirectoryDropStatus(string message) => Status = message;
 
     private async Task OpenProfileAsync()
     {
         if (SelectedProfile is null || IsBusy) return;
+        if (SelectedProfile.Protocol == RemoteProtocol.S3) { SaveProfiles(); await OpenS3BrowserAsync(SelectedProfile); return; }
         if (SelectedProfile.Protocol is RemoteProtocol.Rdp or RemoteProtocol.Vnc) { SaveProfiles(); OpenDesktop(SelectedProfile); return; }
         SaveProfiles();
         IsBusy = true;
@@ -331,9 +504,47 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         return profile;
     }
 
+    /// <summary>Merges imported connection metadata and deliberately drops all credentials.</summary>
+    internal ConfigurationMergeResult MergeProfiles(IEnumerable<RemoteConnectionProfile> profiles)
+    {
+        ArgumentNullException.ThrowIfNull(profiles);
+        var added = 0;
+        var skipped = 0;
+        foreach (var imported in profiles)
+        {
+            if (imported is null || string.IsNullOrWhiteSpace(imported.Name)
+                || Profiles.Any(existing => string.Equals(existing.Name, imported.Name, StringComparison.OrdinalIgnoreCase))
+                || Profiles.Count >= 100)
+            {
+                skipped++;
+                continue;
+            }
+
+            var copy = Clone(imported);
+            copy.Password = string.Empty;
+            copy.PrivateKeyPassphrase = string.Empty;
+            copy.S3CredentialTarget = string.Empty;
+            copy.S3AccessKeyId = string.Empty;
+            copy.S3SecretAccessKey = string.Empty;
+            copy.RememberS3Credentials = false;
+            Profiles.Add(copy);
+            added++;
+        }
+
+        if (added > 0)
+        {
+            SelectedProfile ??= Profiles.FirstOrDefault();
+            SaveProfiles();
+            DeleteProfileCommand.NotifyCanExecuteChanged();
+        }
+
+        return new ConfigurationMergeResult(added, skipped);
+    }
+
     public void RemoveProfile(RemoteConnectionProfile profile)
     {
         if (!Profiles.Remove(profile)) return;
+        DeleteS3Credential(profile);
         SelectedProfile = Profiles.FirstOrDefault();
         SaveProfiles();
     }
@@ -361,17 +572,33 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         IsManagerView = false;
     }
 
+    private void SelectLocalShell(LocalShellViewModel? shell)
+    {
+        if (shell is null || !LocalShells.Contains(shell)) return;
+        IsLocalShellFullscreen = false;
+        SelectedDesktop = null;
+        SelectedS3 = null;
+        SelectedDocument = null;
+        SelectedSession = null;
+        SelectedLocalShell = shell;
+        IsManagerView = false;
+        OnPropertyChanged(nameof(IsLocalShellSelected));
+        OnPropertyChanged(nameof(IsRemoteSessionSelected));
+        NotifyFullscreenLayout();
+    }
+
     public async Task OpenProfileAsync(RemoteConnectionProfile profile)
     {
         SelectedProfile = profile;
         await OpenProfileAsync();
     }
 
-    public async Task OpenProfileInNewTabAsync(RemoteConnectionProfile profile)
+    public async Task OpenProfileInNewTabAsync(RemoteConnectionProfile profile, bool saveProfiles = true)
     {
-        if (profile.Protocol is RemoteProtocol.Rdp or RemoteProtocol.Vnc) { SaveProfiles(); OpenDesktop(profile); return; }
+        if (saveProfiles) SaveProfiles();
+        if (profile.Protocol == RemoteProtocol.S3) { await OpenS3BrowserAsync(profile); return; }
+        if (profile.Protocol is RemoteProtocol.Rdp or RemoteProtocol.Vnc) { OpenDesktop(profile); return; }
         IsLocalShellFullscreen = false;
-        SaveProfiles();
         var session = CreateSession(profile);
         Sessions.Add(session);
         SelectedDocument = null;
@@ -384,18 +611,25 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         // Keep the tab visible while the handshake runs. It displays connection
         // details and errors until the remote terminal is ready.
         await session.ConnectCommand.ExecuteAsync(null);
-        Status = session.IsWorkspaceReady
-            ? $"已连接 {session.DisplayTitle}"
-            : $"连接失败：{session.LastError}";
+        if (ReferenceEquals(ActiveTab, session) && Sessions.Contains(session))
+            Status = session.IsWorkspaceReady ? $"已连接 {session.DisplayTitle}" : $"连接失败：{session.LastError}";
     }
 
     private void DeleteProfile()
     {
         if (SelectedProfile is null) return;
         var index = Profiles.IndexOf(SelectedProfile);
+        DeleteS3Credential(SelectedProfile);
         Profiles.Remove(SelectedProfile);
         SelectedProfile = Profiles.Count == 0 ? null : Profiles[Math.Min(index, Profiles.Count - 1)];
         SaveProfiles();
+    }
+
+    private static void DeleteS3Credential(RemoteConnectionProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.S3CredentialTarget)) return;
+        try { S3CredentialStore.Delete(profile.S3CredentialTarget); }
+        catch (System.ComponentModel.Win32Exception) { }
     }
 
     private void SaveProfiles()
@@ -413,9 +647,25 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
                 Username = profile.Username,
                 AcceptUnknownHostKey = profile.AcceptUnknownHostKey,
                 AuthenticationMode = profile.AuthenticationMode,
-                PrivateKeyPath = profile.PrivateKeyPath
+                PrivateKeyPath = profile.PrivateKeyPath,
+                S3CredentialTarget = profile.RememberS3Credentials ? profile.S3CredentialTarget : string.Empty,
+                S3Region = profile.S3Region,
+                S3Bucket = profile.S3Bucket,
+                RememberS3Credentials = profile.RememberS3Credentials
             }).ToArray();
-            File.WriteAllText(_profilePath, JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true }));
+            var temporaryPath = _profilePath + ".tmp";
+            try
+            {
+                File.WriteAllText(temporaryPath, JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true }));
+                if (File.Exists(_profilePath)) File.Replace(temporaryPath, _profilePath, null);
+                else File.Move(temporaryPath, _profilePath);
+            }
+            finally
+            {
+                try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
             Status = $"已保存 {records.Length} 个连接配置";
         }
         catch (IOException ex) { Status = $"保存连接配置失败：{ex.Message}"; }
@@ -454,9 +704,11 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
     public void CloseDocument(RemoteFileDocumentViewModel document)
     {
         if (document.IsSaving) return;
+        var wasActive = ReferenceEquals(ActiveTab, document);
         Documents.Remove(document);
         document.Owner.CloseDocument(document);
-        if (SelectedDocument == document) { SelectedDocument = null; SelectedSession = document.Owner; }
+        if (SelectedDocument == document) SelectedDocument = null;
+        if (wasActive && Sessions.Contains(document.Owner)) SelectSession(document.Owner);
     }
 
     private IReadOnlyList<RemoteConnectionProfile> LoadProfiles()
@@ -465,7 +717,7 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         {
             if (!File.Exists(_profilePath)) return [];
             var records = JsonSerializer.Deserialize<PersistedProfile[]>(File.ReadAllText(_profilePath)) ?? [];
-            return records.Where(record => !string.IsNullOrWhiteSpace(record.Host)).Select(record => new RemoteConnectionProfile
+            return records.Where(record => record.Protocol == RemoteProtocol.S3 || !string.IsNullOrWhiteSpace(record.Host)).Select(record => new RemoteConnectionProfile
             {
                 Name = string.IsNullOrWhiteSpace(record.Name) ? record.Host : record.Name,
                 Protocol = record.Protocol,
@@ -474,7 +726,11 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
                 Username = record.Username,
                 AcceptUnknownHostKey = record.AcceptUnknownHostKey,
                 AuthenticationMode = record.AuthenticationMode,
-                PrivateKeyPath = record.PrivateKeyPath
+                PrivateKeyPath = record.PrivateKeyPath,
+                S3CredentialTarget = record.RememberS3Credentials ? record.S3CredentialTarget : string.Empty,
+                S3Region = string.IsNullOrWhiteSpace(record.S3Region) ? "us-east-1" : record.S3Region,
+                S3Bucket = record.S3Bucket,
+                RememberS3Credentials = record.RememberS3Credentials
             }).ToArray();
         }
         catch (JsonException) { return []; }
@@ -493,17 +749,26 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         AcceptUnknownHostKey = profile.AcceptUnknownHostKey,
         AuthenticationMode = profile.AuthenticationMode,
         PrivateKeyPath = profile.PrivateKeyPath,
-        PrivateKeyPassphrase = profile.PrivateKeyPassphrase
+        PrivateKeyPassphrase = profile.PrivateKeyPassphrase,
+        S3CredentialTarget = profile.S3CredentialTarget,
+        S3Region = profile.S3Region,
+        S3Bucket = profile.S3Bucket,
+        RememberS3Credentials = profile.RememberS3Credentials,
+        S3AccessKeyId = profile.S3AccessKeyId,
+        S3SecretAccessKey = profile.S3SecretAccessKey
     };
 
     public async ValueTask DisposeAsync()
     {
         foreach (var desktop in DesktopSessions.ToArray()) CloseDesktop(desktop);
+        foreach (var browser in S3Sessions.ToArray()) await CloseS3BrowserAsync(browser);
         foreach (var session in Sessions.ToArray()) await session.DisposeAsync();
+        foreach (var profile in Profiles) { profile.S3AccessKeyId = string.Empty; profile.S3SecretAccessKey = string.Empty; }
         Documents.Clear();
         SelectedDocument = null;
         Sessions.Clear();
-        await LocalShell.DisposeAsync();
+        foreach (var shell in LocalShells.ToArray()) await shell.DisposeAsync();
+        LocalShells.Clear();
     }
 
     private sealed class PersistedProfile
@@ -517,6 +782,10 @@ public sealed class RemoteDebugWorkspaceViewModel : ObservableObject, IAsyncDisp
         public bool AcceptUnknownHostKey { get; set; }
         public RemoteAuthenticationMode AuthenticationMode { get; set; }
         public string PrivateKeyPath { get; set; } = string.Empty;
+        public string S3CredentialTarget { get; set; } = string.Empty;
+        public string S3Region { get; set; } = "us-east-1";
+        public string S3Bucket { get; set; } = string.Empty;
+        public bool RememberS3Credentials { get; set; }
     }
 
     private string KeyPath => Path.Combine(_settingsDirectory, "ssh-keys.json");
