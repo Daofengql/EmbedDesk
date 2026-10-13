@@ -20,9 +20,21 @@ internal static class DnsMessageCodec
         if (type == 12 && isAddress)
         {
             var bytes = address!.GetAddressBytes();
-            name = address.AddressFamily == AddressFamily.InterNetwork
-                ? string.Join(".", bytes.Reverse().Select(value => value.ToString(CultureInfo.InvariantCulture))) + ".in-addr.arpa"
-                : string.Join(".", Convert.ToHexString(bytes).ToLowerInvariant().ToCharArray().Reverse()) + ".ip6.arpa";
+            if (address.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var labels = new string[bytes.Length];
+                for (var index = 0; index < bytes.Length; index++)
+                    labels[index] = bytes[bytes.Length - index - 1].ToString(CultureInfo.InvariantCulture);
+                name = string.Join(".", labels) + ".in-addr.arpa";
+            }
+            else
+            {
+                var hex = Convert.ToHexString(bytes).ToLowerInvariant();
+                var labels = new string[hex.Length];
+                for (var index = 0; index < hex.Length; index++)
+                    labels[index] = hex[hex.Length - index - 1].ToString();
+                name = string.Join(".", labels) + ".ip6.arpa";
+            }
         }
         else if (name != ".")
         {

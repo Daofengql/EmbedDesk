@@ -53,6 +53,23 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Select installed .NET 8 SDK
+        shell: pwsh
+        run: |
+          $versions = @(
+            dotnet --list-sdks |
+              ForEach-Object {
+                if ($_ -match '^\s*(8\.0\.\d+)\s') { [version]$Matches[1] }
+              }
+          )
+          if ($versions.Count -eq 0) {
+            throw 'The .NET 8 SDK was not installed.'
+          }
+          $version = ($versions | Sort-Object)[-1].ToString()
+          @{ sdk = @{ version = $version; rollForward = 'disable'; allowPrerelease = $false } } |
+            ConvertTo-Json | Set-Content -LiteralPath global.json -Encoding utf8
+          Write-Host "Using .NET SDK $version"
+
       - name: Restore
         run: dotnet restore EmbedDesk.sln -r win-x64
 
@@ -74,6 +91,9 @@ jobs:
             -p:PublishProfile=Compact `
             -p:Version=$env:RELEASE_VERSION `
             -p:InformationalVersion=$env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) {
+            throw "dotnet publish failed with exit code $LASTEXITCODE"
+          }
 
           $exe = Join-Path $env:GITHUB_WORKSPACE 'artifacts/release/win-x64/EmbedDesk.App.exe'
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
