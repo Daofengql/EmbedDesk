@@ -12,6 +12,11 @@ artifacts/
 *.py[cod]
 *.log
 
+# Documentation site (development only)
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # Local settings and credentials
 .env
 .env.*

@@ -40,4 +40,4 @@ FNV-1a 初值为 `2166136261`，逐字节异或后乘 `16777619`，保留低 32 
 - [SerialBridgeControlCodec.cs](../src/EmbedDesk.Protocols/SerialBridgeControlCodec.cs)：参数 JSON。
 - [SerialBridgeConnection.cs](../src/EmbedDesk.Infrastructure/Bridging/SerialBridgeConnection.cs)、[RemoteSerialClient.cs](../src/EmbedDesk.Infrastructure/Bridging/RemoteSerialClient.cs)：旧桥接生命周期。
 
-核心编解码测试及 `--serial-bridge-check` 验证兼容行为，调用方式见[首页开发与验证](../README.md#开发与验证)。当前连接中心的授权、加密、软件预留和系统虚拟串口应以对应专题为准。
+核心编解码测试及 `--serial-bridge-check` 验证兼容行为，调用方式见[构建与验证](development/index.md)。当前连接中心的授权、加密、软件预留和系统虚拟串口应以对应专题为准。

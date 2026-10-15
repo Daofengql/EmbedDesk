@@ -43,7 +43,7 @@ setupc.exe list
 
 ## 验证
 
-`--device-connections-check` 需先构建 `artifacts/relay-test.exe`，命令见[首页开发与验证](../README.md#开发与验证)。以下参数每次单独调用，结果应按实际执行记录；模拟驱动和界面检查不需要安装 com0com。
+`--device-connections-check` 需先构建 `artifacts/relay-test.exe`，命令见[构建与验证](development/index.md)。以下参数每次单独调用，结果应按实际执行记录；模拟驱动和界面检查不需要安装 com0com。
 
 ```powershell
 dotnet build tests/EmbedDesk.App.SmokeTests/EmbedDesk.App.SmokeTests.csproj

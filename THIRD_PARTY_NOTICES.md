@@ -53,3 +53,7 @@ The separately installed Microsoft Edge WebView2 Runtime is governed by its own 
 RDP integration uses the MSTSC ActiveX control supplied by Windows (`mstscax.dll`). This Windows component is loaded from the operating system and is not redistributed with this project. The VNC RFB protocol client is original project code; it does not bundle a third-party VNC viewer.
 
 Test dependencies include Microsoft.NET.Test.Sdk, xUnit, and its Visual Studio runner, under their respective package licenses. The optional Python SSH regression harness requires Paramiko, which is installed separately and is not bundled with the application.
+
+## Documentation website
+
+The separately built documentation site uses [VitePress 1.6.4](https://www.npmjs.com/package/vitepress/v/1.6.4) (MIT, copyright Evan You) and [Mermaid 11.17.2](https://www.npmjs.com/package/mermaid/v/11.17.2) (MIT, copyright Knut Sveidqvist). Original license texts are retained in [VitePress-MIT.txt](docs/public/licenses/VitePress-MIT.txt) and [Mermaid-MIT.txt](docs/public/licenses/Mermaid-MIT.txt), and are included in the website's static output. Transitive build/runtime packages are pinned in `package-lock.json` and retain their package notices. This Node.js toolchain is for documentation; it is not added to the Windows desktop application's runtime dependencies. Product screenshots use isolated demonstration or test data, with their scope described in [the image index](docs/reference/screenshots.md).

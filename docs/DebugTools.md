@@ -20,6 +20,8 @@
 
 ## 传输和兼容实现
 
+固件对接的逐字段说明、校验算法与完整报文见[公共帧](reference/debug-protocol.md)、[PID 协议](reference/pid-protocol.md)和[摄像头协议](reference/camera-protocol.md)。本页保留工具功能与实现边界。
+
 PID / 摄像头连接实现位于 `DebugToolConnection`。连接方式统一为「串口」「TCP/UDP 客户端」「TCP/UDP 服务端」，选择网络角色后再选择 TCP 或 UDP；新建、编辑和兼容工具窗口均使用相同分类。公共编辑器可设置串口设备、波特率、数据位、校验、停止位和流控，默认 8N1、无流控，不主动置 DTR / RTS；复用统一串口资源服务，并支持应用内远程串口。TCP 客户端支持本地绑定和 100–120,000 ms 超时（默认 10 秒），服务端每次接受一个开发板，断开后需重新连接。UDP 客户端只与指定远程地址收发；UDP 服务端监听本机端口，自动锁定本次会话第一个发送端，重新连接后解除锁定。原始 UDP 多对端监听仅供网络标签使用，避免不同设备的协议数据混入同一个解析器。工具串口接收最多排队 32 包、单包最多 256 KiB，处理跟不上时明确停止；TCP / UDP 顺序处理，不为每帧派生任务。关闭等待连接、发送、寄存器应答或导出任务清理。
 
 协议解析见 `DebugToolProtocol.cs`，依据公开[图像传输文档](https://www.firebbs.cn/forum.php?mod=viewthread&tid=29788)（2020-06-08，v0.0.1）与 [PID 通信文档](https://www.firebbs.cn/forum.php?mod=viewthread&tid=29923)（2020-06-30，v0.0.1）独立实现；[工具文档入口](https://doc.embedfire.com/products/link/zh/latest/deskapp/ebf_trace_tool.html)用于交叉核对。没有移植第三方工具源码、界面素材或二进制依赖，产品界面仅使用通用功能名称。

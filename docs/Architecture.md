@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-EmbedDesk 是 .NET 8 / WPF / MVVM 桌面应用。连接中心管理设备身份和共享服务；串口、网络、PID、摄像头共用「调试助手」的一排会话标签，远程调试保持独立工作区。二进制编辑器保留在嵌入式工具。统一标签、内部新建弹窗、连接设置与生命周期见[调试助手合并设计](DebugAssistantDesign.md)。功能、命令和发布方式见[项目首页](../README.md)。
+EmbedDesk 是 .NET 8 / WPF / MVVM 桌面应用。连接中心管理设备身份和共享服务；串口、网络、PID、摄像头共用「调试助手」的一排会话标签，远程调试保持独立工作区。二进制编辑器保留在嵌入式工具。统一标签、内部新建弹窗、连接设置与生命周期见[调试助手合并设计](DebugAssistantDesign.md)。功能、命令和发布方式见[使用指南](guide/index.md)。
 
 ## 分层与代码位置
 
@@ -64,4 +64,4 @@ flowchart TB
 
 旧 EDBG / FRP 和 `IVirtualSerialMapper` 保留用于兼容回归，没有正常产品入口；安全通道原语仍被新设备连接使用。[SerialBridgeProtocol.md](SerialBridgeProtocol.md)只描述旧 EDBG 帧格式。模拟协议、回环网络和截图检查不能替代真实中继部署、第三方客户端、开发板、Flash、物理磁盘或远程桌面验收。
 
-Smoke 项目不在解决方案内，需单独构建；常用命令和发布 / 单文件检查见首页[开发与验证](../README.md#开发与验证)与[发布](../README.md#发布)。
+Smoke 项目不在解决方案内，需单独构建；常用命令和发布 / 单文件检查见首页[开发与验证](development/index.md)与[发布](development/releasing.md)。
