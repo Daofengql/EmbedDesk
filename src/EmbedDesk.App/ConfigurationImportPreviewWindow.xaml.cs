@@ -10,7 +10,7 @@ public partial class ConfigurationImportPreviewWindow : Window
         ArgumentNullException.ThrowIfNull(imported);
         InitializeComponent();
         WindowTheme.ApplyDarkTitleBar(this);
-        SummaryText.Text = $"远程连接 {imported.RemoteProfiles.Count} 项 · 网络调试预设 {imported.NetworkPresets.Count} 项 · 网络串口预设 {imported.SerialBridgePresets.Count} 项 · STCP 隧道 {imported.StcpTunnels.Count} 项";
+        SummaryText.Text = $"远程连接 {imported.RemoteProfiles.Count} 项 · 网络串口 {imported.SerialBridgePresets.Count} 项 · STCP {imported.StcpTunnels.Count} 项";
         PreviewText.Text = BuildPreview(imported);
     }
 
@@ -25,11 +25,6 @@ public partial class ConfigurationImportPreviewWindow : Window
                 : $"{profile.Host}:{profile.Port} · 用户 {profile.Username}";
             builder.AppendLine($"- {profile.Name} ({GetProtocolLabel(profile.Protocol)}) · {endpoint}");
         }
-
-        builder.AppendLine();
-        builder.AppendLine("[网络调试预设]");
-        foreach (var preset in imported.NetworkPresets)
-            builder.AppendLine($"- {preset.Name} ({preset.Protocol} / {preset.Mode}) · 监听 {preset.LocalHost}:{preset.LocalPort} · 远端 {preset.RemoteHost}:{preset.RemotePort}");
 
         builder.AppendLine();
         builder.AppendLine("[网络串口预设]");

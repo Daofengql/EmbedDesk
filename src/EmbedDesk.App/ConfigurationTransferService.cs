@@ -12,7 +12,7 @@ internal static class ConfigurationTransferService
 {
     public const int MaximumFileBytes = 1024 * 1024;
     private const string FormatName = "EmbedDesk.Configuration";
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private const int MaximumProfilesPerKind = 100;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
@@ -20,7 +20,8 @@ internal static class ConfigurationTransferService
         IEnumerable<RemoteConnectionProfile> remoteProfiles,
         IEnumerable<NetworkConnectionPreset> networkPresets,
         IEnumerable<SerialBridgeClientPreset> serialBridgePresets,
-        IEnumerable<StcpTunnelProfile>? stcpTunnels = null)
+        IEnumerable<StcpTunnelProfile>? stcpTunnels = null,
+        IEnumerable<DebugConnectionPreset>? debugPresets = null)
     {
         ArgumentNullException.ThrowIfNull(remoteProfiles);
         ArgumentNullException.ThrowIfNull(networkPresets);
@@ -31,8 +32,9 @@ internal static class ConfigurationTransferService
         var network = networkPresets.Take(MaximumProfilesPerKind + 1).ToArray();
         var serial = serialBridgePresets.Take(MaximumProfilesPerKind + 1).ToArray();
         var stcp = stcpTunnels.Take(MaximumProfilesPerKind + 1).ToArray();
+        var debug = (debugPresets ?? []).Take(MaximumProfilesPerKind + 1).ToArray();
         if (profiles.Length > MaximumProfilesPerKind || network.Length > MaximumProfilesPerKind
-            || serial.Length > MaximumProfilesPerKind || stcp.Length > MaximumProfilesPerKind)
+            || serial.Length > MaximumProfilesPerKind || stcp.Length > MaximumProfilesPerKind || debug.Length > MaximumProfilesPerKind)
             throw new InvalidDataException("每类最多导出 100 个连接预设。");
 
         var package = new ConfigurationTransferDocument
@@ -43,7 +45,8 @@ internal static class ConfigurationTransferService
             RemoteConnections = profiles.Select(ToTransferProfile).ToList(),
             NetworkConnections = network.Select(ToTransferNetworkPreset).ToList(),
             SerialBridgeConnections = serial.Select(ToTransferBridgePreset).ToList(),
-            StcpTunnels = stcp.Select(ToTransferStcpTunnel).ToList()
+            StcpTunnels = stcp.Select(ToTransferStcpTunnel).ToList(),
+            DebugConnections = debug.Select(TransferDebugPreset).ToList()
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(package, JsonOptions);
         if (bytes.Length > MaximumFileBytes) throw new InvalidDataException("配置包超过 1 MiB 上限。");
@@ -57,21 +60,31 @@ internal static class ConfigurationTransferService
         try { document = JsonSerializer.Deserialize<ConfigurationTransferDocument>(bytes, JsonOptions) ?? throw new InvalidDataException("配置文件为空。"); }
         catch (JsonException exception) { throw new InvalidDataException($"配置文件格式无效：{exception.Message}", exception); }
 
-        if (!string.Equals(document.Format, FormatName, StringComparison.Ordinal) || document.SchemaVersion != CurrentSchemaVersion)
+        if (!string.Equals(document.Format, FormatName, StringComparison.Ordinal) || document.SchemaVersion is < 1 or > CurrentSchemaVersion)
             throw new InvalidDataException("配置文件格式或版本不受支持。");
         var remote = document.RemoteConnections ?? [];
         var network = document.NetworkConnections ?? [];
         var serial = document.SerialBridgeConnections ?? [];
         var stcp = document.StcpTunnels ?? [];
+        var debug = document.DebugConnections ?? [];
         if (remote.Count > MaximumProfilesPerKind || network.Count > MaximumProfilesPerKind
-            || serial.Count > MaximumProfilesPerKind || stcp.Count > MaximumProfilesPerKind)
+            || serial.Count > MaximumProfilesPerKind || stcp.Count > MaximumProfilesPerKind || debug.Count > MaximumProfilesPerKind)
             throw new InvalidDataException("每类最多导入 100 个连接预设。");
 
         return new ImportedConfiguration(
             remote.Select(FromTransferProfile).ToArray(),
             network.Select(FromTransferNetworkPreset).ToArray(),
             serial.Select(FromTransferBridgePreset).ToArray(),
-            stcp.Select(FromTransferStcpTunnel).ToArray());
+            stcp.Select(FromTransferStcpTunnel).ToArray())
+        { DebugPresets = debug.Select(TransferDebugPreset).ToArray() };
+    }
+
+    private static DebugConnectionPreset TransferDebugPreset(DebugConnectionPreset preset)
+    {
+        if (preset is null) throw new InvalidDataException("调试连接预设不能为空。");
+        try { DebugConnectionPreset.Validate(preset.Endpoint); }
+        catch (ArgumentException ex) { throw new InvalidDataException("调试连接预设无效：" + ex.Message, ex); }
+        return preset with { Id = Guid.NewGuid(), Name = NormalizeRequiredText(preset.Name, 64, "调试连接预设名称") };
     }
 
     private static TransferRemoteProfile ToTransferProfile(RemoteConnectionProfile profile)
@@ -302,6 +315,7 @@ internal sealed record ImportedConfiguration(
     IReadOnlyList<SerialBridgeClientPreset> SerialBridgePresets,
     IReadOnlyList<StcpTunnelProfile> StcpTunnels)
 {
+    public IReadOnlyList<DebugConnectionPreset> DebugPresets { get; init; } = [];
     public ImportedConfiguration(IReadOnlyList<RemoteConnectionProfile> remoteProfiles,
         IReadOnlyList<NetworkConnectionPreset> networkPresets,
         IReadOnlyList<SerialBridgeClientPreset> serialBridgePresets)
@@ -322,6 +336,7 @@ internal sealed class ConfigurationTransferDocument
     public List<TransferNetworkPreset>? NetworkConnections { get; set; } = [];
     public List<TransferSerialBridgePreset>? SerialBridgeConnections { get; set; } = [];
     public List<TransferStcpTunnel>? StcpTunnels { get; set; } = [];
+    public List<DebugConnectionPreset>? DebugConnections { get; set; } = [];
 }
 
 internal sealed class TransferRemoteProfile

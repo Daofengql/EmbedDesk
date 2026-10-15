@@ -18,9 +18,13 @@ public partial class NetworkWorkspace : UserControl
     private readonly BufferedTrafficPresenter _presenter;
     private double _paneWidth = 210;
     private bool _expanded = true;
-    public NetworkWorkspace()
+    private readonly bool _singleSessionMode;
+    private readonly NetworkSessionViewModel? _fixedSession;
+    public NetworkWorkspace(bool singleSessionMode = false)
     {
+        _singleSessionMode = singleSessionMode;
         InitializeComponent();
+        if (_singleSessionMode) ApplySingleSessionLayout();
         _presenter = new BufferedTrafficPresenter(ReceiveText);
         Loaded += (_, _) => BindViewModel();
         Unloaded += (_, _) => Unbind();
@@ -28,6 +32,18 @@ public partial class NetworkWorkspace : UserControl
         ReceiveText.SizeChanged += (_, _) => { if (_session?.AutoScroll == true) Dispatcher.BeginInvoke(new Action(ReceiveText.ScrollToEnd), DispatcherPriority.Background); };
         Loaded += (_, _) => NetworkChange.NetworkAddressChanged += NetworkAddressChanged;
         Unloaded += (_, _) => NetworkChange.NetworkAddressChanged -= NetworkAddressChanged;
+    }
+    public NetworkWorkspace(NetworkSessionViewModel session) : this(true)
+    {
+        _fixedSession = session ?? throw new ArgumentNullException(nameof(session));
+    }
+    private void ApplySingleSessionLayout()
+    {
+        WorkspaceHeader.Visibility = Visibility.Collapsed;
+        SessionPane.Visibility = SessionDivider.Visibility = SessionSplitter.Visibility = SessionToggle.Visibility = Visibility.Collapsed;
+        EmptyNewSessionButton.Visibility = Visibility.Collapsed;
+        SessionColumn.MinWidth = 0; SessionColumn.Width = new GridLength(0);
+        SpacerColumn.Width = new GridLength(0);
     }
     private void BindViewModel()
     {
@@ -57,11 +73,12 @@ public partial class NetworkWorkspace : UserControl
         _session = null; _vm = null;
         _presenter.Bind(null);
     }
-    private void MainChanged(object? sender, PropertyChangedEventArgs e) { if (e.PropertyName == nameof(MainWindowViewModel.SelectedSession)) BindSession(); }
+    private void MainChanged(object? sender, PropertyChangedEventArgs e) { if (_fixedSession is null && e.PropertyName == nameof(MainWindowViewModel.SelectedSession)) BindSession(); }
     private void BindSession()
     {
         if (_session is not null) { _session.PropertyChanged -= SessionChanged; }
-        _session = _vm?.SelectedSession;
+        _session = _fixedSession ?? _vm?.SelectedSession;
+        if (_fixedSession is not null) SessionContent.DataContext = _fixedSession;
         if (_session is not null) { _session.PropertyChanged += SessionChanged; }
         SessionContent.Visibility = _session is null ? Visibility.Collapsed : Visibility.Visible;
         EmptyState.Visibility = _session is null ? Visibility.Visible : Visibility.Collapsed;
@@ -69,16 +86,16 @@ public partial class NetworkWorkspace : UserControl
     }
     private void SessionChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(NetworkSessionViewModel.HexDisplay) or nameof(NetworkSessionViewModel.ShowTime) or nameof(NetworkSessionViewModel.ShowSent) or nameof(NetworkSessionViewModel.AutoScroll)) RefreshReceive();
+        if (e.PropertyName is nameof(NetworkSessionViewModel.HexDisplay) or nameof(NetworkSessionViewModel.ShowTime) or nameof(NetworkSessionViewModel.ShowSent) or nameof(NetworkSessionViewModel.AutoScroll) or nameof(NetworkSessionViewModel.SeparateMessages) or nameof(NetworkSessionViewModel.IsDatagram)) RefreshReceive();
     }
     private void RefreshReceive()
     {
         _presenter.Bind(_session?.Terminal);
-        if (_session is not null) _presenter.Configure(new(_session.HexDisplay, _session.ShowTime, _session.ShowSent), _session.AutoScroll);
+        if (_session is not null) _presenter.Configure(new(_session.HexDisplay, _session.ShowTime, _session.ShowSent, _session.IsDatagram && _session.SeparateMessages), _session.AutoScroll);
     }
     private async void NewSession_Click(object sender, RoutedEventArgs e)
     {
-        if (_vm is null) return;
+        if (_singleSessionMode || _vm is null) return;
         var picker = new NetworkTypeSelectionWindow { Owner = Window.GetWindow(this) };
         if (picker.ShowDialog() != true || picker.Protocol is not { } protocol) return;
         var dialog = new NetworkConnectionWindow(protocol, _vm) { Owner = Window.GetWindow(this) };
@@ -102,12 +119,14 @@ public partial class NetworkWorkspace : UserControl
     }
     private void ApplySessionPaneLayout()
     {
+        if (_singleSessionMode) { ApplySingleSessionLayout(); return; }
         SessionColumn.MinWidth = _expanded ? 180 : 0;
         SessionColumn.Width = new GridLength(_expanded ? Math.Clamp(_paneWidth, 180, 280) : 0);
         SessionPane.Visibility = SessionSplitter.Visibility = _expanded ? Visibility.Visible : Visibility.Collapsed;
         SessionToggleGlyph.Text = _expanded ? "\uE76B" : "\uE76C";
         SessionToggle.ToolTip = _expanded ? "收起会话列表" : "显示会话列表";
     }
+    internal void DisposeView() => Unbind();
     private void SessionSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
     {
         if (!_expanded || _vm is null) return;

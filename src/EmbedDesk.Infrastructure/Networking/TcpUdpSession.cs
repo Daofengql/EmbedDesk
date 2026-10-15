@@ -11,6 +11,7 @@ internal sealed class TcpUdpSession : ITransportSession
 {
     private readonly object _gate = new();
     private readonly List<TcpClient> _clients = new();
+    private readonly HashSet<Task> _clientReaders = [];
     private readonly TransportOptions _options;
     private CancellationTokenSource? _lifetime;
     private TcpListener? _listener;
@@ -19,6 +20,7 @@ internal sealed class TcpUdpSession : ITransportSession
     private IPEndPoint? _lastUdpRemote;
     private Task? _worker;
     private Task? _scheduledSender;
+    private Task? _startTask, _stopTask;
     private TransportSessionState _state = TransportSessionState.Created;
     public string? BoundLocalEndpoint { get; private set; }
 
@@ -37,7 +39,16 @@ internal sealed class TcpUdpSession : ITransportSession
 
     public event EventHandler<TransportMessage>? MessageReceived;
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            if (_startTask is { IsCompleted: false }) return _startTask;
+            if (_stopTask is { IsCompleted: false }) throw new InvalidOperationException("连接正在停止。");
+            return _startTask = StartCoreAsync(cancellationToken);
+        }
+    }
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
         lock (_gate)
         {
@@ -47,6 +58,7 @@ internal sealed class TcpUdpSession : ITransportSession
             }
             _state = TransportSessionState.Starting;
             BoundLocalEndpoint = null;
+            _lastUdpRemote = null;
             _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         }
         Publish(TransportEventKind.StateChanged, null, ReadOnlyMemory<byte>.Empty, null, null);
@@ -100,6 +112,7 @@ internal sealed class TcpUdpSession : ITransportSession
         }
         catch (Exception ex)
         {
+            if (_lifetime?.IsCancellationRequested == true) return;
             SetState(TransportSessionState.Faulted);
             Publish(TransportEventKind.Error, null, ReadOnlyMemory<byte>.Empty, ex.Message, ex);
             throw;
@@ -108,7 +121,11 @@ internal sealed class TcpUdpSession : ITransportSession
         await Task.CompletedTask;
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken = default)
+    public Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate) return _stopTask is { IsCompleted: false } ? _stopTask : _stopTask = StopCoreAsync(cancellationToken);
+    }
+    private async Task StopCoreAsync(CancellationToken cancellationToken)
     {
         CancellationTokenSource? lifetime;
         lock (_gate)
@@ -122,13 +139,18 @@ internal sealed class TcpUdpSession : ITransportSession
         }
         Publish(TransportEventKind.StateChanged, null, ReadOnlyMemory<byte>.Empty, null, null);
         lifetime?.Cancel();
+        if (_startTask is { IsCompleted: false } starting)
+        {
+            try { await starting; }
+            catch (Exception) when (lifetime?.IsCancellationRequested == true) { }
+        }
         _listener?.Stop();
         _udpClient?.Dispose();
 
         TcpClient[] clients;
         lock (_gate)
         {
-            clients = _clients.ToArray();
+            clients = _activeClient is { } active ? _clients.Append(active).ToArray() : _clients.ToArray();
             _clients.Clear();
             _activeClient = null;
         }
@@ -142,7 +164,8 @@ internal sealed class TcpUdpSession : ITransportSession
         {
             try
             {
-                await Task.WhenAll(tasks).WaitAsync(cancellationToken);
+                // Complete cleanup even if the caller cancels its wait.
+                await Task.WhenAll(tasks);
             }
             catch (OperationCanceledException) when (lifetime?.IsCancellationRequested == true)
             {
@@ -155,8 +178,13 @@ internal sealed class TcpUdpSession : ITransportSession
             }
         }
 
+        Task[] readers;
+        lock (_gate) readers = _clientReaders.ToArray();
+        await Task.WhenAll(readers);
+
         lifetime?.Dispose();
         _lifetime = null;
+        _udpClient = null; _listener = null; _worker = _scheduledSender = null;
         SetState(TransportSessionState.Stopped);
     }
 
@@ -175,15 +203,15 @@ internal sealed class TcpUdpSession : ITransportSession
             }
             if (_options.Mode == TransportMode.Server)
             {
-                var target = _lastUdpRemote ?? new IPEndPoint(ParseAddress(_options.RemoteHost), _options.RemotePort);
+                var target = _lastUdpRemote ?? (_options.LockFirstUdpPeer ? throw new InvalidOperationException("尚未锁定 UDP 对端，请等待首个数据报。") : new IPEndPoint(ParseAddress(_options.RemoteHost), _options.RemotePort));
                 cancellationToken.ThrowIfCancellationRequested();
-                await _udpClient.SendAsync(data.ToArray(), target);
+                await _udpClient.SendAsync(data, target, cancellationToken);
                 Publish(TransportEventKind.Sent, target.ToString(), data, null, null);
             }
             else
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await _udpClient.SendAsync(data.ToArray());
+                await _udpClient.SendAsync(data, cancellationToken);
                 Publish(TransportEventKind.Sent, $"{_options.RemoteHost}:{_options.RemotePort}", data, null, null);
             }
             return;
@@ -219,8 +247,9 @@ internal sealed class TcpUdpSession : ITransportSession
         {
             if (_udpClient is null) throw new InvalidOperationException("Session is not started.");
             if (!IPEndPoint.TryParse(remoteEndpoint, out var target)) throw new FormatException("无效的 UDP 对端地址。");
+            if (_options.LockFirstUdpPeer && !Equals(target, _lastUdpRemote)) throw new InvalidOperationException("只能向本次会话锁定的 UDP 对端发送。");
             cancellationToken.ThrowIfCancellationRequested();
-            await _udpClient.SendAsync(data.ToArray(), target);
+            await _udpClient.SendAsync(data, target, cancellationToken);
             Publish(TransportEventKind.Sent, target.ToString(), data, null, null);
             return;
         }
@@ -255,11 +284,14 @@ internal sealed class TcpUdpSession : ITransportSession
             while (!cancellationToken.IsCancellationRequested)
             {
                 var client = await _listener.AcceptTcpClientAsync(cancellationToken);
+                if (cancellationToken.IsCancellationRequested) { client.Dispose(); break; }
                 client.NoDelay = true;
                 lock (_gate) _clients.Add(client);
                 SetState(TransportSessionState.Connected);
                 Publish(TransportEventKind.Connected, client.Client?.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, null, null);
-                _ = HandleTcpClientAsync(client, cancellationToken);
+                var reader = HandleTcpClientAsync(client, cancellationToken);
+                lock (_gate) _clientReaders.Add(reader);
+                _ = RemoveFinishedReaderAsync(reader);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -277,6 +309,12 @@ internal sealed class TcpUdpSession : ITransportSession
         }
     }
 
+    private async Task RemoveFinishedReaderAsync(Task reader)
+    {
+        try { await reader; }
+        finally { lock (_gate) _clientReaders.Remove(reader); }
+    }
+
     private async Task RunTcpClientAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -289,7 +327,14 @@ internal sealed class TcpUdpSession : ITransportSession
                 using var client = new TcpClient(remoteAddress.AddressFamily) { NoDelay = true };
                 if (localAddress is not null || _options.LocalPort != 0)
                     client.Client.Bind(new IPEndPoint(localAddress ?? GetAnyAddress(remoteAddress.AddressFamily), _options.LocalPort));
-                await client.ConnectAsync(remoteAddress, _options.RemotePort, cancellationToken);
+                using (var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    connectTimeout.CancelAfter(_options.ConnectTimeoutMilliseconds);
+                    try { await client.ConnectAsync(remoteAddress, _options.RemotePort, connectTimeout.Token); }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    { throw new TimeoutException($"TCP 连接超时（{_options.ConnectTimeoutMilliseconds} ms）。"); }
+                }
+                cancellationToken.ThrowIfCancellationRequested();
                 BoundLocalEndpoint = client.Client.LocalEndPoint?.ToString();
                 lock (_gate) _activeClient = client;
                 SetState(TransportSessionState.Connected);
@@ -328,8 +373,10 @@ internal sealed class TcpUdpSession : ITransportSession
 
     private async Task HandleTcpClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        string? endpoint = null;
         try
         {
+            endpoint = client.Client?.RemoteEndPoint?.ToString();
             await ReadTcpStreamAsync(client, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -337,16 +384,15 @@ internal sealed class TcpUdpSession : ITransportSession
         }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
-            Publish(TransportEventKind.Error, client.Client?.RemoteEndPoint?.ToString(), ReadOnlyMemory<byte>.Empty, ex.Message, ex);
+            if (!cancellationToken.IsCancellationRequested) Publish(TransportEventKind.Error, endpoint, ReadOnlyMemory<byte>.Empty, ex.Message, ex);
         }
         finally
         {
-            lock (_gate) _clients.Remove(client);
-            string? endpoint = null;
-            try { endpoint = client.Client?.RemoteEndPoint?.ToString(); } catch (ObjectDisposedException) { }
+            bool noClients;
+            lock (_gate) { _clients.Remove(client); noClients = _clients.Count == 0; }
             client.Dispose();
             Publish(TransportEventKind.Disconnected, endpoint, ReadOnlyMemory<byte>.Empty, null, null);
-            if (State == TransportSessionState.Connected && _clients.Count == 0)
+            if (!cancellationToken.IsCancellationRequested && State == TransportSessionState.Connected && noClients)
             {
                 SetState(TransportSessionState.Listening);
             }
@@ -405,7 +451,10 @@ internal sealed class TcpUdpSession : ITransportSession
             while (!cancellationToken.IsCancellationRequested)
             {
                 var result = await _udpClient.ReceiveAsync(cancellationToken);
+                if (_options.LockFirstUdpPeer && _lastUdpRemote is not null && !_lastUdpRemote.Equals(result.RemoteEndPoint)) continue;
+                var firstPeer = _lastUdpRemote is null;
                 _lastUdpRemote = result.RemoteEndPoint;
+                if (firstPeer && _options.LockFirstUdpPeer) Publish(TransportEventKind.Info, result.RemoteEndPoint.ToString(), ReadOnlyMemory<byte>.Empty, "UDP 已锁定首个发送端", null);
                 SetState(TransportSessionState.Connected);
                 Publish(TransportEventKind.Received, result.RemoteEndPoint.ToString(), result.Buffer, Encoding.UTF8.GetString(result.Buffer), null);
             }
@@ -447,7 +496,12 @@ internal sealed class TcpUdpSession : ITransportSession
 
     private void SetState(TransportSessionState state)
     {
-        lock (_gate) _state = state;
+        lock (_gate)
+        {
+            if (_state == TransportSessionState.Stopping && state != TransportSessionState.Stopped) return;
+            if (state == _state) return;
+            _state = state;
+        }
         Publish(TransportEventKind.StateChanged, null, ReadOnlyMemory<byte>.Empty, null, null);
     }
 

@@ -145,7 +145,7 @@ internal static class SerialBridgeChecks
         bridgeWindow.Close();
         await remote.ConnectAsync("127.0.0.1", port);
         await Until(() => vm.SerialPorts.Count(p => p.IsRemote) == 2);
-        var tab = vm.SelectedSerialSession!;
+        var tab = vm.AddSerialSession();
         tab.SelectedSerialPort = tab.SerialPorts.Single(p => p.PortName == "REMOTE:1");
         var main = new MainWindow(vm); main.Show();
         ((TabControl)main.FindName("MainWorkspaceTabs")).SelectedIndex = 1;

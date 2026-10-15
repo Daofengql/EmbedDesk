@@ -2,7 +2,8 @@
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <StackPanel>
   <WrapPanel x:Name="SettingsPanel">
-   <StackPanel Width="122" Margin="0,0,8,6"><TextBlock Text="传输方式" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="TransportBox" SelectionChanged="Transport_Changed"/></StackPanel>
+   <StackPanel Width="158" Margin="0,0,8,6"><TextBlock Text="连接方式" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="TransportBox" DisplayMemberPath="Value" SelectedValuePath="Key" SelectionChanged="Transport_Changed"/></StackPanel>
+   <StackPanel x:Name="ProtocolPanel" Width="90" Margin="0,0,8,6" Visibility="Collapsed"><TextBlock Text="协议" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="ProtocolBox" DisplayMemberPath="Value" SelectedValuePath="Key" SelectionChanged="Transport_Changed"/></StackPanel>
    <StackPanel x:Name="SerialPanel" Width="220" Margin="0,0,8,6"><TextBlock Text="串口设备" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="PortBox" DisplayMemberPath="DisplayName" ToolTip="独占使用；不关闭其他会话"/></StackPanel>
    <StackPanel x:Name="BaudPanel" Width="112" Margin="0,0,8,6"><TextBlock Text="波特率 · 8N1" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="BaudBox" IsEditable="True" Padding="8,5,28,5"/></StackPanel>
    <StackPanel x:Name="HostPanel" Width="220" Margin="0,0,8,6" Visibility="Collapsed"><TextBlock x:Name="HostLabel" Text="远程地址" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><TextBox x:Name="HostBox" Text="127.0.0.1"/></StackPanel>

@@ -13,7 +13,7 @@
             <Style.Triggers><Trigger Property="IsEditable" Value="True"><Setter Property="Padding" Value="8,5,34,5" /></Trigger></Style.Triggers>
         </Style>
         <local:SerialOptionLabelConverter x:Key="OptionLabel" />
-        <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,7" /><Setter Property="FontSize" Value="12" /></Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedBrush}" /><Setter Property="Margin" Value="0,0,0,3" /><Setter Property="FontSize" Value="12" /></Style>
         <Style x:Key="ModeButton" TargetType="RadioButton">
             <Setter Property="Padding" Value="12,6" /><Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
@@ -32,7 +32,7 @@
     </UserControl.Resources>
     <Grid Background="{StaticResource PanelBrush}">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12,22,10" Background="{StaticResource PanelBrush}">
+        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,8,22,6" Background="{StaticResource PanelBrush}">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="308" /><ColumnDefinition Width="134" /><ColumnDefinition Width="272" /><ColumnDefinition Width="206" /><ColumnDefinition Width="80" /></Grid.ColumnDefinitions>
@@ -70,14 +70,14 @@
                 <Button Grid.Column="4" VerticalAlignment="Bottom" Height="34">
                     <Button.Style><Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}"><Setter Property="Content" Value="连接" /><Setter Property="Command" Value="{Binding OpenSelectedSerialCommand}" /><Style.Triggers><DataTrigger Binding="{Binding SelectedSerialPort.IsOpen}" Value="True"><Setter Property="Content" Value="断开" /><Setter Property="Command" Value="{Binding CloseSelectedSerialCommand}" /><Setter Property="Background" Value="#A54949" /><Setter Property="BorderBrush" Value="#A54949" /></DataTrigger></Style.Triggers></Style></Button.Style>
                 </Button>
-                <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Margin="0,10,16,0" TextTrimming="CharacterEllipsis" Style="{StaticResource MutedText}" FontSize="12">
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Margin="0,4,16,0" TextTrimming="CharacterEllipsis" Style="{StaticResource MutedText}" FontSize="12">
                     <Run Text="{Binding SelectedSerialPort.Description, Mode=OneWay, TargetNullValue=未发现串口设备}" /><Run Text="   ·   " /><Run Text="{Binding SelectedSerialPort.Manufacturer, Mode=OneWay}" />
                 </TextBlock>
-                <TextBlock Grid.Row="1" Grid.Column="4" Margin="0,10,0,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" FontSize="12" Text="{Binding StatusLabel}" Foreground="{StaticResource MutedBrush}" />
+                <TextBlock Grid.Row="1" Grid.Column="4" Margin="0,4,0,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" FontSize="12" Text="{Binding StatusLabel}" Foreground="{StaticResource MutedBrush}" />
                 <TextBlock Grid.Row="2" Grid.ColumnSpan="5" Text="{Binding ConnectionError}" ToolTip="{Binding ConnectionError}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="48" Foreground="#FFB4A5" FontSize="12" Margin="0,6,0,0"><TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding ConnectionError}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
             </Grid>
         </Border>
-        <Grid Grid.Row="1" Margin="22,8,22,8">
+        <Grid Grid.Row="1" Margin="22,2,22,2">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal">
                 <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="3"><StackPanel Orientation="Horizontal">
@@ -90,14 +90,14 @@
                 </StackPanel>
             </StackPanel>
         </Grid>
-        <Grid Grid.Row="2" Margin="22,0,22,18">
+        <Grid Grid.Row="2" Margin="22,0,22,12">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <Grid x:Name="SerialContentArea">
                 <Grid x:Name="NormalWorkspace">
                     <Grid.Style><Style TargetType="Grid"><Style.Triggers><DataTrigger Binding="{Binding ShellMode}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Grid.Style>
-                    <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="118" /><RowDefinition Height="110" MinHeight="85" /></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="*" MinHeight="160" /><RowDefinition Height="88" MinHeight="82" MaxHeight="88" /></Grid.RowDefinitions>
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="38" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="32" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <TextBlock Text="接收" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal">
@@ -118,7 +118,7 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal"><CheckBox Content="HEX" IsChecked="{Binding SerialSendAsHex}" Margin="0,0,16,0" /><CheckBox Content="追加 CRLF" IsChecked="{Binding SerialAppendCrLf}"><CheckBox.Style><Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Style.Triggers><DataTrigger Binding="{Binding SerialSendAsHex}" Value="True"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers></Style></CheckBox.Style></CheckBox></StackPanel>
                         </Grid>
                         <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="90" /></Grid.ColumnDefinitions>
-                            <TextBox x:Name="SendEditor" MinHeight="45" Text="{Binding SerialSendText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="14" Padding="12,10" />
+                            <TextBox x:Name="SendEditor" MinHeight="45" Text="{Binding SerialSendText, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" FontFamily="Consolas" FontSize="14" Padding="10,4" />
                             <Button Grid.Column="1" Margin="10,0,0,0" Style="{StaticResource PrimaryButton}" Command="{Binding SendSelectedSerialCommand}" ToolTip="发送"><StackPanel><TextBlock Text="&#xE724;" Style="{StaticResource Icon}" Margin="0,0,0,7" /><TextBlock Text="发送" HorizontalAlignment="Center" /></StackPanel></Button>
                         </Grid>
                     </Grid>

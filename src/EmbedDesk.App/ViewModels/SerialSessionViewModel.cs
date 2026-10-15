@@ -15,6 +15,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private ISerialPortChannel? _channel;
+    private BoundedDispatcherQueue<(DateTimeOffset Timestamp, byte[] Data)>? _receiveQueue;
     private CancellationTokenSource? _connecting, _jobCancellation;
     private Task _jobTask = Task.CompletedTask;
     private Task? _closeTask;
@@ -135,6 +136,9 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         {
             var channel = Owner.CreateSerialChannel(port);
             _channel = channel;
+            _receiveQueue = new(Application.Current?.Dispatcher,
+                item => { if (!_disposed && ReferenceEquals(channel, _channel)) Terminal.Add(item.Timestamp, true, item.Data); },
+                () => { if (ReferenceEquals(channel, _channel)) _ = CloseAsync("连接中断：接收处理速度不足，请降低发送速率。"); });
             channel.DataReceived += OnDataReceived;
             if (channel is ISerialPortFaultNotifier notifier) notifier.Faulted += OnChannelFaulted;
             await Task.Run(() => channel.OpenAsync(cancellation.Token), cancellation.Token);
@@ -176,6 +180,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
     private async Task ReleaseChannelAsync()
     {
         var channel = _channel; _channel = null;
+        _receiveQueue?.Dispose(); _receiveQueue = null;
         try
         {
             if (channel is not null)
@@ -196,15 +201,10 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
 
     private void OnDataReceived(object? sender, ReadOnlyMemory<byte> data)
     {
-        var bytes = data.ToArray();
+        if (_disposed || !ReferenceEquals(sender, _channel)) return;
+        var queue = _receiveQueue;
         var timestamp = DateTimeOffset.Now;
-        void Append()
-        {
-            if (_disposed || !ReferenceEquals(sender, _channel)) return;
-            Terminal.Add(timestamp, true, bytes);
-        }
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess()) Append(); else dispatcher.BeginInvoke(Append);
+        queue?.Post(() => (timestamp, data.ToArray()), data.Length);
     }
     private void OnChannelFaulted(object? sender, string error)
     {
@@ -321,6 +321,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
     private void PortChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SerialPortRowViewModel.IsOpen) or nameof(SerialPortRowViewModel.IsAvailable)) NotifyState();
+        if (e.PropertyName is nameof(SerialPortRowViewModel.BaudRate) or nameof(SerialPortRowViewModel.CustomBaudRate)) OnPropertyChanged(nameof(SelectedSerialPort));
     }
     private void NotifyState()
     {

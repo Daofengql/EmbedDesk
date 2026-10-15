@@ -1,0 +1,33 @@
+<UserControl x:Class="EmbedDesk.App.Controls.CameraDebugView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:EmbedDesk.App.Controls">
+ <Grid Margin="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel x:Name="ViewHeading" Margin="0,0,0,12"><TextBlock Text="摄像头调试助手" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="开发板图像接收 · 兼容协议与 JPEG 连续流" Style="{StaticResource MutedText}" Margin="0,4,0,0"/></StackPanel>
+  <local:DebugToolConnectionPanel x:Name="Connection" Grid.Row="1"/>
+  <WrapPanel Grid.Row="2" Margin="0,6,0,6">
+   <StackPanel x:Name="FormatSettings"><WrapPanel>
+    <StackPanel Width="174" Margin="0,0,10,0"><TextBlock Text="接收格式" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="ModeBox" SelectedIndex="0"><ComboBoxItem Content="兼容协议传输"/><ComboBoxItem Content="JPEG 连续流（无包头）"/></ComboBox></StackPanel>
+    <CheckBox x:Name="CrcBox" Content="验证 CRC-16" IsChecked="True" VerticalAlignment="Center" Margin="0,20,12,0"/>
+    <StackPanel Width="140" Margin="0,0,10,0"><TextBlock Text="RGB565 字节序" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="EndianBox" SelectedIndex="0"><ComboBoxItem Content="低字节在前 (LE)"/><ComboBoxItem Content="高字节在前 (BE)"/></ComboBox></StackPanel>
+   </WrapPanel></StackPanel>
+   <StackPanel Width="106" Margin="0,0,10,0"><TextBlock Text="显示设备" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="DeviceCountBox" SelectedIndex="0" SelectionChanged="Devices_Changed"><ComboBoxItem Content="1 个设备"/><ComboBoxItem Content="2 个设备"/></ComboBox></StackPanel>
+   <CheckBox x:Name="PauseBox" Content="暂停画面" VerticalAlignment="Center" Margin="0,20,12,0"/>
+   <Button Content="保存画面" Click="Snapshot_Click" Margin="0,20,0,0"/>
+  </WrapPanel>
+  <Grid Grid.Row="3"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="SecondColumn" Width="0"/></Grid.ColumnDefinitions>
+   <Border Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="8"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="ImageLabel0" Text="设备 0 · 等待开发板设置图像格式" Style="{StaticResource MutedText}" Margin="0,0,0,6"/><Image x:Name="Preview0" Grid.Row="1" Stretch="Uniform"/></Grid></Border>
+   <Border x:Name="SecondImagePanel" Grid.Column="1" Margin="8,0,0,0" Visibility="Collapsed" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="8"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="ImageLabel1" Text="设备 1 · 等待图像" Style="{StaticResource MutedText}" Margin="0,0,0,6"/><Image x:Name="Preview1" Grid.Row="1" Stretch="Uniform"/></Grid></Border>
+  </Grid>
+  <StackPanel Grid.Row="4" Margin="0,6,0,0">
+   <TextBlock Text="寄存器读写 · HEX 输入，协议字段低字节在前" FontWeight="SemiBold"/>
+   <WrapPanel x:Name="RegisterPanel" Margin="0,6,0,0">
+    <StackPanel Width="74" Margin="0,0,8,0"><TextBlock Text="设备地址" Style="{StaticResource MutedText}"/><ComboBox x:Name="AddressBox" SelectedIndex="0"><ComboBoxItem Content="0"/><ComboBoxItem Content="1"/></ComboBox></StackPanel>
+    <StackPanel Width="82" Margin="0,0,8,0"><TextBlock Text="地址字节数" Style="{StaticResource MutedText}"/><ComboBox x:Name="AddressWidthBox" SelectedIndex="0"><ComboBoxItem Content="1"/><ComboBoxItem Content="2"/><ComboBoxItem Content="3"/><ComboBoxItem Content="4"/></ComboBox></StackPanel>
+    <StackPanel Width="82" Margin="0,0,8,0"><TextBlock Text="值字节数" Style="{StaticResource MutedText}"/><ComboBox x:Name="ValueWidthBox" SelectedIndex="0"><ComboBoxItem Content="1"/><ComboBoxItem Content="2"/><ComboBoxItem Content="3"/><ComboBoxItem Content="4"/></ComboBox></StackPanel>
+    <StackPanel Width="130" Margin="0,0,8,0"><TextBlock Text="寄存器地址 (HEX)" Style="{StaticResource MutedText}"/><TextBox x:Name="RegisterAddressBox" Text="00"/></StackPanel>
+    <StackPanel Width="130" Margin="0,0,8,0"><TextBlock Text="寄存器值 (HEX)" Style="{StaticResource MutedText}"/><TextBox x:Name="RegisterValueBox" Text="00"/></StackPanel>
+    <Button Content="读取" Tag="Read" Click="Register_Click" Margin="0,16,8,0"/><Button Content="写入" Tag="Write" Click="Register_Click" Margin="0,16,8,0"/>
+   </WrapPanel>
+   <TextBlock x:Name="RegisterStatus" Text="未发送 · 连接开发板后可用" Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+  </StackPanel>
+  <TextBlock x:Name="StatusText" Grid.Row="5" Text="支持 JPEG / BMP / PNG、RGB565 / RGB888；单帧最多 8 MiB、4096 × 4096 内且总像素不超过 4,194,304。" Style="{StaticResource MutedText}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+ </Grid>
+</UserControl>

@@ -102,7 +102,7 @@ internal static class AppSettingsChecks
 
             var path = Path.Combine(directory, "app-settings.json");
             var json = await File.ReadAllTextAsync(path);
-            Require(json.Contains("\"SchemaVersion\": 2", StringComparison.Ordinal), "settings document includes a schema version");
+            Require(json.Contains("\"SchemaVersion\": 3", StringComparison.Ordinal), "settings document includes a schema version");
             Require(!json.Contains("\"Password\":", StringComparison.OrdinalIgnoreCase)
                 && !json.Contains("secret", StringComparison.OrdinalIgnoreCase)
                 && !json.Contains("payload", StringComparison.OrdinalIgnoreCase)
@@ -286,6 +286,7 @@ internal static class AppSettingsChecks
             await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), new FakeSerialService(),
                 new FakeBridge(), remoteSerial, new FakeRemoteDebugService(), directory);
             await viewModel.InitializeAsync();
+            viewModel.AddSerialSession();
             var remoteMerge = viewModel.RemoteDebug!.MergeProfiles(imported.RemoteProfiles);
             Require(remoteMerge.Added == 1 && viewModel.RemoteDebug.Profiles.Any(profile => profile.Name == "S3 测试" && profile.S3AccessKeyId.Length == 0),
                 "remote connection import merges metadata without credentials");

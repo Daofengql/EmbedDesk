@@ -6,12 +6,17 @@ using EmbedDesk.Core.Models;
 
 namespace EmbedDesk.Infrastructure.Diagnostics;
 
-public enum DebugToolTransport { Serial, TcpClient, TcpServer, Udp }
+public enum DebugToolTransport { Serial, TcpClient, TcpServer, Udp, UdpTarget, UdpListen }
 
-public sealed record DebugToolEndpoint(DebugToolTransport Transport, string Host, int Port, SerialPortSettings? Serial = null);
+public sealed record DebugToolEndpoint(DebugToolTransport Transport, string Host, int Port, SerialPortSettings? Serial = null)
+{
+    public string LocalHost { get; init; } = "0.0.0.0";
+    public int LocalPort { get; init; }
+    public int TimeoutMilliseconds { get; init; } = 10000;
+}
 
 /// <summary>One independent connection per tool. UDP locks to the first sender for the session.</summary>
-public sealed class DebugToolConnection(ISerialPortService serialService)
+public sealed class DebugToolConnection(ISerialPortService serialService) : IDisposable
 {
     private readonly SemaphoreSlim _send = new(1, 1);
     private ISerialPortChannel? _serial;
@@ -21,6 +26,8 @@ public sealed class DebugToolConnection(ISerialPortService serialService)
 
     public async Task RunAsync(DebugToolEndpoint endpoint, Func<ReadOnlyMemory<byte>, Task> receive, Action<string> state, CancellationToken token)
     {
+        if (!Enum.IsDefined(endpoint.Transport) || endpoint.Transport == DebugToolTransport.UdpListen)
+            throw new ArgumentException("协议调试连接需要指定目标或锁定单个对端。");
         if (endpoint.Transport == DebugToolTransport.Serial)
         {
             var queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(32) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
@@ -45,13 +52,20 @@ public sealed class DebugToolConnection(ISerialPortService serialService)
             }
             return;
         }
-        if (endpoint.Transport == DebugToolTransport.Udp)
+        if (endpoint.Transport is DebugToolTransport.Udp or DebugToolTransport.UdpTarget)
         {
-            using var udp = new UdpClient(new IPEndPoint(IPAddress.Parse(endpoint.Host), endpoint.Port));
+            var targetMode = endpoint.Transport == DebugToolTransport.UdpTarget;
+            using var udp = new UdpClient(new IPEndPoint(IPAddress.Parse(targetMode ? endpoint.LocalHost : endpoint.Host), targetMode ? endpoint.LocalPort : endpoint.Port));
             _udp = udp; _peer = null;
             try
             {
-                state("UDP 正在监听 · 锁定首个发送端");
+                if (targetMode)
+                {
+                    var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, token);
+                    _peer = new IPEndPoint(addresses.First(address => address.AddressFamily == udp.Client.AddressFamily), endpoint.Port);
+                    state("UDP 已绑定目标");
+                }
+                else state("UDP 正在监听 · 锁定首个发送端");
                 while (true)
                 {
                     var packet = await udp.ReceiveAsync(token);
@@ -75,9 +89,11 @@ public sealed class DebugToolConnection(ISerialPortService serialService)
             else
             {
                 client = new TcpClient();
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                if (endpoint.LocalHost != "0.0.0.0" || endpoint.LocalPort != 0)
+                    client.Client.Bind(new IPEndPoint(IPAddress.Parse(endpoint.LocalHost), endpoint.LocalPort));
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(endpoint.TimeoutMilliseconds);
                 try { await client.ConnectAsync(endpoint.Host, endpoint.Port, timeout.Token); }
-                catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new TimeoutException("TCP 连接超时（10 秒）。"); }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested) { throw new TimeoutException($"TCP 连接超时（{endpoint.TimeoutMilliseconds} 毫秒）。"); }
             }
             client.NoDelay = true;
             _stream = client.GetStream(); state("TCP 已连接");
@@ -105,4 +121,7 @@ public sealed class DebugToolConnection(ISerialPortService serialService)
         }
         finally { _send.Release(); }
     }
+
+    // The owner cancels and joins receive/send tasks before disposing the gate.
+    public void Dispose() => _send.Dispose();
 }

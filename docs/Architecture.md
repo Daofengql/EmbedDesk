@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-EmbedDesk 是 .NET 8 / WPF / MVVM 桌面应用。连接中心管理设备身份和共享服务；串口、远程、网络调试各自持有会话；网络与嵌入式工具在独立窗口中复用基础服务。功能、命令和发布方式见[项目首页](../README.md)。
+EmbedDesk 是 .NET 8 / WPF / MVVM 桌面应用。连接中心管理设备身份和共享服务；串口、网络、PID、摄像头共用「调试助手」的一排会话标签，远程调试保持独立工作区。二进制编辑器保留在嵌入式工具。统一标签、内部新建弹窗、连接设置与生命周期见[调试助手合并设计](DebugAssistantDesign.md)。功能、命令和发布方式见[项目首页](../README.md)。
 
 ## 分层与代码位置
 
@@ -36,6 +36,8 @@ flowchart TB
 
 各调试标签独立持有会话和后台任务，切换标签不停止收发；关闭使用标签内的 `×` 并确认。串口和网络会话各自保留配置、历史与累计 RX / TX，接收区批量格式化，隐藏页面减少界面工作但继续通信。历史自动限制为 1,000 条 / 4 MiB，文本显示约 100 万字符；原始录制在裁剪前捕获数据，详见 [性能说明](performance.md)。
 
+`DebugAssistantWorkspace` 持有 `DebugSessionTab` 集合与常驻视图，默认无标签，不提供连接预设栏；切换只改变可见性，保留串口 Shell 的 WebView 实例。PID / 摄像头使用嵌入视图与独立协议连接，网络视图固定绑定单个会话。`DebugSessionDialog` 在主界面内提供分类新建与连接编辑，覆盖串口、TCP / UDP、PID、摄像头及 MQTT 参数；原始网络按客户端 / 服务端选择入口，在表单内选择 TCP 或 UDP。HTTP 新建入口暂缓，待调试器设计确定后再规划。串口与网络的 `BoundedDispatcherQueue` 每标签最多保留 1,024 项 / 4 MiB 待处理数据，每批最多 64 项 / 256 KiB；超载明确停止当前连接，重配后丢弃旧连接的排队回调。
+
 `SharedSerialPortService` 统一物理 COM 的软件共享预留和独占打开：预留期间不打开设备，也不改变 DTR / RTS；远端真正请求时才提交参数并打开，关闭实际通道后保留预留。串口调试和烧录共用该资源管理器，远端应用内串口不需要系统虚拟 COM。
 
 本地 ConPTY、SSH PTY 和串口 Shell 共用 WebView2 / xterm.js，处理 TUI、复制粘贴、字号、全屏和实际 PTY 行列。SSH 文件面板默认折叠，只有“文件”区域可拖出为窗口再合并；小文件缓存预览默认上限 5 MiB。RDP 使用系统 MSTSC ActiveX，VNC 在基础设施层解码；S3 使用 AWS SDK 与 SigV4，当前不承诺匿名桶、ACL、预签名或真实服务验收。
@@ -50,9 +52,9 @@ flowchart TB
 
 ## 配置与生命周期
 
-`%LOCALAPPDATA%\EmbedDesk` 保存 app-settings schema 2、窗口与工具偏好、命名预设、中继列表、共享服务和映射规则；短时间内的写入合并后以临时文件替换。`remote-profiles.json` 只保存非敏感远程资料，`ssh-keys.json` 保存路径索引。设备随机凭据、静态密码、准入密钥、代理口令和可选 S3 密钥进入 Windows Credential Manager；普通设置不保存会话密码、私钥内容、发送载荷、历史或业务流量。
+`%LOCALAPPDATA%\EmbedDesk` 保存 app-settings schema 3、窗口与工具偏好、命名预设、中继列表、共享服务和映射规则；短时间内的写入合并后以临时文件替换。schema 1 / 2 自动迁移旧导航索引和普通 TCP / UDP 预设，保留原预设记录。`remote-profiles.json` 只保存非敏感远程资料，`ssh-keys.json` 保存路径索引。设备随机凭据、静态密码、准入密钥、代理口令和可选 S3 密钥进入 Windows Credential Manager；普通设置不保存会话密码、私钥内容、发送载荷、历史或业务流量。
 
-配置包是独立的 `EmbedDesk.Configuration` schema 1，最大 1 MiB、每类最多 100 项，只导出命名远程连接、网络预设和旧桥接 / STCP 预设，不导出密码、私钥路径、密钥口令、凭据索引、活动会话或新共享服务 / 映射。旧目录和旧 schema 只做兼容迁移；加载配置不会恢复设备授权、实际 COM 或活动会话。
+配置包是独立的 `EmbedDesk.Configuration` schema 2，兼容导入 schema 1。最大 1 MiB、每类最多 100 项，产品界面导出命名远程连接和旧桥接 / STCP 预设，不导出密码、私钥路径、密钥口令、凭据索引、活动会话或新共享服务 / 映射。调试助手已移除连接预设功能，历史记录仅保留文件读取兼容，产品入口不再导入 / 导出这两类旧预设。加载配置不会恢复设备授权、实际 COM 或活动会话。
 
 连接选项保存后下次上线生效，取消不保存。收起到托盘保留窗口、节点、共享预留和后台任务；真正退出才确认未保存内容和连接，停止服务并等待读写清理。保存与退出入口见 [AppSettingsStore.cs](../src/EmbedDesk.App/AppSettingsStore.cs) 与 [MainWindow.xaml.cs](../src/EmbedDesk.App/MainWindow.xaml.cs)。
 

@@ -50,6 +50,8 @@ internal sealed class SmokeApplication : Application
         try
         {
             if (e.Args.Contains("--debug-tools-check")) { await DebugToolsChecks.RunAsync(viewModel); SetExitCode(0); return; }
+            if (e.Args.Contains("--debug-connections-check")) { await DebugConnectionChecks.RunAsync(); SetExitCode(0); return; }
+            viewModel.AddSerialSession();
             if (e.Args.Contains("--device-connections-check")) { await DeviceConnectionsChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--virtual-serial-check")) { await VirtualSerialChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--device-security-check")) { await DeviceSecurityChecks.RunAsync(); SetExitCode(0); return; }
@@ -455,7 +457,9 @@ internal sealed class SmokeApplication : Application
                         break;
                     case "bridge": viewModel.BridgeMode = "服务端"; auxiliary = new BridgeWindow { DataContext = viewModel, Owner = window }; auxiliary.Show(); break;
                     case "client": viewModel.BridgeMode = "客户端"; auxiliary = new BridgeWindow { DataContext = viewModel, Owner = window }; auxiliary.Show(); break;
-                    case "network": Find<TabControl>(window).SelectedIndex = 3; break;
+                    case "network":
+                        Find<TabControl>(window).SelectedIndex = 1;
+                        break;
                 }
                 await Task.Delay(100);
                 Console.WriteLine($"STAGE {command}");

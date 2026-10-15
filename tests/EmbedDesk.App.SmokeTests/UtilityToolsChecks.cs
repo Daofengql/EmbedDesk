@@ -187,7 +187,7 @@ internal static class UtilityToolsChecks
             }
             main.UpdateLayout();
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-serial-spacing-fixed.png");
-            var tabs = Descendants<TabControl>(main).First(); tabs.SelectedIndex = 4;
+            var tabs = Descendants<TabControl>(main).First(); tabs.SelectedIndex = 3;
             main.Width = 1340; main.Height = 940;
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-tools-expanded.png");
             main.Width = main.MinWidth; main.Height = main.MinHeight;
@@ -211,12 +211,15 @@ internal static class UtilityToolsChecks
                 dialog.Close();
                 await Until(() => !dialog.IsVisible);
             }
-            tabs.SelectedIndex = 5;
+            tabs.SelectedIndex = 4;
             await Task.Delay(40);
             main.UpdateLayout();
             var embedded = Descendants<EmbeddedToolsWorkspace>(main).Single();
             var embeddedButtons = Descendants<Button>(embedded).Where(b => b.Tag is string).ToArray();
-            Require(embeddedButtons.Length == 11, "Embedded gallery owns firmware, media and six data/debug tools");
+            Require(embeddedButtons.Length == 9, "Embedded gallery keeps firmware, media and data/debug tools together");
+            Require(embeddedButtons.Any(button => Equals(button.Tag, "BinaryEditor"))
+                && embeddedButtons.All(button => button.Tag?.ToString() is not ("Camera" or "Pid")),
+                "Binary editor stays in embedded tools while PID and camera are reached through the debug assistant");
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-embedded-tools-small.png");
             main.Width = 1340; main.Height = 940;
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-embedded-tools.png");
@@ -229,7 +232,7 @@ internal static class UtilityToolsChecks
                     "EspConnect" => typeof(EspConnectToolWindow), "Firmware" => typeof(FirmwareToolWindow),
                     "C51" => typeof(StcIspToolWindow), "Ch347" => typeof(Ch347ToolWindow),
                     "Image" => typeof(ImageWriterWindow), "Logs" => typeof(TrafficRecordingWindow),
-                    "Camera" => typeof(CameraDebugWindow), "Pid" => typeof(PidDebugWindow), "BinaryEditor" => typeof(BinaryEditorWindow),
+                    "BinaryEditor" => typeof(BinaryEditorWindow),
                     _ => typeof(ByteToolWindow)
                 };
                 Require(dialog.GetType() == expected, $"Embedded gallery opens the actual {button.Tag} implementation");

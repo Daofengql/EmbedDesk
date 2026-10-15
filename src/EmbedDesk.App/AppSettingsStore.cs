@@ -9,7 +9,7 @@ namespace EmbedDesk.App;
 /// <summary>Versioned, local-only application preferences. Secrets and session data do not belong here.</summary>
 internal sealed class AppSettingsStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     private readonly object _sync = new();
     private readonly object _writeSync = new();
@@ -75,6 +75,48 @@ internal sealed class AppSettingsStore : IDisposable
         lock (_sync) return _document.NetworkPresets.OrderBy(preset => preset.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
+    public IReadOnlyList<DebugConnectionPreset> GetDebugPresets()
+    {
+        lock (_sync) return _document.DebugPresets.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+    public void SaveDebugPreset(DebugConnectionPreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+        DebugConnectionPreset.Validate(preset.Endpoint);
+        var normalized = preset with { Name = preset.Name.Trim() };
+        if (normalized.Name.Length is < 1 or > 64) throw new ArgumentException("预设名称长度应为 1–64 个字符。");
+        Update(document =>
+        {
+            var index = document.DebugPresets.FindIndex(p => p.Id == normalized.Id);
+            if (index < 0 && document.DebugPresets.Count >= 100) throw new InvalidOperationException("最多保存 100 个调试连接预设。");
+            if (document.DebugPresets.Any(p => p.Id != normalized.Id && string.Equals(p.Name, normalized.Name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("已存在同名预设，请更换名称。");
+            if (index < 0) document.DebugPresets.Add(normalized); else document.DebugPresets[index] = normalized;
+        });
+    }
+    public void DeleteDebugPreset(Guid id) => Update(document => document.DebugPresets.RemoveAll(p => p.Id == id));
+    internal ConfigurationMergeResult MergeDebugPresets(IEnumerable<DebugConnectionPreset> presets)
+    {
+        lock (_sync)
+        {
+            var added = 0; var skipped = 0;
+            foreach (var preset in presets)
+            {
+                if (!IsValidDebugPreset(preset) || _document.DebugPresets.Count >= 100
+                    || _document.DebugPresets.Any(p => string.Equals(p.Name, preset.Name.Trim(), StringComparison.OrdinalIgnoreCase)))
+                { skipped++; continue; }
+                _document.DebugPresets.Add(preset with { Id = Guid.NewGuid(), Name = preset.Name.Trim() }); added++;
+            }
+            if (added > 0) MarkDirtyLocked();
+            return new(added, skipped);
+        }
+    }
+    private static bool IsValidDebugPreset(DebugConnectionPreset preset)
+    {
+        if (preset?.Name is not { Length: > 0 and <= 64 } || preset.Endpoint is null) return false;
+        try { DebugConnectionPreset.Validate(preset.Endpoint); return true; } catch (ArgumentException) { return false; }
+    }
+
     /// <summary>Merges imported non-secret presets without replacing local entries.</summary>
     internal ConfigurationMergeResult MergeNetworkPresets(IEnumerable<NetworkConnectionPreset> presets)
     {
@@ -93,7 +135,10 @@ internal sealed class AppSettingsStore : IDisposable
                     continue;
                 }
 
-                _document.NetworkPresets.Add(preset with { Id = Guid.NewGuid(), Name = preset.Name.Trim() });
+                var imported = preset with { Id = Guid.NewGuid(), Name = preset.Name.Trim() };
+                _document.NetworkPresets.Add(imported);
+                if (!imported.TreatAsHttp && imported.Protocol != EmbedDesk.Core.Models.TransportProtocol.Mqtt)
+                    MergeDebugPresets([DebugConnectionPreset.FromNetwork(imported)]);
                 added++;
             }
 
@@ -360,9 +405,16 @@ internal sealed class AppSettingsStore : IDisposable
             var document = JsonSerializer.Deserialize<AppSettingsDocument>(stream, JsonOptions);
             if (document is null || document.SchemaVersion is < 1 or > CurrentSchemaVersion) return new AppSettingsDocument();
             if (document.SchemaVersion == 1) document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 4) + 1;
+            if (document.SchemaVersion < 3)
+            {
+                document.LastWorkspaceIndex = document.LastWorkspaceIndex switch { 3 => 1, >= 4 => document.LastWorkspaceIndex - 1, _ => document.LastWorkspaceIndex };
+                document.DebugPresets = (document.NetworkPresets ?? []).Where(p => IsValidNetworkPreset(p) && !p.TreatAsHttp && p.Protocol != EmbedDesk.Core.Models.TransportProtocol.Mqtt)
+                    .Select(DebugConnectionPreset.FromNetwork).ToList();
+            }
             document.SchemaVersion = CurrentSchemaVersion;
             document.SerialPorts = new Dictionary<string, SerialPortPreference>(document.SerialPorts ?? new Dictionary<string, SerialPortPreference>(), StringComparer.OrdinalIgnoreCase);
-            document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 5);
+            document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 4);
+            document.DebugPresets = (document.DebugPresets ?? []).Where(IsValidDebugPreset).DistinctBy(p => p.Id).Take(100).ToList();
             document.ConnectionPreferences = NormalizeConnectionPreferences(document.ConnectionPreferences ?? new());
             document.RecentDeviceIds = (document.RecentDeviceIds ?? []).Where(s => s is { Length: 12 } && s.All(Uri.IsHexDigit)).Distinct().Take(20).ToList();
             document.PortMappingRules = (document.PortMappingRules ?? []).Where(r => r is not null && Guid.TryParseExact(r.Id, "N", out _) && r.DeviceId is { Length: 12 } && r.DeviceId.All(Uri.IsHexDigit) && Guid.TryParseExact(r.ServiceId, "N", out _) && r.ServiceName is { Length: > 0 and <= 64 } && r.HasValidTarget).DistinctBy(r => r.Id).Take(128).ToList();
@@ -411,6 +463,7 @@ internal sealed class AppSettingsStore : IDisposable
         RemoteSessionPaneExpanded = source.RemoteSessionPaneExpanded,
         SerialPorts = (source.SerialPorts ?? new Dictionary<string, SerialPortPreference>()).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
         NetworkPresets = (source.NetworkPresets ?? new List<NetworkConnectionPreset>()).ToList(),
+        DebugPresets = (source.DebugPresets ?? []).ToList(),
         SerialBridgePresets = (source.SerialBridgePresets ?? new List<SerialBridgeClientPreset>()).ToList(),
         StcpTunnels = (source.StcpTunnels ?? new List<StcpTunnelProfile>()).ToList(),
         NetworkSessionPaneWidth = source.NetworkSessionPaneWidth,
@@ -631,7 +684,7 @@ internal sealed class AppSettingsStore : IDisposable
 
 internal sealed class AppSettingsDocument
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public ConnectionPreferences ConnectionPreferences { get; set; } = new();
     public List<EmbedDesk.Infrastructure.Connections.SharedDeviceService> SharedServices { get; set; } = [];
     public List<string> RecentDeviceIds { get; set; } = [];
@@ -646,6 +699,7 @@ internal sealed class AppSettingsDocument
     public bool RemoteSessionPaneExpanded { get; set; } = true;
     public Dictionary<string, SerialPortPreference> SerialPorts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<NetworkConnectionPreset> NetworkPresets { get; set; } = [];
+    public List<DebugConnectionPreset> DebugPresets { get; set; } = [];
     public List<SerialBridgeClientPreset> SerialBridgePresets { get; set; } = [];
     public List<StcpTunnelProfile> StcpTunnels { get; set; } = [];
     public double NetworkSessionPaneWidth { get; set; } = 210;

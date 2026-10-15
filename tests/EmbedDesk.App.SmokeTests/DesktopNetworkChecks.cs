@@ -25,11 +25,12 @@ internal static class DesktopNetworkChecks
         window.Show();
         try
         {
-            var tabs = Descendants<TabControl>(window).First(); tabs.SelectedIndex = 3;
+            var tabs = Descendants<TabControl>(window).First(); tabs.SelectedIndex = 1;
             await Task.Delay(150);
-            var network = Descendants<NetworkWorkspace>(window).Single();
-            Require(((FrameworkElement)network.FindName("EmptyState")).IsVisible, "Network workspace starts with a useful empty state");
-            tabs.SelectedIndex = 4;
+            var assistant = Descendants<DebugAssistantWorkspace>(window).Single();
+            Require(assistant.Tabs.Count == 1 && assistant.Tabs[0].Owner is SerialSessionViewModel,
+                "Debug assistant keeps its serial session as the initial first-level tab");
+            tabs.SelectedIndex = 3;
             await Task.Delay(100);
             var networkTools = Descendants<NetworkToolsWorkspace>(window).Single();
             var networkToolTags = Descendants<Button>(networkTools).Select(button => button.Tag?.ToString()).ToHashSet(StringComparer.Ordinal);
@@ -42,14 +43,27 @@ internal static class DesktopNetworkChecks
                 toolWindow.Close();
             }
             Require(true, "NAT, UPnP, DNS and traceroute windows load successfully");
-            Require(network.FindName("ToolList") is null, "Network workspace keeps protocol choices inside the new-session picker");
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-network-tools.png");
-            tabs.SelectedIndex = 3;
+            tabs.SelectedIndex = 1;
             await Task.Delay(100);
             var port = FreePort();
             var server = await vm.CreateNetworkSessionAsync(new TransportOptions { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = port, AutoReconnect = false });
             var client = await vm.CreateNetworkSessionAsync(new TransportOptions { LocalPort = 0, ClientLocalAddress = IPAddress.Loopback.ToString(), RemoteHost = "127.0.0.1", RemotePort = port, AutoReconnect = false });
             await WaitAsync(() => client.CanSend && server.CanSend);
+            var network = (NetworkWorkspace)assistant.Tabs.Single(tab => ReferenceEquals(tab.Owner, server)).Content;
+            assistant.SelectTab(assistant.Tabs.Single(tab => ReferenceEquals(tab.Owner, server)));
+            Require(assistant.Tabs.Count == 3 && assistant.Tabs.Count(tab => tab.Owner is NetworkSessionViewModel) == 2,
+                "Each network session becomes an independent first-level debug tab");
+            window.Width = window.MinWidth; window.Height = window.MinHeight; window.UpdateLayout();
+            var networkLayout = (Grid)network.FindName("TrafficLayout");
+            Require(networkLayout.RowDefinitions[1].ActualHeight is >= 76 and <= 88
+                && ((TextBox)network.FindName("ReceiveText")).ActualHeight >= 140,
+                "Small network windows reserve a compact send area and keep a readable receive pane");
+            var queueGrid = (DataGrid)network.FindName("QueueGrid");
+            var queueStatus = (TextBlock)network.FindName("QueueStatus");
+            Require(queueGrid.ActualHeight >= 48 && queueStatus.TransformToAncestor(network).TransformBounds(new Rect(queueStatus.RenderSize)).Bottom <= network.ActualHeight,
+                "Network queue header, one row, action buttons and final status fit the minimum window");
+            await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-debug-network-small.png");
             Require(IPEndPoint.TryParse(client.LocalEndpoint, out var selectedTcpSource) && selectedTcpSource.Address.Equals(IPAddress.Loopback),
                 "TCP client binds its selected local interface address");
             await WaitAsync(() => client.NetworkStatus.Milliseconds.HasValue);
@@ -100,10 +114,12 @@ internal static class DesktopNetworkChecks
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-network-new.png");
             window.Width = 1080; window.Height = 680; window.UpdateLayout();
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-network-compact.png");
-            ((Button)network.FindName("SessionToggle")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Require(((FrameworkElement)network.FindName("SessionPane")).Visibility == Visibility.Collapsed, "Network sessions collapse through the center edge control");
-            ((Button)network.FindName("SessionToggle")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Require(((FrameworkElement)network.FindName("SessionPane")).IsVisible, "The same edge control restores network sessions");
+            Require(((FrameworkElement)network.FindName("SessionPane")).Visibility == Visibility.Collapsed
+                && ((FrameworkElement)network.FindName("SessionToggle")).Visibility == Visibility.Collapsed,
+                "Unified network tabs have no nested session list or list toggle");
+            Require(((Grid)network.FindName("SessionContent")).DataContext == server
+                && ((Grid)((NetworkWorkspace)assistant.Tabs.Single(tab => tab.Owner == client).Content).FindName("SessionContent")).DataContext == client,
+                "Switching the selected network session never rebinds another tab's content");
             await client.StopAsync();
             await WaitAsync(() => client.CanStart);
             await client.StartStopCommand.ExecuteAsync(null);
@@ -204,7 +220,7 @@ internal static class DesktopNetworkChecks
                 Require(received >= 11 && packet[0] == 3, "RDP handshake uses the native TPKT/X.224 transport");
                 manager.SelectLocalShellCommand.Execute(null);
                 manager.SelectTab(rdpSession);
-                tabs.SelectedIndex = 3; await Task.Delay(120); tabs.SelectedIndex = 2; await Task.Delay(120);
+                tabs.SelectedIndex = 1; await Task.Delay(120); tabs.SelectedIndex = 2; await Task.Delay(120);
                 Require(rdpSession.IsConnecting, "Native RDP transport remains active when switching main function pages");
                 Require(manager.SelectedDesktop == rdpSession && manager.Tabs.Contains(rdpSession), "Desktop tabs survive switching to local Shell and back");
             }

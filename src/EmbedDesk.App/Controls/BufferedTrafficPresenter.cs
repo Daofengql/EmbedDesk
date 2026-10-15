@@ -8,7 +8,7 @@ using EmbedDesk.App.ViewModels;
 
 namespace EmbedDesk.App.Controls;
 
-internal readonly record struct TrafficDisplayOptions(bool Hex, bool Time, bool Sent);
+internal readonly record struct TrafficDisplayOptions(bool Hex, bool Time, bool Sent, bool SeparateMessages = false);
 
 /// <summary>Append new traffic in UI batches; hidden views do no formatting or layout work.</summary>
 internal sealed class BufferedTrafficPresenter
@@ -95,12 +95,14 @@ internal sealed class BufferedTrafficPresenter
                 var characters = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(entry.Data.Length));
                 try
                 {
-                    var count = (entry.IsReceived ? _rx : _tx).GetChars(entry.Data, characters, false);
+                    var decoder = entry.IsReceived ? _rx : _tx;
+                    if (_options.SeparateMessages) decoder.Reset();
+                    var count = decoder.GetChars(entry.Data, characters, _options.SeparateMessages);
                     builder.Append(characters, 0, count);
                 }
                 finally { ArrayPool<char>.Shared.Return(characters); }
             }
-            if ((_options.Hex || _options.Time || _options.Sent) && (builder.Length == 0 || builder[^1] != '\n')) builder.AppendLine();
+            if ((_options.Hex || _options.Time || _options.Sent || _options.SeparateMessages) && (builder.Length == 0 || builder[^1] != '\n')) builder.AppendLine();
             if (builder.Length > MaxCharacters) builder.Remove(0, builder.Length - MaxCharacters);
         }
         var offset = _text.VerticalOffset;

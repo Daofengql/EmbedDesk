@@ -26,6 +26,7 @@ internal static class PerformanceChecks
         var window = new MainWindow(vm) { Width = 1200, Height = 800 }; window.Show();
         try
         {
+            ((TabControl)window.FindName("MainWorkspaceTabs")).SelectedIndex = 1;
             await Task.Delay(150);
             var serial = Find<SerialWorkspace>(window)!;
             var text = (TextBox)serial.FindName("ReceiveText");

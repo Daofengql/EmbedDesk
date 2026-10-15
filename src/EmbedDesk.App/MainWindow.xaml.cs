@@ -250,6 +250,7 @@ public partial class MainWindow : Window
             if (Application.Current is App && DataContext is MainWindowViewModel liveModel
                 && (liveModel.SerialSessions.Any(s => s.IsOpen || s.IsBusy) || liveModel.Sessions.Any(s => !s.CanStart)
                     || liveModel.Connections.Node.Peers.Count > 0 || liveModel.Connections.IsConnecting
+                    || DebugAssistant.HasActiveWork
                     || liveModel.RemoteDebug is { } activeRemote && (activeRemote.HasSessions
                         || activeRemote.DesktopSessions.Any(s => s.IsConnected || s.IsConnecting)
                         || activeRemote.S3Sessions.Any(s => s.IsBusy)
@@ -267,6 +268,7 @@ public partial class MainWindow : Window
             try
             {
                 foreach (var files in OwnedWindows.OfType<LanFileShareWindow>().ToArray()) await files.ShutdownAsync();
+                await DebugAssistant.ShutdownAsync();
                 foreach (var tool in OwnedWindows.OfType<IDebugToolWindow>().ToArray()) await tool.ShutdownAsync();
                 if (Application.Current is App app) await app.StopAsync();
             }

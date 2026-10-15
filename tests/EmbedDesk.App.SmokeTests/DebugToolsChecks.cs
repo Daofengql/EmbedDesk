@@ -27,20 +27,105 @@ internal static class DebugToolsChecks
         var main = new MainWindow(vm); main.Show();
         try
         {
-            ((TabControl)main.FindName("MainWorkspaceTabs")).SelectedIndex = 5;
-            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-tools-gallery.png");
-            main.Width = main.MinWidth; main.Height = main.MinHeight;
-            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-tools-gallery-small.png");
-            var gallery = Find<EmbeddedToolsWorkspace>(main).Single();
-            foreach (var tag in new[] { "Camera", "Pid", "BinaryEditor" })
+            var mainTabs = (TabControl)main.FindName("MainWorkspaceTabs");
+            mainTabs.SelectedIndex = 1;
+            await Task.Delay(80); main.UpdateLayout();
+            var assistant = Find<DebugAssistantWorkspace>(main).Single();
+            Require(assistant.Tabs.Count == 0 && vm.SelectedSerialSession is null,
+                "Debug assistant starts empty with no serial or nested mode tabs");
+            await vm.ScanSerialPortsCommand.ExecuteAsync(null);
+            async Task CreateAsync(string kind)
             {
-                Find<Button>(gallery).Single(b => Equals(b.Tag, tag)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                var tool = main.OwnedWindows.Cast<Window>().Single(w => w.IsVisible);
-                Require(tool.Title.Contains(tag == "Camera" ? "摄像头" : tag == "Pid" ? "PID" : "二进制", StringComparison.Ordinal), "Gallery opens " + tag);
-                tool.Close(); await Until(() => !tool.IsVisible);
+                ((Button)assistant.FindName("NewSessionButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                main.UpdateLayout();
+                var dialog = assistant.SessionDialog!;
+                Find<Button>(dialog).Single(button => Equals(button.Tag, kind)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                ((Button)dialog.FindName("ApplyButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await Until(() => assistant.SessionDialog is null);
             }
+            await CreateAsync("Serial");
+            await CreateAsync("Pid");
+            var pidTab = assistant.Tabs.Single(tab => tab.Owner is PidDebugView);
+            await CreateAsync("Camera");
+            var cameraTab = assistant.Tabs.Single(tab => tab.Owner is CameraDebugView);
+            Require(assistant.Tabs.Count == 3 && !Find<TabControl>(assistant).Any(),
+                "PID and camera are first-level tabs beside serial");
+            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-assistant-camera.png");
+            main.Width = main.MinWidth; main.Height = main.MinHeight;
+            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-assistant-camera-small.png");
+            assistant.SelectTab(pidTab);
+            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-assistant-pid.png");
+            await CheckMixedTabsAsync(main, assistant, vm, pidTab, cameraTab);
+            mainTabs.SelectedIndex = 4;
+            await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-embedded-tools-gallery.png");
+            var gallery = Find<EmbeddedToolsWorkspace>(main).Single();
+            var binary = Find<Button>(gallery).Single(b => Equals(b.Tag, "BinaryEditor"));
+            binary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var binaryWindow = main.OwnedWindows.Cast<Window>().Single(w => w.IsVisible);
+            Require(binaryWindow is BinaryEditorWindow, "Binary editor stays in the embedded tools gallery");
+            binaryWindow.Close(); await Until(() => !binaryWindow.IsVisible);
         }
         finally { main.Close(); }
+    }
+
+    private static async Task CheckMixedTabsAsync(MainWindow main, DebugAssistantWorkspace assistant, MainWindowViewModel vm,
+        DebugSessionTab pidTab, DebugSessionTab cameraTab)
+    {
+        var pid = (PidDebugView)pidTab.Content; var camera = (CameraDebugView)cameraTab.Content;
+        var pidConnection = (DebugToolConnectionPanel)pid.FindName("Connection");
+        var cameraConnection = (DebugToolConnectionPanel)camera.FindName("Connection");
+        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+        Configure(pidConnection, (IPEndPoint)listener.LocalEndpoint);
+        using var pidPeer = await listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Configure(cameraConnection, (IPEndPoint)listener.LocalEndpoint);
+        using var cameraPeer = await listener.AcceptTcpClientAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        var server = await vm.CreateNetworkSessionAsync(new() { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = 0 });
+        using var rawPeer = new TcpClient();
+        await rawPeer.ConnectAsync(IPAddress.Loopback, IPEndPoint.Parse(server.LocalEndpoint).Port);
+        await vm.ScanSerialPortsCommand.ExecuteAsync(null);
+        var serial = vm.SelectedSerialSession!;
+        await serial.OpenSelectedSerialCommand.ExecuteAsync(null);
+        serial.SerialSendText = "background"; serial.SerialIntervalMs = "50"; serial.SerialLoopEnabled = true;
+        var before = serial.Terminal.SentBytes;
+        assistant.SelectTab(assistant.Tabs.Single(tab => tab.Owner == server));
+        await pidPeer.GetStream().WriteAsync(DebugToolPacketReader.Encode(false, 1, 2, [42, 0, 0, 0]));
+        await cameraPeer.GetStream().WriteAsync(DebugToolPacketReader.Encode(true, 0, 1, [5, 2, 0, 2, 0]));
+        Require((await PacketAsync(cameraPeer.GetStream(), true)).Payload[0] == 0, "Hidden camera tab accepts format frames");
+        await cameraPeer.GetStream().WriteAsync(DebugToolPacketReader.Encode(true, 0, 2, [255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255]));
+        Require((await PacketAsync(cameraPeer.GetStream(), true)).Payload[0] == 0, "Hidden camera decodes and acknowledges image frames");
+        await rawPeer.GetStream().WriteAsync(new byte[] { 0x41, 0x42 });
+        await Until(() => server.Terminal.ReceivedBytes == 2 && serial.Terminal.SentBytes > before);
+        assistant.SelectTab(pidTab);
+        var plot = (PidPlot)pid.FindName("Plot");
+        await Until(() => plot.Series.Any(series => series.Samples.Any(sample => sample.Actual == 42)));
+        assistant.SelectTab(cameraTab);
+        await Until(() => ((Image)camera.FindName("Preview0")).Source is BitmapSource { PixelWidth: 2 });
+        main.UpdateLayout();
+        await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-debug-assistant-camera-live-small.png");
+        Require(((Image)camera.FindName("Preview0")).ActualHeight >= 120, $"Camera preview retains useful height inside the minimum main window: {((Image)camera.FindName("Preview0")).ActualWidth} × {((Image)camera.FindName("Preview0")).ActualHeight}");
+        Require(assistant.Tabs.Count == 4 && assistant.Tabs.Count(tab => tab.IsSelected) == 1
+            && assistant.Tabs.Count(tab => tab.Content.IsVisible) == 1, "Serial, TCP server, PID and camera share one selection and independent traffic");
+        var content = cameraTab.Content;
+        assistant.Tabs.Move(assistant.Tabs.IndexOf(cameraTab), 0);
+        Require(cameraTab.Content == content && cameraConnection.IsActive && pidConnection.IsActive, "Reordering mixed tabs keeps live controls and connections");
+        var failed = await vm.CreateNetworkSessionAsync(new() { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = IPEndPoint.Parse(server.LocalEndpoint).Port });
+        await Until(() => failed.State == "连接失败");
+        Require(pidConnection.IsActive && cameraConnection.IsActive && serial.IsOpen, "Port conflicts affect only the failing tab");
+        await assistant.CloseTabAsync(assistant.Tabs.Single(tab => tab.Owner == failed), confirm: false);
+        await assistant.CloseTabAsync(pidTab, confirm: false);
+        before = serial.Terminal.SentBytes;
+        await rawPeer.GetStream().WriteAsync(new byte[] { 0x43 });
+        await Until(() => serial.Terminal.SentBytes > before && server.Terminal.ReceivedBytes == 3);
+        Require(!pidConnection.IsActive && cameraConnection.IsActive, "Closing PID stops only its connection while camera, TCP and serial keep running");
+        await assistant.CloseTabAsync(cameraTab, confirm: false);
+        await assistant.CloseTabAsync(assistant.Tabs.Single(tab => tab.Owner == server), confirm: false);
+        await assistant.CloseTabAsync(assistant.Tabs.Single(tab => tab.Owner == serial), confirm: false);
+        Require(assistant.Tabs.Count == 0 && ((Border)assistant.FindName("EmptyState")).IsVisible,
+            "Closing all debug sessions releases connections and exposes one empty-state creation entry");
+        ((Button)assistant.FindName("EmptyNewSessionButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        main.UpdateLayout();
+        Require(assistant.SessionDialog?.IsVisible == true, "Empty-state creation opens the internal session dialog");
+        ((Button)assistant.SessionDialog!.FindName("CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }
 
     private static async Task CheckFilesAsync()
@@ -265,6 +350,7 @@ internal static class DebugToolsChecks
     private static void Configure(DebugToolConnectionPanel connection, IPEndPoint endpoint)
     {
         ((ComboBox)connection.FindName("TransportBox")).SelectedIndex = 1;
+        ((TextBox)connection.FindName("HostBox")).Text = endpoint.Address.ToString();
         ((TextBox)connection.FindName("NetworkPortBox")).Text = endpoint.Port.ToString(CultureInfo.InvariantCulture);
         ((Button)connection.FindName("ConnectButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }

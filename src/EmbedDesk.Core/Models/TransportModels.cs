@@ -52,6 +52,8 @@ public sealed class TransportOptions
     public string RemoteHost { get; init; } = "127.0.0.1";
     public int RemotePort { get; init; } = 9000;
     public int ReceiveBufferSize { get; init; } = 64 * 1024;
+    public int ConnectTimeoutMilliseconds { get; init; } = 10000;
+    public bool LockFirstUdpPeer { get; init; }
     public bool AutoReconnect { get; init; } = true;
     public TimeSpan ReconnectDelay { get; init; } = TimeSpan.FromSeconds(2);
     public TimeSpan? SendInterval { get; init; }

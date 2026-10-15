@@ -25,7 +25,7 @@ public partial class ConfigurationTransferWindow : Window
             IEnumerable<EmbedDesk.Core.Models.RemoteConnectionProfile> remote = _viewModel.RemoteDebug?.Profiles is { } profiles
                 ? profiles
                 : Array.Empty<EmbedDesk.Core.Models.RemoteConnectionProfile>();
-            var bytes = ConfigurationTransferService.Export(remote, _viewModel.GetNetworkPresets(),
+            var bytes = ConfigurationTransferService.Export(remote, [],
                 _viewModel.GetSerialBridgePresets(), _viewModel.AppSettings.GetStcpTunnels());
             var dialog = new SaveFileDialog
             {

@@ -45,6 +45,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         _transportService = transportService;
         _serialPortService = serialPortService is ISerialPortSharing ? serialPortService : new SharedSerialPortService(serialPortService);
+        DebugSerialPortService = new WorkspaceSerialPortService(this);
         _serialBridgeService = serialBridgeService;
         _remoteSerialClient = remoteSerialClient;
         _appSettings = new AppSettingsStore(remoteSettingsDirectory);
@@ -82,7 +83,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         StopBridgeCommand = new AsyncRelayCommand(StopBridgeAsync, () => IsBridgeRunning);
         ClearLogsCommand = new RelayCommand(() => Logs.Clear());
         AddSerialSessionCommand = new RelayCommand(() => AddSerialSession());
-        AddSerialSession();
         SerialPorts.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSerialPorts));
         Connections = new ConnectionCenterViewModel(new DeviceNode(_serialPortService), _appSettings);
         Connections.Node.Changed += OnDeviceConnectionsChanged;
@@ -109,7 +109,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     internal ConfigurationMergeResult ImportConfiguration(ImportedConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        var result = _appSettings.MergeNetworkPresets(configuration.NetworkPresets)
+        var result = new ConfigurationMergeResult(0, configuration.DebugPresets.Count + configuration.NetworkPresets.Count)
             .Add(_appSettings.MergeSerialBridgePresets(configuration.SerialBridgePresets))
             .Add(_appSettings.MergeStcpTunnels(configuration.StcpTunnels));
         if (RemoteDebug is not null) result = result.Add(RemoteDebug.MergeProfiles(configuration.RemoteProfiles));
@@ -118,6 +118,22 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     internal void SaveNetworkDisplayPreferences(NetworkDisplayPreferences preferences) =>
         _appSettings.Update(settings => settings.NetworkDisplayPreferences = preferences);
     internal ISerialPortService SerialPortService => _serialPortService;
+    internal ISerialPortService DebugSerialPortService { get; }
+    private sealed class WorkspaceSerialPortService(MainWindowViewModel owner) : ISerialPortService
+    {
+        public async Task<IReadOnlyList<SerialPortDescriptor>> ScanAsync(CancellationToken cancellationToken = default)
+        {
+            await owner.ScanSerialPortsAsync(cancellationToken);
+            return owner.SerialPorts.Select(row => new SerialPortDescriptor(row.PortName, row.DisplayName, row.Description, row.Manufacturer)).ToArray();
+        }
+        public ISerialPortChannel CreateChannel(SerialPortSettings settings) => settings.PortName.StartsWith("NODE:", StringComparison.Ordinal)
+            ? owner.Connections.Node.CreateSerialChannel(settings.PortName, settings)
+            : settings.PortName.StartsWith("REMOTE:", StringComparison.Ordinal)
+                ? owner._remoteSerialClient.CreateChannel(settings.PortName, settings)
+                : owner._serialPortService.CreateChannel(settings);
+    }
+    internal Task ReconfigureNetworkAsync(NetworkSessionViewModel session, TransportOptions options) =>
+        session.ReconfigureAsync(_transportService.CreateSession(options));
     public int[] DataBitsOptions { get; } = [5, 6, 7, 8];
     public System.IO.Ports.Parity[] ParityOptions { get; } = [System.IO.Ports.Parity.None, System.IO.Ports.Parity.Odd, System.IO.Ports.Parity.Even, System.IO.Ports.Parity.Mark, System.IO.Ports.Parity.Space];
     public System.IO.Ports.StopBits[] StopBitsOptions { get; } = [System.IO.Ports.StopBits.One, System.IO.Ports.StopBits.OnePointFive, System.IO.Ports.StopBits.Two];
@@ -128,7 +144,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public SerialSessionViewModel? SelectedSerialSession
     {
         get => _selectedSerialSession;
-        set { if (value is not null && SerialSessions.Contains(value)) SetProperty(ref _selectedSerialSession, value); }
+        set { if (value is null || SerialSessions.Contains(value)) SetProperty(ref _selectedSerialSession, value); }
     }
 
     public SerialSessionViewModel AddSerialSession()
@@ -141,16 +157,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         return session;
     }
 
-    public async Task CloseSerialSessionAsync(SerialSessionViewModel session)
+    public async Task CloseSerialSessionAsync(SerialSessionViewModel session, bool keepEmptyTab = false)
     {
         if (!SerialSessions.Contains(session)) return;
         await session.DisposeAsync();
         var index = SerialSessions.IndexOf(session);
         if (index < 0) return;
         SerialSessions.RemoveAt(index);
-        if (SerialSessions.Count == 0 && !_disposed) AddSerialSession();
+        if (SerialSessions.Count == 0 && !_disposed && keepEmptyTab) AddSerialSession();
         else if (SelectedSerialSession == session && SerialSessions.Count > 0)
             SelectedSerialSession = SerialSessions[Math.Min(index, SerialSessions.Count - 1)];
+        else if (SelectedSerialSession == session) SelectedSerialSession = null;
     }
 
     internal bool TryAcquireSerialPort(SerialSessionViewModel session, SerialPortRowViewModel port, out string error)
@@ -333,9 +350,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public async Task RemoveNetworkSessionAsync(NetworkSessionViewModel session, CancellationToken cancellationToken = default)
     {
         if (!Sessions.Contains(session)) return;
+        await session.DisposeAsync();
         Sessions.Remove(session);
         if (SelectedSession == session) SelectedSession = Sessions.FirstOrDefault();
-        await session.DisposeAsync();
         AddLog("网络", $"已关闭 {session.Detail}", TransportEventKind.Disconnected);
     }
 

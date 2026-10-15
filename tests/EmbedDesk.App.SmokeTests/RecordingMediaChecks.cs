@@ -64,7 +64,7 @@ internal static class RecordingMediaChecks
         await using (var sessions = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteSettingsDirectory: settings.DirectoryPath))
         {
             await sessions.InitializeAsync();
-            var session = sessions.SelectedSerialSession!;
+            var session = sessions.AddSerialSession();
             await session.OpenSelectedSerialCommand.ExecuteAsync(null);
             await session.ReplayRecordingAsync(recording.Records, 8, default);
             Require(serial.Writes.Count == 1 && serial.Writes[0].SequenceEqual(new byte[] { 1, 2, 3 }), "Serial playback sends TX only and preserves exact binary payload");

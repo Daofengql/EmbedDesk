@@ -1,0 +1,80 @@
+<UserControl x:Class="EmbedDesk.App.Controls.DebugAssistantWorkspace"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:EmbedDesk.App.Controls">
+    <UserControl.Resources>
+        <controls:ConnectionStateBrushConverter x:Key="StateBrush" />
+    </UserControl.Resources>
+    <Grid Background="{StaticResource PanelBrush}">
+      <Grid x:Name="WorkspaceSurface">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,4">
+            <DockPanel LastChildFill="True">
+                <Button x:Name="EditConnectionButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="EditConnection_Click" ToolTip="编辑当前连接" IsEnabled="False" Margin="6,0,0,0"><TextBlock Text="&#xE713;" Style="{StaticResource Icon}" /></Button>
+                <Button x:Name="NewSessionButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Click="NewSession_Click" ToolTip="新建调试标签" Margin="6,0,0,0">
+                    <TextBlock Text="&#xE710;" Style="{StaticResource Icon}" />
+                </Button>
+                <ScrollViewer x:Name="TabScroller" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" PreviewMouseWheel="Tabs_MouseWheel">
+                    <ItemsControl x:Name="SessionTabs" ItemsSource="{Binding Tabs, RelativeSource={RelativeSource AncestorType=controls:DebugAssistantWorkspace}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Height="34" Margin="0,0,4,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4"
+                                        PreviewMouseLeftButtonDown="Tab_MouseDown" PreviewMouseMove="Tab_MouseMove" AllowDrop="True" DragOver="Tab_DragOver" Drop="Tab_Drop">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="Transparent" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected}" Value="True"><Setter Property="Background" Value="{StaticResource SelectedBrush}" /></DataTrigger>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Grid>
+                                            <Button x:Name="TabLabel" Click="SelectTab_Click" PreviewMouseDoubleClick="RenameTab_DoubleClick" Padding="10,3" Background="Transparent" BorderThickness="0" MinWidth="96" ToolTip="{Binding Status}">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <Ellipse Width="7" Height="7" Fill="{Binding Status, Converter={StaticResource StateBrush}}" Margin="0,0,8,0" />
+                                                    <TextBlock Text="{Binding Title}" MaxWidth="180" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </Button>
+                                            <TextBox x:Name="TitleEditor" Visibility="Collapsed" MinWidth="120" MaxWidth="180" Height="28" MinHeight="0" Margin="3,1" Padding="6,2" MaxLength="64"
+                                                     ToolTip="Enter 保存 · Esc 取消" PreviewKeyDown="TitleEditor_KeyDown" LostKeyboardFocus="TitleEditor_LostFocus" />
+                                        </Grid>
+                                        <Button Width="26" Height="26" Style="{StaticResource IconButton}" Click="CloseTab_Click" ToolTip="关闭标签" Margin="0,0,3,0">
+                                            <TextBlock Text="×" FontSize="17" Foreground="{StaticResource MutedBrush}" />
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+        <Grid x:Name="ContentHost" Grid.Row="1" Margin="0" />
+        <Border x:Name="EmptyState" Grid.Row="1" Background="{StaticResource PanelBrush}" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="440">
+                <TextBlock Text="&#xE8A5;" Style="{StaticResource Icon}" FontSize="40" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,20" HorizontalAlignment="Center" />
+                <TextBlock Text="开始第一个调试会话" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" />
+                <TextBlock Text="选择串口、网络、PID 或摄像头，开始调试。" Style="{StaticResource MutedText}" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,22" />
+                <Button x:Name="EmptyNewSessionButton" Content="新建调试会话" Style="{StaticResource PrimaryButton}" Click="NewSession_Click" HorizontalAlignment="Center" Padding="24,8" />
+            </StackPanel>
+        </Border>
+        <Border x:Name="WorkspaceMessageBorder" Grid.Row="1" VerticalAlignment="Bottom" Background="{StaticResource SurfaceBrush}" Padding="14,8" Visibility="Collapsed"><TextBlock x:Name="WorkspaceMessage" Foreground="#F0A4A4" TextWrapping="Wrap" /></Border>
+      </Grid>
+      <Grid x:Name="DialogLayer" Background="#B3000000" Visibility="Collapsed" FocusManager.IsFocusScope="True" KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle">
+        <Grid x:Name="DialogBounds" Margin="24">
+          <Border Width="640" MaxHeight="{Binding ActualHeight, ElementName=DialogBounds}" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="8">
+            <ContentControl x:Name="DialogHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+          </Border>
+        </Grid>
+      </Grid>
+    </Grid>
+</UserControl>

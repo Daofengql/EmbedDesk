@@ -9,13 +9,12 @@
 | 工作区 | 当前能力 |
 | --- | --- |
 | 连接中心 | 设备 ID、动态 / 静态密码或人工授权、自动局域网直连 / 中继回退、COM 共享、TCP / UDP 端口映射 |
-| 串口调试 | 设备描述与插拔刷新、通信参数、文本 / HEX、Shell、多标签、循环 / 队列发送及录制 |
+| 调试助手 | 一级会话标签统一串口、TCP / UDP、MQTT、PID 和摄像头；默认无标签，通过界面内弹窗分类新建，网络入口按客户端 / 服务端选择 TCP 或 UDP，独立连接、收发、曲线、图像与后台任务 |
 | 远程调试 | 多开本地 PowerShell / CMD、SSH / Telnet、RDP / VNC、SFTP 文件工作区与文本 / 图片预览、S3 对象浏览器 |
-| 网络调试 | TCP / UDP / HTTP 客户端和服务端、MQTT 客户端、指定网卡 / 对端、独立收发与发送任务 |
 | 网络工具 | DNS / DoH、CIDR、TLS / 证书 / 密码、Hosts、本机信息、Ping / 路由、端口扫描、内网发现、NAT / UPnP、iperf3、局域网文件 |
 | 嵌入式工具 | ESP UART ROM、STM32 USART / 探针拖拽盘、原始 STC89 白名单、CH347T HID、SD / USB 原始镜像、数据与调试辅助、校验 / 编解码、录制回放 |
 
-会话独立运行，切换标签不停止通信，支持拖动排序和关闭确认。收起到托盘保留连接，真正退出等待资源清理。本机配置与受保护凭据的保存范围见 [架构说明](docs/Architecture.md#配置与生命周期)。
+调试助手只有一排会话标签，通过 `+` 新建不同类型，不嵌套功能标签。会话独立运行，切换标签不停止通信，支持双击改名、拖动排序和关闭确认。普通串口 / 网络模式扩大接收区，发送区固定为 88 / 86 px。二进制编辑器留在嵌入式工具。详见 [调试助手设计](docs/DebugAssistantDesign.md)。收起到托盘保留连接，真正退出等待资源清理；配置与凭据的保存范围见 [架构说明](docs/Architecture.md#配置与生命周期)。
 
 ## 使用边界
 
@@ -36,7 +35,8 @@
 | CH347T | Windows 原生 HID，明确支持的 NOR / NAND 芯片见 [芯片表](docs/ch347-spi-support.md)；NAND 保留物理布局，不自动重映射坏块 |
 | SD / USB 镜像 | 原始写盘、回读校验与 FAT32；FAT32 范围为 256 MiB–2 TiB、512 B 扇区，不转换 Windows 安装 ISO |
 | 录制回放 | `.edbgtrace` 在显示截断前记录原始 RX / TX，上限 64 MiB / 100,000 条；0.25–8× 回放，实际串口重发只发送 TX，并与其他发送任务互斥 |
-| 数据与调试辅助 | 摄像头兼容协议 / JPEG 接收、五通道 PID 曲线与可选平滑滤波、连续 HEX / ASCII 二进制编辑；详见 [专项说明](docs/DebugTools.md) |
+| PID / 摄像头调试标签 | 摄像头兼容协议 / JPEG 接收，五通道 PID 曲线、50 ms–600 s 时间窗、移动平均 / 指数平滑；详见 [专项说明](docs/DebugTools.md) |
+| 嵌入式工具 · 二进制编辑器 | 连续 HEX / ASCII 视图、搜索定位、覆盖编辑、撤销 / 重做和原子保存，入口位置不变 |
 
 烧录前检查型号、容量、镜像范围与命令能力，未知型号拒绝破坏性写入；取消不能回滚已擦写数据。协议模拟和文件流测试不能替代开发板、Flash 或物理磁盘验收。iperf3 公共节点保留公开来源及历史验证日期，不保证当前可用；内置服务端尚需标准 CLI 互通验收。
 
@@ -53,7 +53,7 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 
 烟雾项目不在解决方案内，修改后须单独构建；桌面检查需要可交互的 Windows 桌面。每次只选一个参数，不传参数为终端综合回归。完整入口见 [Program.cs](tests/EmbedDesk.App.SmokeTests/Program.cs)，选择原则见 [AGENTS.md](AGENTS.md)。
 
-常用专项为 `--device-connections-check`、`--device-security-check`、`--virtual-serial-check`、`--lan-files-check`、`--app-settings-check`、`--connection-center-window-check`、`--firmware-check`、`--recording-media-check` 和 `--performance-check`。设备连接 / TLS 检查前先构建中继：
+调试助手回归使用 `--serial-tabs-check`、`--desktop-network-check`、`--debug-tools-check` 和 `--debug-connections-check`，分别覆盖串口会话、网络会话、混合标签与协议、空状态与内部弹窗、连接设置及有界接收。其他常用专项为 `--device-connections-check`、`--device-security-check`、`--virtual-serial-check`、`--lan-files-check`、`--app-settings-check`、`--connection-center-window-check`、`--firmware-check`、`--recording-media-check` 和 `--performance-check`。设备连接 / TLS 检查前先构建中继：
 
 ```powershell
 Push-Location server/relay

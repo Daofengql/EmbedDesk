@@ -17,7 +17,7 @@
         <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5" Padding="16">
             <StackPanel>
                 <TextBlock Text="包含内容" FontWeight="SemiBold" />
-                <TextBlock Text="远程调试连接（SSH / Telnet / RDP / VNC / S3）、网络调试连接预设、网络串口预设和 STCP 隧道参数。" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <TextBlock Text="远程调试连接（SSH / Telnet / RDP / VNC / S3）、网络串口预设和 STCP 隧道参数。" TextWrapping="Wrap" Margin="0,8,0,0" />
                 <TextBlock Text="导入时会重新生成本机配置编号；密码、私钥口令、密钥内容和凭据管理器索引不会随文件传输。STCP 配置导入后需要重新设置共享密钥。" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,7,0,0" />
                 <TextBlock x:Name="StatusText" Text="" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" Margin="0,18,0,0" />
             </StackPanel>

@@ -24,7 +24,7 @@ internal static class SerialTabsChecks
         using var settings = new TemporarySettingsDirectory();
         await using var vm = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteSettingsDirectory: settings.DirectoryPath);
         await vm.InitializeAsync();
-        var first = vm.SelectedSerialSession!;
+        var first = vm.AddSerialSession();
         first.SelectedSerialPort!.BaudRate = 9600;
         first.SerialSendText = "one";
         first.SerialIntervalMs = "50";
@@ -78,9 +78,10 @@ internal static class SerialTabsChecks
             var secondView = View(window, second);
             Require(secondView.IsVisible && !firstView.IsVisible && ((CheckBox)secondView.FindName("ShowTime")).IsChecked == false, "Only the selected serial pane is visible; display options stay independent");
             vm.SelectedSerialSession = first;
-            var tabRoot = Descendants<SerialTabWorkspace>(window).Single();
-            var label = Descendants<Button>(tabRoot).Single(b => b.Name == "TabLabel" && b.DataContext == first);
-            var nameEditor = Descendants<TextBox>(tabRoot).Single(b => b.Name == "TitleEditor" && b.DataContext == first);
+            var tabRoot = Descendants<DebugAssistantWorkspace>(window).Single();
+            var firstTab = tabRoot.Tabs.Single(tab => ReferenceEquals(tab.Owner, first));
+            var label = Descendants<Button>(tabRoot).Single(b => b.Name == "TabLabel" && b.DataContext == firstTab);
+            var nameEditor = Descendants<TextBox>(tabRoot).Single(b => b.Name == "TitleEditor" && b.DataContext == firstTab);
             first.SerialLoopEnabled = true;
             writes = com3.Writes.Count;
             DoubleClick(label);
@@ -103,7 +104,12 @@ internal static class SerialTabsChecks
             Require(!selector.IsEnabled, "Connected tabs lock the device selector to prevent accidental retargeting");
             var width = selector.ActualWidth;
             window.Width = 1080; window.Height = 680; await Task.Delay(100);
-            Require(selector.ActualWidth == width && ((TextBox)firstView.FindName("ReceiveText")).ActualHeight >= 80 && ((TextBox)firstView.FindName("SendEditor")).ActualHeight >= 45, "Small windows retain a fixed-width port selector and usable send/receive panes");
+            var receive = (TextBox)firstView.FindName("ReceiveText");
+            var send = (TextBox)firstView.FindName("SendEditor");
+            var normal = (Grid)firstView.FindName("NormalWorkspace");
+            Require(selector.ActualWidth == width && receive.ActualHeight >= 150 && send.ActualHeight >= 45
+                && normal.RowDefinitions[1].ActualHeight is >= 82 and <= 88,
+                $"Small windows keep a compact 82–88 px send area and give the receive pane the remaining height (receive {receive.ActualHeight:F1}, editor {send.ActualHeight:F1}, send area {normal.RowDefinitions[1].ActualHeight:F1})");
             CheckSidebarLayout(firstView);
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-serial-tabs-small.png");
 
@@ -122,11 +128,22 @@ internal static class SerialTabsChecks
             mainTabs.SelectedIndex = 3; await Task.Delay(80);
             mainTabs.SelectedIndex = 1; await Task.Delay(100);
             Require(await browser.ExecuteScriptAsync("window.serialTabMarker===42 && terminal.buffer.active.type==='alternate'") == "true", "Leaving the serial feature and returning preserves its live Shell");
+            var root = Descendants<DebugAssistantWorkspace>(window).Single();
+            ((Button)root.FindName("NewSessionButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout();
+            Require(root.SessionDialog?.IsVisible == true && ((Grid)root.FindName("ContentHost")).Visibility == Visibility.Hidden,
+                "Internal creation covers a native Shell without destroying its browser");
+            com3.Receive("-dialog");
+            await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-debug-dialog-over-shell-small.png");
+            ((Button)root.SessionDialog!.FindName("CancelButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Require(ReferenceEquals(View(window, first), firstView) && first.IsOpen
+                && await browser.ExecuteScriptAsync("window.serialTabMarker===42 && terminal.buffer.active.type==='alternate'") == "true",
+                "Dismissing the internal dialog restores the existing Shell and live connection");
             first.ShellMode = false;
 
             // Exercise the actual close button and both outcomes of the modal confirmation.
-            var root = Descendants<SerialTabWorkspace>(window).Single();
-            var close = Descendants<Button>(root).Single(b => b.DataContext == duplicate && Equals(b.ToolTip, "关闭标签"));
+            var duplicateTab = root.Tabs.Single(tab => ReferenceEquals(tab.Owner, duplicate));
+            var close = Descendants<Button>(root).Single(b => b.DataContext == duplicateTab && Equals(b.ToolTip, "关闭标签"));
             var sawConfirmation = false;
             using (var dialog = AutoConfirm(false, () => sawConfirmation = true)) close.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Require(sawConfirmation && vm.SerialSessions.Contains(duplicate), "Canceling the close confirmation keeps the serial tab");
@@ -140,9 +157,9 @@ internal static class SerialTabsChecks
             await Until(() => com7.Writes.Count > writes);
             Require(com3.Disposed && second.IsOpen && second.SerialLoopEnabled, "Closing one serial tab disposes only its channel and leaves other jobs running");
             await vm.CloseSerialSessionAsync(second);
-            Require(com7.Disposed && vm.SerialSessions.Count == 1 && vm.SelectedSerialSession?.Terminal.Entries.Count == 0, "Closing the last serial tab stops jobs and provides a fresh empty tab");
+            Require(com7.Disposed && vm.SerialSessions.Count == 0 && vm.SelectedSerialSession is null, "Closing the last serial tab stops jobs and leaves the workspace empty");
 
-            var pending = vm.SelectedSerialSession!;
+            var pending = vm.AddSerialSession();
             serial.DelayOpen = true;
             var opening = pending.OpenSelectedSerialCommand.ExecuteAsync(null);
             await Until(() => serial.Channels.Last().OpenStarted);

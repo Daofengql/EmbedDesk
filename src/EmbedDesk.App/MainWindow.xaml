@@ -46,18 +46,13 @@
                 <controls:ConnectionCenterWorkspace DataContext="{Binding Connections}" />
             </TabItem>
             <TabItem>
-                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE958;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="串口调试" /></StackPanel></TabItem.Header>
-                <controls:SerialTabWorkspace />
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE958;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="调试助手" /></StackPanel></TabItem.Header>
+                <controls:DebugAssistantWorkspace x:Name="DebugAssistant" />
             </TabItem>
 
             <TabItem>
                 <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE753;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="远程调试" /></StackPanel></TabItem.Header>
                 <controls:RemoteDebugWorkspace x:Name="RemoteArea" DataContext="{Binding RemoteDebug}" />
-            </TabItem>
-
-            <TabItem>
-                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE968;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="网络调试" /></StackPanel></TabItem.Header>
-                <controls:NetworkWorkspace />
             </TabItem>
 
             <TabItem>

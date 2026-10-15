@@ -13,7 +13,11 @@ namespace EmbedDesk.App.ViewModels;
 
 public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
 {
-    private readonly ITransportSession _session;
+    private ITransportSession _session;
+    private BoundedDispatcherQueue<TransportMessage> _receiveQueue;
+    private Task? _stopTask;
+    private string? _receiveError;
+    private bool _separateMessages = true;
     private readonly Action<string, string, TransportEventKind> _log;
     private readonly Action<NetworkDisplayPreferences>? _saveDisplayPreferences;
     private readonly HashSet<string> _tcpPeers = new(StringComparer.Ordinal);
@@ -27,6 +31,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         Action<NetworkDisplayPreferences>? saveDisplayPreferences = null)
     {
         _session = session; _log = log; _saveDisplayPreferences = saveDisplayPreferences;
+        _receiveQueue = CreateReceiveQueue(session);
         _hexDisplay = displayPreferences?.HexDisplay ?? false;
         _showTime = displayPreferences?.ShowTime ?? true;
         _showSent = displayPreferences?.ShowSent ?? true;
@@ -41,6 +46,23 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
         RemoveQueueItemCommand = new RelayCommand(() => { if (SelectedQueueItem is not null) SendQueue.Remove(SelectedQueueItem); });
     }
     public string Id => _session.Id;
+    internal TransportOptions Options => _session.Options;
+    internal async Task ReconfigureAsync(ITransportSession replacement)
+    {
+        if (!CanStart || IsSending || _stopTask is { IsCompleted: false }) { await replacement.DisposeAsync(); throw new InvalidOperationException("请先停止连接和发送任务，再应用连接设置。"); }
+        await _session.StopAsync();
+        _session.MessageReceived -= OnMessageReceived;
+        await _session.DisposeAsync();
+        _receiveQueue.Dispose();
+        _session = replacement;
+        _receiveQueue = CreateReceiveQueue(replacement); _receiveError = null;
+        _session.MessageReceived += OnMessageReceived;
+        PeerTargets.Clear(); PeerTargets.Add(NetworkPeerTarget.Broadcast); SelectedPeerTarget = NetworkPeerTarget.Broadcast;
+        NetworkStatus.Stop("未启动"); _tcpPeers.Clear(); _probePeer = null; State = "未启动";
+        OnPropertyChanged(nameof(Protocol)); OnPropertyChanged(nameof(Mode)); OnPropertyChanged(nameof(IsServer));
+        OnPropertyChanged(nameof(SupportsPeerTargeting)); NotifyCommands();
+        OnPropertyChanged(nameof(IsDatagram));
+    }
     public string Protocol => _session.Options.Protocol.ToString().ToUpperInvariant();
     public string Mode => _session.Options.Mode == TransportMode.Client ? "客户端" : "服务端";
     public string Endpoint => _session.Options.Mode == TransportMode.Client ? $"{_session.Options.RemoteHost}:{_session.Options.RemotePort}" : LocalEndpoint;
@@ -50,12 +72,14 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public string LocalEndpoint => _session.BoundLocalEndpoint ?? $"{_session.Options.LocalHost}:{_session.Options.LocalPort}";
     public bool IsServer => _session.Options.Mode == TransportMode.Server;
     public string ServerConnectionAddresses => GetServerConnectionAddresses();
-    public string SendTargetHint => _session.Options.Mode == TransportMode.Client
+    public string SendTargetHint => _session.Options.LockFirstUdpPeer
+        ? _probePeer is null ? "等待首个 UDP 数据报，随后锁定该对端" : $"仅回复已锁定的 UDP 对端 {_probePeer}"
+        : _session.Options.Mode == TransportMode.Client
         ? _session.Options.Protocol == TransportProtocol.Mqtt ? $"发布到 MQTT 主题 {_session.Options.MqttTopic}" : $"发送到 {Endpoint}"
         : SelectedPeerTarget.IsBroadcast
             ? _session.Options.Protocol == TransportProtocol.Tcp ? "发送到全部已连接的 TCP 客户端" : $"发送到最近的 UDP 对端（尚未收到数据时使用 {_session.Options.RemoteHost}:{_session.Options.RemotePort}）"
             : $"发送到客户端 {SelectedPeerTarget.DisplayName}";
-    public bool SupportsPeerTargeting => IsServer;
+    public bool SupportsPeerTargeting => IsServer && !_session.Options.LockFirstUdpPeer;
     public ObservableCollection<NetworkPeerTarget> PeerTargets { get; } = [NetworkPeerTarget.Broadcast];
     public NetworkPeerTarget SelectedPeerTarget
     {
@@ -71,6 +95,8 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public string HttpStartLine { get => _httpStartLine; private set => SetProperty(ref _httpStartLine, value); }
     public string HttpHeadersText { get => _httpHeadersText; private set => SetProperty(ref _httpHeadersText, value); }
     public bool TreatAsHttp => _session.Options.TreatAsHttp;
+    public bool IsDatagram => _session.Options.Protocol == TransportProtocol.Udp;
+    public bool SeparateMessages { get => _separateMessages; set => SetProperty(ref _separateMessages, value); }
     public bool AutoReconnect => _session.Options.AutoReconnect;
     public TerminalBufferViewModel Terminal { get; } = new();
     public NetworkStatusViewModel NetworkStatus { get; } = new();
@@ -101,9 +127,19 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!CanStart) return Task.CompletedTask;
+        if (_stopTask is { IsCompleted: false }) throw new InvalidOperationException("连接仍在停止中。");
+        _receiveQueue.Dispose(); _receiveQueue = CreateReceiveQueue(_session); _receiveError = null;
         return _session.StartAsync(cancellationToken);
     }
-    public async Task StopAsync(CancellationToken cancellationToken = default) { StopSending(); NetworkStatus.Stop("探测已停止"); await _session.StopAsync(cancellationToken); }
+    public Task StopAsync(CancellationToken cancellationToken = default) => _stopTask is { IsCompleted: false } ? _stopTask : _stopTask = StopCoreAsync(cancellationToken);
+    private async Task StopCoreAsync(CancellationToken cancellationToken)
+    {
+        StopSending(); SendCommand.Cancel(); NetworkStatus.Stop("探测已停止");
+        await _session.StopAsync(cancellationToken);
+        foreach (var command in new[] { SendCommand, RepeatSendCommand, RunQueueCommand })
+            if (command.ExecutionTask is { } task) await task;
+    }
     public Task SendAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken) => _session.SendAsync(payload, cancellationToken);
     private async Task ToggleAsync()
     {
@@ -207,13 +243,23 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     private void ReportError(Exception ex) { LastMessage = ex.Message; _log("网络", ex.Message, TransportEventKind.Error); }
     private void OnMessageReceived(object? sender, TransportMessage message)
     {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess()) HandleMessage(message);
-        else dispatcher.BeginInvoke(new Action(() => HandleMessage(message)));
+        if (_disposed || !ReferenceEquals(sender, _session)) return;
+        _receiveQueue.Post(() => message with { Data = message.Data.ToArray() }, message.Data.Length);
+    }
+    private BoundedDispatcherQueue<TransportMessage> CreateReceiveQueue(ITransportSession session) => new(Application.Current?.Dispatcher,
+        message => { if (ReferenceEquals(session, _session)) HandleMessage(message); },
+        () => { if (ReferenceEquals(session, _session)) _ = StopForReceiveOverflowAsync(); });
+    private async Task StopForReceiveOverflowAsync()
+    {
+        _receiveError = "接收处理速度不足，当前连接已停止；请降低发送速率。";
+        try { await StopAsync(); }
+        catch (Exception ex) { _receiveError += " " + ex.Message; }
+        State = "连接失败"; LastMessage = _receiveError; NotifyCommands();
+        _log(Protocol, LastMessage, TransportEventKind.Error);
     }
     private void HandleMessage(TransportMessage message)
     {
-        if (_disposed) return;
+        if (_disposed || message.SessionId != _session.Id) return;
         var nextState = message.State switch
         {
             TransportSessionState.Created => "未启动", TransportSessionState.Starting => "启动中", TransportSessionState.Listening => "监听中",
@@ -290,6 +336,7 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
             if (message.Kind is TransportEventKind.Received or TransportEventKind.Sent && message.RemoteEndPoint is not null && IPEndPoint.TryParse(message.RemoteEndPoint, out var peer)) _probePeer = peer;
             if (_probePeer is not null) NetworkStatus.Track(new(_probePeer.Address.ToString()), $"UDP 最近对端 · {_probePeer}");
             else NetworkStatus.Stop("等待对端");
+            OnPropertyChanged(nameof(SendTargetHint));
         }
     }
 
@@ -320,7 +367,8 @@ public sealed class NetworkSessionViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _disposed = true; StopSending();
+        _disposed = true;
+        await StopAsync(); _receiveQueue.Dispose();
         NetworkStatus.Dispose();
         _session.MessageReceived -= OnMessageReceived;
         await _session.DisposeAsync();
