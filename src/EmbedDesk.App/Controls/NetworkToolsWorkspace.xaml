@@ -139,10 +139,13 @@
                 <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,0,0,20">
                     <Border Style="{StaticResource CategoryHeading}"><TextBlock Text="连接与中转" FontSize="12" FontWeight="SemiBold" /></Border>
                     <UniformGrid Columns="3" Rows="1">
-                        <Button Tag="Stcp" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="STCP 隧道" ToolTip="管理 FRP STCP service / visitor 配置">
+                        <Button Tag="LanFiles" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="局域网文件分享" ToolTip="发现并传输局域网文件">
+                            <StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="&#xE8B9;" Style="{StaticResource ToolIcon}"/><TextBlock Grid.Column="1" Text="局域网文件" Style="{StaticResource ToolTitle}"/></Grid><TextBlock Text="发现服务并分享文件" Style="{StaticResource ToolDescription}"/></StackPanel>
+                        </Button>
+                        <Button Tag="Stcp" Click="OpenTool_Click" Style="{StaticResource ToolCard}" AutomationProperties.Name="映射设置" ToolTip="管理本机发布服务与已连接设备的本地映射">
                             <StackPanel>
-                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="STCP 隧道" Style="{StaticResource ToolTitle}" /></Grid>
-                                <TextBlock Text="配置指定服务的安全中转" Style="{StaticResource ToolDescription}" />
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="&#xE774;" Style="{StaticResource ToolIcon}" /><TextBlock Grid.Column="1" Text="映射设置" Style="{StaticResource ToolTitle}" /></Grid>
+                                <TextBlock Text="管理本机发布和远程映射" Style="{StaticResource ToolDescription}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>

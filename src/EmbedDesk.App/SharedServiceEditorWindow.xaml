@@ -1,0 +1,10 @@
+<Window x:Class="EmbedDesk.App.SharedServiceEditorWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="向外发布服务" Width="480" Height="440" ResizeMode="NoResize" WindowStartupLocation="CenterOwner">
+ <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel><TextBlock Text="服务名称"/><TextBox x:Name="ServiceName" Margin="0,6,0,12" MaxLength="64"/>
+   <StackPanel x:Name="NetworkFields"><TextBlock Text="传输协议"/><ComboBox x:Name="ProtocolBox" SelectedIndex="0" Margin="0,6,0,12"><ComboBoxItem Content="TCP"/><ComboBoxItem Content="UDP"/></ComboBox><TextBlock Text="目标地址 / 端口（本机可访问的目标）"/><Grid Margin="0,6,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/></Grid.ColumnDefinitions><TextBox x:Name="TargetHost" Text="127.0.0.1" Margin="0,0,8,0"/><TextBox x:Name="TargetPort" Grid.Column="1" Text="22"/></Grid></StackPanel>
+   <StackPanel x:Name="SerialFields" Visibility="Collapsed"><TextBlock Text="本地串口设备"/><ComboBox x:Name="PortName" TextSearch.TextPath="SelectionLabel" SelectionChanged="PortName_Changed" Margin="0,6,0,4"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding SelectionLabel}" TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectionLabel}"/></DataTemplate></ComboBox.ItemTemplate></ComboBox><TextBlock x:Name="PortDescription" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, ElementName=PortDescription}" Margin="0,0,0,12"/></StackPanel>
+   <CheckBox x:Name="Enabled" Content="发布此服务" IsChecked="True"/><TextBlock x:Name="ErrorText" Foreground="#FFB4A5" TextWrapping="Wrap" Margin="0,12,0,0"/>
+  </StackPanel>
+  <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"><Button Content="取消" IsCancel="True"/><Button x:Name="SaveServiceButton" Content="保存" IsDefault="True" Click="Save_Click"/></StackPanel>
+ </Grid>
+</Window>

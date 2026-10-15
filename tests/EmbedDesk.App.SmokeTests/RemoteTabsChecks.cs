@@ -40,7 +40,7 @@ internal static class RemoteTabsChecks
         var manager = vm.RemoteDebug!;
         var window = new MainWindow(vm) { Left = 10, Top = 10 };
         window.Show();
-        ((TabControl)window.FindName("MainWorkspaceTabs")).SelectedIndex = 1;
+        ((TabControl)window.FindName("MainWorkspaceTabs")).SelectedIndex = 2;
         window.UpdateLayout();
         var workspace = Descendants<RemoteDebugWorkspace>(window).Single();
         try

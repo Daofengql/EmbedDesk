@@ -1,0 +1,122 @@
+<Window x:Class="EmbedDesk.App.LanFileShareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="局域网文件分享" Width="820" Height="620" MinWidth="700" MinHeight="500" WindowStartupLocation="CenterOwner">
+ <Window.Resources>
+  <Style x:Key="CopyableText" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+   <Setter Property="IsReadOnly" Value="True"/><Setter Property="Background" Value="Transparent"/>
+   <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="24"/>
+  </Style>
+ </Window.Resources>
+ <Grid Margin="20">
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <TabControl x:Name="Modes">
+   <TabItem Header="服务端">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel Margin="0,14">
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <TextBlock Text="共享根目录" VerticalAlignment="Center" Margin="0,0,10,0"/>
+       <TextBox x:Name="Root" Grid.Column="1" Margin="0,0,8,0"/>
+       <Button Grid.Column="2" Content="选择" Click="ChooseRoot_Click"/>
+      </Grid>
+      <WrapPanel Margin="0,10,0,12">
+       <Button x:Name="StartServerButton" Content="启动服务" Click="StartServer_Click" Margin="0,0,8,0"/>
+       <Button x:Name="StopServerButton" Content="停止" Click="StopServer_Click" Margin="0,0,8,0"/>
+       <Button x:Name="CopyConnectionButton" Content="复制连接信息" Click="CopyConnection_Click" IsEnabled="False" ToolTip="复制服务地址与本次访问码，供对方从剪贴板导入"/>
+      </WrapPanel>
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+       <TextBlock Text="服务地址" Style="{StaticResource MutedText}" Margin="0,3,10,0"/>
+       <TextBox x:Name="ServerStatus" Grid.Column="1" Style="{StaticResource CopyableText}" Foreground="{StaticResource MutedBrush}"
+                Text="启动服务后显示地址" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" MaxHeight="100"/>
+      </Grid>
+      <StackPanel Orientation="Horizontal" Margin="0,6,0,10">
+       <TextBlock Text="访问码" VerticalAlignment="Center" Margin="0,0,10,0"/>
+       <TextBox x:Name="ServerCode" Style="{StaticResource CopyableText}" FontFamily="Consolas" FontSize="16" MinWidth="150"/>
+      </StackPanel>
+      <TextBlock Text="地址与访问码支持选中复制。将连接信息发给对方后，对方可在客户端从剪贴板导入。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+      <TextBlock Margin="0,8,0,0" Text="支持大文件、分块校验和断点续传，无整文件扫描等待。TCP 传输，UDP 发现；文件与访问码不加密，仅用于可信局域网。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+      <TextBlock x:Name="ServerShareStatus" Margin="0,10,0,0" Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap"/>
+     </StackPanel>
+    </ScrollViewer>
+   </TabItem>
+   <TabItem Header="客户端">
+    <Grid Margin="0,14">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+      <Button x:Name="DiscoverButton" Content="发现服务" Click="Discover_Click" Margin="0,0,8,0"/>
+      <Button x:Name="ImportConnectionButton" Content="从剪贴板导入" Click="ImportConnection_Click"/>
+      <Button x:Name="ConnectButton" Style="{StaticResource PrimaryButton}" Click="Connect_Click" Margin="8,0,0,0" Padding="12,5"
+              ToolTip="连接当前地址并浏览远端共享目录" AutomationProperties.Name="连接并浏览">
+       <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE71B;" Style="{StaticResource Icon}" Margin="0,0,6,0"/><TextBlock Text="连接"/></StackPanel>
+      </Button>
+     </StackPanel>
+     <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="140"/></Grid.ColumnDefinitions>
+      <TextBlock Text="地址" VerticalAlignment="Center" Margin="0,0,6,0"/>
+      <ComboBox x:Name="Server" Grid.Column="1" IsEditable="True" DisplayMemberPath="Endpoint" SelectionChanged="Server_Changed"/>
+      <TextBlock Grid.Column="2" Text="访问码" VerticalAlignment="Center" Margin="12,0,6,0"/>
+      <PasswordBox x:Name="Code" Grid.Column="3"/>
+     </Grid>
+     <StackPanel Grid.Row="2" Margin="0,12,0,8">
+      <WrapPanel>
+       <Button x:Name="ParentButton" Style="{StaticResource IconButton}" Click="Parent_Click" Margin="0,0,4,0"
+               ToolTip="返回上级目录" AutomationProperties.Name="返回上级目录"><TextBlock Text="&#xE72B;" Style="{StaticResource Icon}"/></Button>
+       <Button x:Name="RefreshButton" Style="{StaticResource IconButton}" Click="Refresh_Click" Margin="0,0,4,0"
+               ToolTip="刷新当前目录" AutomationProperties.Name="刷新当前目录"><TextBlock Text="&#xE72C;" Style="{StaticResource Icon}"/></Button>
+       <Button x:Name="DownloadButton" Style="{StaticResource IconButton}" Click="Download_Click" Margin="0,0,4,0"
+               ToolTip="下载选中文件" AutomationProperties.Name="下载选中文件"><TextBlock Text="&#xE896;" Style="{StaticResource Icon}"/></Button>
+       <Button x:Name="UploadButton" Style="{StaticResource IconButton}" Click="Upload_Click" Margin="0,0,4,0"
+               ToolTip="上传文件到当前远端目录" AutomationProperties.Name="上传文件"><TextBlock Text="&#xE898;" Style="{StaticResource Icon}"/></Button>
+      </WrapPanel>
+      <TextBlock x:Name="CurrentPath" Text="/" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+      <TextBlock Text="本地文件可从任意位置选择；远端文件只能写入共享根目录内的当前路径。" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+     </StackPanel>
+     <DataGrid Grid.Row="3" x:Name="Entries" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" MouseDoubleClick="Entries_DoubleClick">
+      <DataGrid.Columns><DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*"/><DataGridTextColumn Header="类型" Binding="{Binding Type}" Width="90"/><DataGridTextColumn Header="大小" Binding="{Binding Size}" Width="130"/></DataGrid.Columns>
+     </DataGrid>
+     <DockPanel Grid.Row="4" Margin="0,10,0,0"><Button DockPanel.Dock="Right" Content="暂停 / 取消" Click="Cancel_Click" Margin="12,0,0,0"/><TextBlock x:Name="ClientStatus" Style="{StaticResource MutedText}" TextWrapping="Wrap"/></DockPanel>
+  <Border x:Name="TransferPanel" Grid.Row="3" Grid.RowSpan="2" Panel.ZIndex="10" Width="390" MaxHeight="310" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+          Margin="0,0,0,58" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
+   <Grid Margin="12">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <DockPanel Margin="0,0,0,8">
+     <Button DockPanel.Dock="Right" Content="收起" Click="TransferPanel_Click" Padding="8,3" MinHeight="28"/>
+     <Button DockPanel.Dock="Right" Content="清除完成" Click="ClearTransfers_Click" Padding="8,3" MinHeight="28" Margin="0,0,6,0"/>
+     <TextBlock Text="传输任务" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+    </DockPanel>
+    <ListBox Grid.Row="1" x:Name="TransferList" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+     <ListBox.ItemTemplate>
+      <DataTemplate>
+       <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="0,7">
+        <Grid>
+         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+         <TextBlock Grid.Column="1" Text="{Binding Status}" Style="{StaticResource MutedText}" Margin="8,0,6,0"/>
+         <Button Grid.Column="2" Content="{Binding ActionText}" Tag="{Binding}" Click="TransferAction_Click" Padding="7,2" MinHeight="26"/>
+         <ProgressBar Grid.Row="1" Grid.ColumnSpan="3" Height="5" Margin="0,6,0,3" Minimum="0" Maximum="100" Value="{Binding Progress}"/>
+         <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Text="{Binding Detail}" Style="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+         <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding TransferStats}" Style="{StaticResource MutedText}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+        </Grid>
+       </Border>
+      </DataTemplate>
+     </ListBox.ItemTemplate>
+    </ListBox>
+   </Grid>
+  </Border>
+ <Button x:Name="TransferButton" Grid.RowSpan="3" Panel.ZIndex="20" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+         Margin="0,0,16,14" Padding="12,7" Style="{StaticResource PrimaryButton}" Click="TransferPanel_Click"
+         Visibility="Collapsed" ToolTip="打开传输任务面板" AutomationProperties.Name="传输任务">
+  <StackPanel Orientation="Horizontal">
+   <TextBlock Text="&#xE896;" Style="{StaticResource Icon}" Margin="0,0,6,0"/>
+   <TextBlock x:Name="TransferCountText" Text="传输"/>
+  </StackPanel>
+ </Button>
+   </Grid>
+  </TabItem>
+ </TabControl>
+ <ProgressBar x:Name="Progress" Grid.Row="1" Height="4" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+ <TextBlock Grid.Row="2" x:Name="ErrorText" Foreground="#FFB4A5" TextWrapping="Wrap" Margin="0,10,0,0"/>
+ </Grid>
+</Window>

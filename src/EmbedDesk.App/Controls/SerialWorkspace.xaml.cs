@@ -51,12 +51,6 @@ public partial class SerialWorkspace : UserControl
         _presenter?.Configure(new(HexDisplay.IsChecked == true, ShowTime.IsChecked == true, ShowSent.IsChecked == true), AutoScroll.IsChecked == true);
     }
     private async void Shell_InputReceived(object? sender, string text) { if (_viewModel is not null) await _viewModel.SendShellInputAsync(text); }
-    private void OpenBridge_Click(object sender, RoutedEventArgs e)
-    {
-        var parent = System.Windows.Media.VisualTreeHelper.GetParent(this);
-        while (parent is not null && parent is not SerialTabWorkspace) parent = System.Windows.Media.VisualTreeHelper.GetParent(parent);
-        (parent as SerialTabWorkspace)?.ShowBridge();
-    }
     private async void SaveReceive_Click(object sender, RoutedEventArgs e)
     {
         _presenter.Flush();

@@ -1,4 +1,4 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -25,11 +25,11 @@ internal static class DesktopNetworkChecks
         window.Show();
         try
         {
-            var tabs = Descendants<TabControl>(window).First(); tabs.SelectedIndex = 2;
+            var tabs = Descendants<TabControl>(window).First(); tabs.SelectedIndex = 3;
             await Task.Delay(150);
             var network = Descendants<NetworkWorkspace>(window).Single();
             Require(((FrameworkElement)network.FindName("EmptyState")).IsVisible, "Network workspace starts with a useful empty state");
-            tabs.SelectedIndex = 3;
+            tabs.SelectedIndex = 4;
             await Task.Delay(100);
             var networkTools = Descendants<NetworkToolsWorkspace>(window).Single();
             var networkToolTags = Descendants<Button>(networkTools).Select(button => button.Tag?.ToString()).ToHashSet(StringComparer.Ordinal);
@@ -44,7 +44,7 @@ internal static class DesktopNetworkChecks
             Require(true, "NAT, UPnP, DNS and traceroute windows load successfully");
             Require(network.FindName("ToolList") is null, "Network workspace keeps protocol choices inside the new-session picker");
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-network-tools.png");
-            tabs.SelectedIndex = 2;
+            tabs.SelectedIndex = 3;
             await Task.Delay(100);
             var port = FreePort();
             var server = await vm.CreateNetworkSessionAsync(new TransportOptions { Mode = TransportMode.Server, LocalHost = "127.0.0.1", LocalPort = port, AutoReconnect = false });
@@ -169,7 +169,7 @@ internal static class DesktopNetworkChecks
             await WaitAsync(() => failed.State == "连接失败");
             Require(failed.CanStart && !failed.CanSend, "Failed TCP without retry exposes failure and allows restart");
 
-            window.Width = 1340; window.Height = 880; tabs.SelectedIndex = 1;
+            window.Width = 1340; window.Height = 880; tabs.SelectedIndex = 2;
             var manager = vm.RemoteDebug!;
             var connectionDialog = new ConnectionProfileWindow(manager, new RemoteConnectionProfile { Protocol = RemoteProtocol.Vnc, Port = 5900, Name = "VNC 连接" }, false) { Owner = window };
             connectionDialog.Show();
@@ -204,7 +204,7 @@ internal static class DesktopNetworkChecks
                 Require(received >= 11 && packet[0] == 3, "RDP handshake uses the native TPKT/X.224 transport");
                 manager.SelectLocalShellCommand.Execute(null);
                 manager.SelectTab(rdpSession);
-                tabs.SelectedIndex = 2; await Task.Delay(120); tabs.SelectedIndex = 1; await Task.Delay(120);
+                tabs.SelectedIndex = 3; await Task.Delay(120); tabs.SelectedIndex = 2; await Task.Delay(120);
                 Require(rdpSession.IsConnecting, "Native RDP transport remains active when switching main function pages");
                 Require(manager.SelectedDesktop == rdpSession && manager.Tabs.Contains(rdpSession), "Desktop tabs survive switching to local Shell and back");
             }

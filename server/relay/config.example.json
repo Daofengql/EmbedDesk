@@ -1,0 +1,6 @@
+{
+  "listen": "127.0.0.1:7080",
+  "database": "data/relay.sqlite",
+  "admissionKey": "",
+  "bandwidthBitsPerSecond": 1000000
+}

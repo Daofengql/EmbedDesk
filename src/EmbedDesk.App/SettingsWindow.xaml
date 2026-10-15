@@ -1,0 +1,82 @@
+<Window x:Class="EmbedDesk.App.SettingsWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="设置" Width="820" Height="680" MinWidth="680" MinHeight="570" WindowStartupLocation="CenterOwner">
+ <Grid Margin="20">
+  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <TabControl x:Name="SettingsTabs">
+   <TabItem Header="中继服务器">
+    <Grid Margin="0,14,0,0">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel Margin="0,0,0,14">
+      <TextBlock Text="中继服务器" FontSize="18" FontWeight="SemiBold"/>
+      <TextBlock Text="启动后自动上线，优先默认中继；不可用时尝试免费中继和备用节点。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,5,0,0"/>
+     </StackPanel>
+     <Grid Grid.Row="1" Margin="0,0,0,12">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <StackPanel Margin="0,0,10,0"><TextBlock Text="名称" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><TextBox x:Name="RelayNameInput" MaxLength="64"/></StackPanel>
+      <StackPanel Grid.Column="1" Margin="0,0,10,0"><TextBlock Text="地址（HTTP / HTTPS）" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><TextBox x:Name="RelayUrlInput" MaxLength="2048"/></StackPanel>
+      <Button x:Name="AddRelayButton" Grid.Column="2" Content="添加" Click="AddRelay_Click" VerticalAlignment="Bottom" Width="70"/>
+     </Grid>
+     <Grid Grid.Row="2">
+      <ListBox x:Name="RelayServers" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+       <ListBox.ItemTemplate><DataTemplate>
+        <Grid Margin="2,4">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/><ColumnDefinition Width="78"/><ColumnDefinition Width="78"/></Grid.ColumnDefinitions>
+         <StackPanel Margin="0,0,12,0">
+          <DockPanel><TextBlock Text="{Binding SourceLabel}" DockPanel.Dock="Right" Style="{StaticResource MutedText}" FontSize="11" Margin="10,0,0,0"/><TextBlock Text="{Binding Profile.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Profile.Name}"/></DockPanel>
+          <TextBlock Text="{Binding Profile.Url}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Profile.Url}" Margin="0,4,0,0"/>
+          <TextBlock Text="{Binding Error}" Foreground="#FFB4A5" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding Error}"/>
+         </StackPanel>
+         <TextBlock Grid.Column="1" Text="默认" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Visibility="{Binding IsDefault, Converter={StaticResource BooleanVisibility}}"/>
+         <TextBlock Grid.Column="2" Text="{Binding State}" VerticalAlignment="Center"/>
+         <TextBlock Grid.Column="3" Text="{Binding LatencyText}" Style="{StaticResource MutedText}" VerticalAlignment="Center"/>
+        </Grid>
+       </DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Text="还没有中继服务器，请在上方添加地址。" HorizontalAlignment="Center" VerticalAlignment="Center">
+       <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Items.Count, ElementName=RelayServers}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+      </TextBlock>
+     </Grid>
+     <StackPanel Grid.Row="3" Margin="0,12,0,0">
+      <WrapPanel>
+       <Button x:Name="SetDefaultRelayButton" Content="设为默认" Click="SetDefaultRelay_Click" Margin="0,0,8,0"/>
+       <Button x:Name="EditRelayButton" Content="编辑" Click="EditRelay_Click" IsEnabled="{Binding SelectedItem.CanDelete, ElementName=RelayServers}" Margin="0,0,8,0"/>
+       <Button Content="删除" Click="DeleteRelay_Click" IsEnabled="{Binding SelectedItem.CanDelete, ElementName=RelayServers}" Margin="0,0,8,0"/>
+       <Button x:Name="RefreshRelaysButton" Content="重新测速" Click="RefreshRelays_Click"/>
+      </WrapPanel>
+      <TextBlock Text="每次打开设置会并行测量 HTTP 响应延迟，不进行带宽压测。免费节点将在正式部署后内置。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+     </StackPanel>
+    </Grid>
+   </TabItem>
+   <TabItem Header="连接选项"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,14">
+    <CheckBox x:Name="PreferDirect" Content="优先尝试局域网直连，失败后回退公网中继" Margin="0,0,0,18"/>
+    <TextBlock Text="连接超时 / 首次重连等待（秒）"/><StackPanel Orientation="Horizontal" Margin="0,6,0,16"><TextBox x:Name="TimeoutSeconds" Width="100"/><TextBox x:Name="RetrySeconds" Width="100" Margin="12,0,0,0"/></StackPanel>
+    <TextBlock Text="准入密钥（留空保留已保存值）"/><PasswordBox x:Name="AdmissionKey" Margin="0,6,0,8"/><CheckBox x:Name="ClearAdmission" Content="清除已保存的准入密钥"/>
+    <TextBlock Text="断线后自动保活与重连，重试等待逐步延长，最长 300 秒。连接中心的串口与端口映射共用中继带宽。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,20,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="代理"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,14">
+    <TextBlock Text="中继 HTTP / WebSocket 的代理方式"/><ComboBox x:Name="ProxyMode" Margin="0,6,0,16"><ComboBoxItem Content="直接连接"/><ComboBoxItem Content="系统代理"/><ComboBoxItem Content="自定义代理"/></ComboBox>
+    <TextBlock Text="自定义代理 URL（http / https / socks5）"/><TextBox x:Name="ProxyUrl" Margin="0,6,0,12"/>
+    <TextBlock Text="代理用户名"/><TextBox x:Name="ProxyUser" Margin="0,6,0,12"/>
+    <TextBlock Text="代理口令（留空保留）"/><PasswordBox x:Name="ProxyPassword" Margin="0,6,0,8"/><CheckBox x:Name="ClearProxy" Content="清除已保存的代理口令"/>
+    <TextBlock Text="测速沿用已保存的代理设置。局域网直连和其他网络工具使用自己的直接连接。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,20,0,0"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="连接安全"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="0,14">
+    <CheckBox x:Name="ManualOnly" Content="只允许人工授权，禁用密码接入" Margin="0,0,0,14"/>
+    <CheckBox x:Name="StaticPassword" Content="使用静态连接密码（否则每次上线生成动态密码）" Margin="0,0,0,10"/>
+    <TextBlock Text="静态密码（至少 8 个字符，留空保留）"/><PasswordBox x:Name="ConnectionPassword" Margin="0,6,0,16"/>
+    <TextBlock Text="额外信任的根证书 PEM 文件（可选）"/><TextBox x:Name="TrustedRoot" Margin="0,6,0,16"/>
+    <TextBlock Text="HTTPS 验证主机名和证书链；HTTP 适用于可信内网。密码和凭据保存在 Windows 凭据管理器。人工授权依赖受信任的中继引介。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+   </StackPanel></ScrollViewer></TabItem>
+   <TabItem Header="窗口与托盘"><StackPanel Margin="0,14">
+    <TextBlock Text="点击主窗口 × 时"/><ComboBox x:Name="CloseAction" Margin="0,6,0,16"><ComboBoxItem Content="每次询问"/><ComboBoxItem Content="收起到托盘"/><ComboBoxItem Content="直接退出"/></ComboBox>
+    <TextBlock Text="收起到托盘保持连接、串口和后台任务。托盘菜单中的退出始终结束程序。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+   </StackPanel></TabItem>
+  </TabControl>
+  <TextBlock x:Name="ErrorText" Grid.Row="1" Foreground="#FFB4A5" TextWrapping="Wrap" Margin="0,10,0,0"/>
+  <Grid Grid.Row="2" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <TextBlock Text="保存后下次上线生效，当前连接继续保持。" Style="{StaticResource MutedText}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+   <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="取消" IsCancel="True"/><Button x:Name="SaveSettingsButton" Content="保存" IsDefault="True" Click="Save_Click" Margin="8,0,0,0"/></StackPanel>
+  </Grid>
+ </Grid>
+</Window>

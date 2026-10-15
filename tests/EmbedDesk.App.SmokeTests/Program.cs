@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -24,7 +24,7 @@ internal static class Program
     {
         AppDomain.CurrentDomain.UnhandledException += (_, e) => System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-smoke-crash.txt"), e.ExceptionObject.ToString());
         var app = new SmokeApplication();
-        app.DispatcherUnhandledException += (_, e) => System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-dispatcher-failure.txt"), e.Exception.ToString());
+        app.DispatcherUnhandledException += (_, e) => { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-dispatcher-failure.txt"), e.Exception.ToString()); Console.Error.WriteLine(e.Exception); e.Handled = true; app.Shutdown(1); };
         using var styles = typeof(Program).Assembly.GetManifestResourceStream("App.styles.xaml")!;
         var document = XDocument.Load(styles);
         var dictionary = document.Root!.Elements().Single().Elements().Single();
@@ -37,6 +37,8 @@ internal static class Program
 
 internal sealed class SmokeApplication : Application
 {
+    private int _exitCode;
+    private void SetExitCode(int exitCode) => _exitCode = Math.Max(_exitCode, exitCode);
     protected override async void OnStartup(StartupEventArgs e)
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -47,40 +49,47 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--debug-tools-check")) { await DebugToolsChecks.RunAsync(viewModel); SetExitCode(0); return; }
+            if (e.Args.Contains("--device-connections-check")) { await DeviceConnectionsChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--virtual-serial-check")) { await VirtualSerialChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--device-security-check")) { await DeviceSecurityChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--lan-files-check")) { await LanFileChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--connection-center-window-check")) { await ConnectionCenterUiChecks.RunAsync(viewModel); SetExitCode(0); return; }
             if (e.Args.Contains("--shell-directory-check"))
             {
                 await ShellDirectoryChecks.RunAsync(viewModel);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--remote-tabs-check"))
             {
                 await RemoteTabsChecks.RunAsync(viewModel, remoteDebug);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--remote-empty-check"))
             {
                 await RemoteTabsChecks.RunEmptyStateAsync(viewModel);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--crypto-check"))
             {
                 await CryptoChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--app-settings-check"))
             {
                 await AppSettingsChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--hosts-check"))
             {
                 await HostsChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--configuration-transfer-window-check"))
             {
                 var transferWindow = new ConfigurationTransferWindow(viewModel) { Owner = null };
-                transferWindow.Closed += (_, _) => Shutdown(0);
+                var transferClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                transferWindow.Closed += (_, _) => transferClosed.TrySetResult();
                 transferWindow.Loaded += (_, _) => transferWindow.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     var width = Math.Max(1, (int)Math.Ceiling(transferWindow.ActualWidth));
@@ -94,6 +103,7 @@ internal sealed class SmokeApplication : Application
                     transferWindow.Close();
                 }));
                 transferWindow.Show();
+                await transferClosed.Task;
                 return;
             }
             if (e.Args.Contains("--configuration-import-preview-check"))
@@ -102,7 +112,8 @@ internal sealed class SmokeApplication : Application
                     [new RemoteConnectionProfile { Name = "示例 SSH", Protocol = RemoteProtocol.Ssh, Host = "HOST", Port = 22, Username = "user" }],
                     [new NetworkConnectionPreset { Name = "示例 TCP", Protocol = TransportProtocol.Tcp, Mode = TransportMode.Client, RemoteHost = "HOST", RemotePort = 9000 }],
                     [new SerialBridgeClientPreset { Name = "示例串口", Host = "HOST", Port = 9100 }])) { Owner = null };
-                previewWindow.Closed += (_, _) => Shutdown(0);
+                var previewClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                previewWindow.Closed += (_, _) => previewClosed.TrySetResult();
                 previewWindow.Loaded += (_, _) => previewWindow.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     var width = Math.Max(1, (int)Math.Ceiling(previewWindow.ActualWidth));
@@ -116,12 +127,14 @@ internal sealed class SmokeApplication : Application
                     previewWindow.Close();
                 }));
                 previewWindow.Show();
+                await previewClosed.Task;
                 return;
             }
             if (e.Args.Contains("--local-info-window-check"))
             {
                 var localInfoWindow = new LocalInfoWindow();
-                localInfoWindow.Closed += (_, _) => Shutdown(0);
+                var localInfoClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                localInfoWindow.Closed += (_, _) => localInfoClosed.TrySetResult();
                 localInfoWindow.Loaded += (_, _) => localInfoWindow.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     var width = Math.Max(1, (int)Math.Ceiling(localInfoWindow.ActualWidth));
@@ -135,60 +148,61 @@ internal sealed class SmokeApplication : Application
                     localInfoWindow.Close();
                 }));
                 localInfoWindow.Show();
+                await localInfoClosed.Task;
                 return;
             }
             if (e.Args.Contains("--hosts-window-check"))
             {
                 await HostsChecks.RunWindowAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--preset-layout-check"))
             {
                 new NetworkConnectionWindow(TransportProtocol.Tcp, viewModel).ShowDialog();
                 new BridgeWindow { DataContext = viewModel }.ShowDialog();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--collaboration-protocol-check"))
             {
                 await CollaborationProtocolChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--ssh-protocol-check") && int.TryParse(Environment.GetEnvironmentVariable("EDBG_SSH_PORT"), out var protocolPort))
             {
                 await SshIntegrationChecks.RunProtocolAsync(protocolPort);
-                Shutdown(0);
+                SetExitCode(0);
                 return;
             }
             if (e.Args.Contains("--network-tools-check"))
             {
                 await NetworkToolsChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--iperf3-check"))
             {
                 await Iperf3Checks.RunAsync();
                 await Iperf3UiChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Length == 3 && e.Args[0] == "--iperf3-peer-check")
             {
                 await Iperf3Checks.CheckPeerAsync(e.Args[1], int.Parse(e.Args[2]));
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--dns-query-check"))
             {
                 await DnsQueryChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--utility-tools-check"))
             {
                 await UtilityToolsChecks.RunAsync(viewModel);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--serial-bridge-check"))
             {
                 await SerialBridgeChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--firmware-check"))
             {
@@ -198,32 +212,32 @@ internal sealed class SmokeApplication : Application
                 await Ch347Checks.RunAsync();
                 await EspChecks.RunAsync();
                 await RecordingMediaChecks.RunAsync(viewModel);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--ch347-check"))
             {
                 await Ch347Checks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--esp-check"))
             {
                 await EspChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--recording-media-check"))
             {
                 await RecordingMediaChecks.RunAsync(viewModel);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--live-doh-check"))
             {
                 await DnsQueryChecks.RunLiveDohAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--live-dns-check"))
             {
                 await DnsQueryChecks.RunLiveAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--live-nat-check"))
             {
@@ -233,12 +247,12 @@ internal sealed class SmokeApplication : Application
                 Console.WriteLine(report.Label + " · " + report.Evidence);
                 foreach (var exit in report.Exits)
                     Console.WriteLine($"{exit.Heading} | {exit.Label}\n{exit.MappingDetails}\n{exit.NodesText}\n{exit.LocalDetails}\n{exit.Evidence}");
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--connection-layout-check"))
             {
                 await ConnectionLayoutChecks.RunAsync(viewModel.RemoteDebug!);
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--s3-check"))
             {
@@ -246,39 +260,39 @@ internal sealed class SmokeApplication : Application
                 var s3Window = new MainWindow(viewModel) { Left = 10, Top = 10, Width = 1240, Height = 820 };
                 s3Window.Show();
                 await Task.Delay(200);
-                Find<TabControl>(s3Window).SelectedIndex = 1;
+                Find<TabControl>(s3Window).SelectedIndex = 2;
                 await Task.Delay(100);
                 await S3Checks.RunAsync(s3Window, Find<RemoteDebugWorkspace>(s3Window), viewModel.RemoteDebug!, settingsDirectory);
                 s3Window.Close();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--serial-tabs-check"))
             {
                 await SerialTabsChecks.RunAsync();
-                Shutdown(0); return;
+                SetExitCode(0); return;
             }
             if (e.Args.Contains("--performance-check"))
             {
                 await PerformanceChecks.RunAsync(viewModel);
-                Shutdown(0);
+                SetExitCode(0);
                 return;
             }
             if (e.Args.Contains("--network-quality-check"))
             {
                 await NetworkQualityChecks.RunAsync();
-                Shutdown(0);
+                SetExitCode(0);
                 return;
             }
             if (e.Args.Contains("--desktop-network-check"))
             {
                 await DesktopNetworkChecks.RunAsync(viewModel);
-                Shutdown(0);
+                SetExitCode(0);
                 return;
             }
             if (e.Args.Contains("--packaging-check"))
             {
                 await SingleFilePackagingChecks.RunAsync(viewModel);
-                Shutdown(0);
+                SetExitCode(0);
                 return;
             }
             await TerminalRegressionChecks.RunAsync();
@@ -297,11 +311,12 @@ internal sealed class SmokeApplication : Application
             await SerialTabsChecks.RunAsync();
             await viewModel.InitializeAsync();
             var window = new MainWindow(viewModel) { Left = 10, Top = 10, Width = 1240, Height = 820 };
+            ((TabControl)window.FindName("MainWorkspaceTabs")).SelectedIndex = 1;
             window.Show();
             await Task.Delay(200);
             var workspace = Find<SerialWorkspace>(window);
             var mainTabs = Find<TabControl>(window);
-            mainTabs.SelectedIndex = 1;
+            mainTabs.SelectedIndex = 2;
             await Task.Delay(100);
             var remoteWorkspace = Find<RemoteDebugWorkspace>(window);
             var platformIcons = new HostPlatformIconConverter();
@@ -354,7 +369,7 @@ internal sealed class SmokeApplication : Application
             Require(viewModel.RemoteDebug.Profiles.Count == 0 && viewModel.RemoteDebug.SelectedProfile is null, "The last profile can be removed safely");
             await using (var reloaded = new RemoteDebugWorkspaceViewModel(remoteDebug, settingsDirectory))
                 Require(reloaded.Profiles.Count == 0, "An intentionally empty profile list stays empty after reload");
-            mainTabs.SelectedIndex = 0;
+            mainTabs.SelectedIndex = 1;
             await Task.Delay(100);
             var selector = (ComboBox)workspace.FindName("PortSelector");
             Console.WriteLine($"BINDING selected={viewModel.SelectedSerialSession!.SelectedSerialPort?.PortName ?? "NULL"}, selector={((SerialPortRowViewModel?)selector.SelectedItem)?.PortName ?? "NULL"}, workspaceData={workspace.DataContext?.GetType().Name}");
@@ -440,24 +455,30 @@ internal sealed class SmokeApplication : Application
                         break;
                     case "bridge": viewModel.BridgeMode = "服务端"; auxiliary = new BridgeWindow { DataContext = viewModel, Owner = window }; auxiliary.Show(); break;
                     case "client": viewModel.BridgeMode = "客户端"; auxiliary = new BridgeWindow { DataContext = viewModel, Owner = window }; auxiliary.Show(); break;
-                    case "network": Find<TabControl>(window).SelectedIndex = 1; break;
+                    case "network": Find<TabControl>(window).SelectedIndex = 3; break;
                 }
                 await Task.Delay(100);
                 Console.WriteLine($"STAGE {command}");
             }
             window.Close();
             Console.WriteLine("PASS serial workflow and UI smoke checks");
-            Shutdown(0);
+            SetExitCode(0);
         }
-        catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-current-failure.txt"), ex.ToString()); Console.Error.WriteLine(ex); Shutdown(1); }
+        catch (Exception ex) { System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "embeddesk-current-failure.txt"), ex.ToString()); Console.Error.WriteLine(ex); SetExitCode(1); }
         finally
         {
-            foreach (var file in new[] { "remote-profiles.json", "ssh-keys.json", "app-settings.json", "app-settings.json.tmp" })
+            try
             {
-                var path = System.IO.Path.Combine(settingsDirectory, file);
-                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                await viewModel.DisposeAsync();
+                foreach (var file in new[] { "remote-profiles.json", "ssh-keys.json", "app-settings.json", "app-settings.json.tmp", "hosts-manager.json", "hosts-manager.json.lock" })
+                {
+                    var path = System.IO.Path.Combine(settingsDirectory, file);
+                    if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                }
+                if (System.IO.Directory.Exists(settingsDirectory)) System.IO.Directory.Delete(settingsDirectory);
             }
-            if (System.IO.Directory.Exists(settingsDirectory)) System.IO.Directory.Delete(settingsDirectory);
+            catch (Exception ex) { Console.Error.WriteLine(ex); SetExitCode(1); }
+            finally { Shutdown(_exitCode); }
         }
     }
 

@@ -93,7 +93,7 @@ public sealed class SerialPortService : ISerialPortService, ISerialPortChangeNot
     }
 }
 
-internal sealed class SerialPortChannel : ISerialPortChannel, ISerialPortControl
+internal sealed class SerialPortChannel : ISerialPortChannel, ISerialPortControl, ISerialPortConfiguration
 {
     private readonly SerialPort _port;
     private int _disposed;
@@ -191,6 +191,31 @@ internal sealed class SerialPortChannel : ISerialPortChannel, ISerialPortControl
         Handshake = Settings.Handshake, DtrEnable = _port.DtrEnable, RtsEnable = _port.RtsEnable,
         ReadBufferSize = Settings.ReadBufferSize
     };
+
+    public Task ConfigureAsync(SerialPortSettings settings, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        if (!_port.IsOpen) throw new IOException("串口未打开。");
+        if (settings.BaudRate is < 300 or > 4_000_000 || settings.DataBits is < 5 or > 8
+            || !Enum.IsDefined(settings.Parity) || !Enum.IsDefined(settings.StopBits) || settings.StopBits == StopBits.None
+            || !Enum.IsDefined(settings.Handshake)) throw new ArgumentException("串口参数无效。");
+        _port.Handshake = Handshake.None;
+        _port.BaudRate = settings.BaudRate;
+        _port.DataBits = settings.DataBits;
+        _port.Parity = settings.Parity;
+        _port.StopBits = settings.StopBits;
+        _port.DtrEnable = settings.DtrEnable;
+        _port.RtsEnable = settings.RtsEnable;
+        _port.Handshake = settings.Handshake;
+        Settings = new SerialPortSettings
+        {
+            PortName = Settings.PortName, BaudRate = settings.BaudRate, DataBits = settings.DataBits,
+            Parity = settings.Parity, StopBits = settings.StopBits, Handshake = settings.Handshake,
+            DtrEnable = settings.DtrEnable, RtsEnable = settings.RtsEnable, ReadBufferSize = Settings.ReadBufferSize
+        };
+        return Task.CompletedTask;
+    }
 
     public async ValueTask DisposeAsync()
     {

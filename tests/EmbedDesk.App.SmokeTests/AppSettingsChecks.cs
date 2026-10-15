@@ -102,8 +102,8 @@ internal static class AppSettingsChecks
 
             var path = Path.Combine(directory, "app-settings.json");
             var json = await File.ReadAllTextAsync(path);
-            Require(json.Contains("\"SchemaVersion\": 1", StringComparison.Ordinal), "settings document includes a schema version");
-            Require(!json.Contains("password", StringComparison.OrdinalIgnoreCase)
+            Require(json.Contains("\"SchemaVersion\": 2", StringComparison.Ordinal), "settings document includes a schema version");
+            Require(!json.Contains("\"Password\":", StringComparison.OrdinalIgnoreCase)
                 && !json.Contains("secret", StringComparison.OrdinalIgnoreCase)
                 && !json.Contains("payload", StringComparison.OrdinalIgnoreCase)
                 && !json.Contains("privateKey", StringComparison.OrdinalIgnoreCase)
@@ -215,6 +215,64 @@ internal static class AppSettingsChecks
                 && networkTools.UpnpDiscovery.SearchTypeIndex == 2,
                 "NAT and UPnP query options round-trip without discovery results");
             NetworkToolPreferencesChecks.Run();
+            var migration = Path.Combine(directory, "schema-one"); Directory.CreateDirectory(migration);
+            await File.WriteAllTextAsync(Path.Combine(migration, "app-settings.json"), "{\"SchemaVersion\":1,\"LastWorkspaceIndex\":1,\"WindowWidth\":1200}");
+            using (var migrated = new AppSettingsStore(migration)) Require(migrated.Snapshot().LastWorkspaceIndex == 2 && migrated.Snapshot().WindowWidth == 1200, "schema 1 navigation migrates without losing existing preferences");
+            using (var newOptions = new AppSettingsStore(Path.Combine(directory, "connection-options")))
+            {
+                newOptions.Update(s => { s.ConnectionPreferences = new() { ServerUrl = "https://relay.example.test", CloseAction = MainWindowCloseAction.Tray }; s.SharedServices = [new() { Name = "board", Kind = EmbedDesk.Infrastructure.Connections.SharedServiceKind.Tcp, TargetHost = "BOARD_HOST" }]; s.PortMappingRules = [new(Guid.NewGuid().ToString("N"), "ABCDEF012345", Guid.NewGuid().ToString("N"), "board", 22022)]; }); newOptions.SaveNow();
+                using var restored = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath)); Require(restored.Snapshot().SharedServices.Count == 1 && restored.Snapshot().PortMappingRules.Count == 1 && restored.Snapshot().ConnectionPreferences.CloseAction == MainWindowCloseAction.Tray, "connection options, shared targets and inactive mapping rules persist");
+                var migratedRelay = restored.Snapshot().ConnectionPreferences;
+                var udpService = new EmbedDesk.Infrastructure.Connections.SharedDeviceService { Name = "UDP board", Kind = EmbedDesk.Infrastructure.Connections.SharedServiceKind.Udp, TargetPort = 9000 };
+                restored.Update(s =>
+                {
+                    s.SharedServices.Add(udpService);
+                    s.SharedServices.Add(new() { Name = "serial board", Kind = EmbedDesk.Infrastructure.Connections.SharedServiceKind.Serial, PortName = "COM3", Description = "transient scan metadata" });
+                    s.PortMappingRules.Add(new(Guid.NewGuid().ToString("N"), "ABCDEF012345", udpService.Id, udpService.Name, 22023, udpService.Kind));
+                });
+                restored.SaveNow();
+                using (var udpReload = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath)))
+                {
+                    Require(udpReload.Snapshot().SharedServices.Count == 3 && udpReload.Snapshot().PortMappingRules.Last().Kind == EmbedDesk.Infrastructure.Connections.SharedServiceKind.Udp,
+                        "UDP targets and protocol-specific mapping rules round-trip");
+                    Require(udpReload.Snapshot().PortMappingRules.First().Kind == EmbedDesk.Infrastructure.Connections.SharedServiceKind.Tcp
+                        && !(await File.ReadAllTextAsync(restored.FilePath)).Contains("transient scan metadata", StringComparison.Ordinal),
+                        "existing TCP rules retain their protocol and scanned serial metadata never enters settings JSON");
+                }
+                Require(migratedRelay.RelayServers.Single().Url == "https://relay.example.test"
+                    && migratedRelay.DefaultRelayServerId == migratedRelay.RelayServers[0].Id, "legacy relay URL migrates to a stable default server entry");
+                var virtualId = Guid.NewGuid().ToString("N");
+                restored.Update(s =>
+                {
+                    s.PortMappingRules.Add(new(virtualId, "ABCDEF012345", Guid.NewGuid().ToString("N"), "remote serial", 0,
+                        EmbedDesk.Infrastructure.Connections.SharedServiceKind.Serial, "COM101", "CNCB0"));
+                    s.PortMappingRules.Add(new(Guid.NewGuid().ToString("N"), "ABCDEF012345", Guid.NewGuid().ToString("N"), "invalid serial", 0,
+                        EmbedDesk.Infrastructure.Connections.SharedServiceKind.Serial, "COM101", "../device"));
+                });
+                restored.SaveNow();
+                using (var virtualReload = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath)))
+                {
+                    Require(virtualReload.Snapshot().PortMappingRules.Count == 3
+                        && virtualReload.Snapshot().PortMappingRules.Single(r => r.Id == virtualId) is { VirtualPort: "COM101", BridgePort: "CNCB0" },
+                        "virtual COM rules retain their pair across restart, reject invalid names and stay inactive");
+                }
+                var fallback = new RelayServerProfile { Name = "备用中继", Url = "http://127.0.0.1:7081" };
+                restored.Update(s => s.ConnectionPreferences = s.ConnectionPreferences with
+                { RelayServers = s.ConnectionPreferences.RelayServers.Append(fallback).ToList(), DefaultRelayServerId = fallback.Id });
+                restored.SaveNow();
+                var isolatedSnapshot = restored.Snapshot(); isolatedSnapshot.ConnectionPreferences.RelayServers.Clear();
+                Require(restored.Snapshot().ConnectionPreferences.RelayServers.Count == 2, "relay list snapshots do not mutate the settings store");
+                using var relayReload = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath));
+                var relays = relayReload.Snapshot().ConnectionPreferences;
+                Require(relays.RelayServers.Count == 2 && relays.DefaultRelayServerId == fallback.Id
+                    && relays.RelayServers.Single(p => p.Id == fallback.Id).Name == "备用中继", "relay server list and default selection round-trip");
+            }
+            var relayMigration = Path.Combine(directory, "relay-migration"); Directory.CreateDirectory(relayMigration);
+            await File.WriteAllTextAsync(Path.Combine(relayMigration, "app-settings.json"),
+                "{\"SchemaVersion\":2,\"ConnectionPreferences\":{\"ServerUrl\":\"http://127.0.0.1:7080\",\"AutoConnect\":false}}");
+            using (var legacyRelay = new AppSettingsStore(relayMigration))
+                Require(legacyRelay.Snapshot().ConnectionPreferences.RelayServers.Single().Url == "http://127.0.0.1:7080",
+                    "old JSON relay configuration migrates even when the retired auto-connect option was disabled");
 
             var unknownSchemaDirectory = Path.Combine(directory, "future-schema");
             Directory.CreateDirectory(unknownSchemaDirectory);

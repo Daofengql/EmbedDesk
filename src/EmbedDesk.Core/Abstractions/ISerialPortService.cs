@@ -13,6 +13,11 @@ public interface ISerialPortChannel : IAsyncDisposable
     Task SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 }
 
+public interface ISerialPortFaultNotifier
+{
+    event EventHandler<string>? Faulted;
+}
+
 public interface ISerialPortService
 {
     Task<IReadOnlyList<SerialPortDescriptor>> ScanAsync(CancellationToken cancellationToken = default);
@@ -30,6 +35,12 @@ public interface ISerialPortControl
 {
     Task SetControlLinesAsync(bool dtrEnable, bool rtsEnable, CancellationToken cancellationToken = default);
     Task SetBaudRateAsync(int baudRate, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Applies framing and control lines to an already open serial port.</summary>
+public interface ISerialPortConfiguration
+{
+    Task ConfigureAsync(SerialPortSettings settings, CancellationToken cancellationToken = default);
 }
 
 public interface IVirtualSerialMapper

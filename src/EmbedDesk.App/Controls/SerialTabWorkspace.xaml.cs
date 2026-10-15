@@ -10,7 +10,6 @@ namespace EmbedDesk.App.Controls;
 public partial class SerialTabWorkspace : UserControl
 {
     private MainWindowViewModel? _viewModel;
-    private BridgeWindow? _bridgeWindow;
     private Point? _dragStart;
     private TextBox? _renameEditor;
     private readonly Dictionary<SerialSessionViewModel, SerialWorkspace> _views = [];
@@ -108,16 +107,6 @@ public partial class SerialTabWorkspace : UserControl
             : $"确定关闭“{session.Title}”吗？该标签的收发记录和发送配置将不再保留。";
         if (new ConfirmationWindow("关闭串口标签", message, "关闭标签") { Owner = Window.GetWindow(this) }.ShowDialog() == true)
             await _viewModel.CloseSerialSessionAsync(session);
-    }
-    public void ShowBridge()
-    {
-        if (_bridgeWindow is null)
-        {
-            _bridgeWindow = new BridgeWindow { Owner = Window.GetWindow(this), DataContext = _viewModel };
-            _bridgeWindow.Closed += (_, _) => _bridgeWindow = null;
-            _bridgeWindow.Show();
-        }
-        else _bridgeWindow.Activate();
     }
     private void Tabs_MouseWheel(object sender, MouseWheelEventArgs e)
     {

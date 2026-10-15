@@ -152,7 +152,7 @@ internal static class UtilityToolsChecks
         await vm.InitializeAsync();
         vm.SelectedSerialSession!.SelectedSerialPort!.BaudRate = 2000000;
         vm.SelectedSerialSession.SelectedSerialPort.Handshake = System.IO.Ports.Handshake.RequestToSendXOnXOff;
-        var main = new MainWindow(vm); main.Show();
+        var main = new MainWindow(vm); ((TabControl)main.FindName("MainWorkspaceTabs")).SelectedIndex = 1; main.Show();
         try
         {
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-serial-spacing.png");
@@ -187,14 +187,14 @@ internal static class UtilityToolsChecks
             }
             main.UpdateLayout();
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-serial-spacing-fixed.png");
-            var tabs = Descendants<TabControl>(main).First(); tabs.SelectedIndex = 3;
+            var tabs = Descendants<TabControl>(main).First(); tabs.SelectedIndex = 4;
             main.Width = 1340; main.Height = 940;
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-tools-expanded.png");
             main.Width = main.MinWidth; main.Height = main.MinHeight;
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-tools-expanded-small.png");
             var gallery = Descendants<NetworkToolsWorkspace>(main).Single();
             var buttons = Descendants<Button>(gallery).Where(b => b.Tag is string).ToArray();
-            Require(buttons.Length == 12, "Network gallery contains only network tools");
+            Require(buttons.Length == 13, "Network gallery contains only network tools");
             foreach (var button in buttons)
             {
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -205,17 +205,18 @@ internal static class UtilityToolsChecks
                     dialog.Width = dialog.MinWidth;
                     dialog.Height = dialog.MinHeight;
                     await FileWorkspaceChecks.CaptureAsync(dialog, "embeddesk-stcp-small.png");
-                    Require(dialog.FindName("TunnelList") is ListBox && dialog.FindName("SecretBox") is PasswordBox,
-                        "STCP window exposes profile list and password-only secret input");
+                    Require(dialog.DataContext == vm.Connections && Descendants<DeviceServicesControl>(dialog).Any(),
+                        "STCP reuses global connection center and published services");
                 }
                 dialog.Close();
+                await Until(() => !dialog.IsVisible);
             }
-            tabs.SelectedIndex = 4;
+            tabs.SelectedIndex = 5;
             await Task.Delay(40);
             main.UpdateLayout();
             var embedded = Descendants<EmbeddedToolsWorkspace>(main).Single();
             var embeddedButtons = Descendants<Button>(embedded).Where(b => b.Tag is string).ToArray();
-            Require(embeddedButtons.Length == 8, "Embedded gallery owns ESP, firmware, media, adapter and data tools");
+            Require(embeddedButtons.Length == 11, "Embedded gallery owns firmware, media and six data/debug tools");
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-embedded-tools-small.png");
             main.Width = 1340; main.Height = 940;
             await FileWorkspaceChecks.CaptureAsync(main, "embeddesk-embedded-tools.png");
@@ -227,7 +228,9 @@ internal static class UtilityToolsChecks
                 {
                     "EspConnect" => typeof(EspConnectToolWindow), "Firmware" => typeof(FirmwareToolWindow),
                     "C51" => typeof(StcIspToolWindow), "Ch347" => typeof(Ch347ToolWindow),
-                    "Image" => typeof(ImageWriterWindow), "Logs" => typeof(TrafficRecordingWindow), _ => typeof(ByteToolWindow)
+                    "Image" => typeof(ImageWriterWindow), "Logs" => typeof(TrafficRecordingWindow),
+                    "Camera" => typeof(CameraDebugWindow), "Pid" => typeof(PidDebugWindow), "BinaryEditor" => typeof(BinaryEditorWindow),
+                    _ => typeof(ByteToolWindow)
                 };
                 Require(dialog.GetType() == expected, $"Embedded gallery opens the actual {button.Tag} implementation");
                 dialog.Width = dialog.MinWidth; dialog.Height = dialog.MinHeight;

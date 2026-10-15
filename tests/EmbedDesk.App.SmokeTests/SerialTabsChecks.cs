@@ -67,7 +67,7 @@ internal static class SerialTabsChecks
         Require(vm.IsBridgeRunning && first.IsOpen, "Publishing a mapping does not reopen or take a locally owned COM");
         await vm.StopBridgeCommand.ExecuteAsync(null);
 
-        var window = new MainWindow(vm); window.Show();
+        var window = new MainWindow(vm); ((TabControl)window.FindName("MainWorkspaceTabs")).SelectedIndex = 1; window.Show();
         try
         {
             vm.SelectedSerialSession = first;
@@ -97,12 +97,14 @@ internal static class SerialTabsChecks
             Require(first.CustomTitle.Length == 0, "Leaving the default title unchanged preserves automatic port naming");
             DoubleClick(label); nameEditor.Text = "主控日志"; PressKey(nameEditor, Key.Enter);
             first.StopSerialJobCommand.Execute(null);
+            CheckSidebarLayout(firstView);
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-serial-tabs.png");
             var selector = (ComboBox)firstView.FindName("PortSelector");
             Require(!selector.IsEnabled, "Connected tabs lock the device selector to prevent accidental retargeting");
             var width = selector.ActualWidth;
             window.Width = 1080; window.Height = 680; await Task.Delay(100);
             Require(selector.ActualWidth == width && ((TextBox)firstView.FindName("ReceiveText")).ActualHeight >= 80 && ((TextBox)firstView.FindName("SendEditor")).ActualHeight >= 45, "Small windows retain a fixed-width port selector and usable send/receive panes");
+            CheckSidebarLayout(firstView);
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-serial-tabs-small.png");
 
             first.ShellMode = true; await Task.Delay(150);
@@ -117,8 +119,8 @@ internal static class SerialTabsChecks
             Require(ReferenceEquals(View(window, first), firstView) && await browser.ExecuteScriptAsync("window.serialTabMarker===42 && terminal.options.fontSize===17 && terminal.buffer.active.type==='alternate'") == "true", "Switching and reordering serial tabs retain the live Shell instance, font and alternate screen");
             Require((await browser.ExecuteScriptAsync("terminal.buffer.active.getLine(0).translateToString(true)")).Contains("serial-tui-background"), "Hidden serial Shell tabs continue receiving terminal output");
             var mainTabs = Descendants<TabControl>(window).First();
-            mainTabs.SelectedIndex = 2; await Task.Delay(80);
-            mainTabs.SelectedIndex = 0; await Task.Delay(100);
+            mainTabs.SelectedIndex = 3; await Task.Delay(80);
+            mainTabs.SelectedIndex = 1; await Task.Delay(100);
             Require(await browser.ExecuteScriptAsync("window.serialTabMarker===42 && terminal.buffer.active.type==='alternate'") == "true", "Leaving the serial feature and returning preserves its live Shell");
             first.ShellMode = false;
 
@@ -153,7 +155,7 @@ internal static class SerialTabsChecks
             Require(pendingChannel.Disposed && !pendingChannel.IsOpen, "Closing an opening tab cancels the handshake and releases its channel");
             serial.DelayOpen = false; serial.FailOpen = true;
             await duplicate.OpenSelectedSerialCommand.ExecuteAsync(null);
-            Require(duplicate.Status == "连接失败" && serial.Channels.Last().Disposed, "Failed serial opens dispose their channel and keep the tab configurable");
+            Require(duplicate.Status.StartsWith("连接失败", StringComparison.Ordinal) && duplicate.ConnectionError.Contains("Test open failed") && serial.Channels.Last().Disposed, "Failed serial opens show the actual reason, dispose their channel and keep the tab configurable");
             serial.FailOpen = false;
             await duplicate.OpenSelectedSerialCommand.ExecuteAsync(null);
             Require(duplicate.IsOpen, "A failed connection releases the port reservation for retry");
@@ -195,6 +197,24 @@ internal static class SerialTabsChecks
     {
         var end = DateTime.UtcNow.AddSeconds(15);
         while (!await check()) { if (DateTime.UtcNow > end) throw new TimeoutException("Serial tab check timed out"); await Task.Delay(25); }
+    }
+    private static void CheckSidebarLayout(SerialWorkspace view)
+    {
+        view.UpdateLayout();
+        var content = (Grid)view.FindName("SerialContentArea");
+        var sidebar = (Border)view.FindName("SendToolsSidebar");
+        var contentBounds = content.TransformToAncestor(view).TransformBounds(new Rect(content.RenderSize));
+        var sidebarBounds = sidebar.TransformToAncestor(view).TransformBounds(new Rect(sidebar.RenderSize));
+        Require(contentBounds.Right + 19 <= sidebarBounds.Left && sidebarBounds.Right <= view.ActualWidth - 21,
+            "Serial send tools occupy a separate right column with no receive/editor overlap at the current window size");
+        var queue = (DataGrid)view.FindName("SendQueueGrid");
+        var status = (TextBlock)view.FindName("SerialJobStatusText");
+        var statusBounds = status.TransformToAncestor(sidebar).TransformBounds(new Rect(status.RenderSize));
+        Require(queue.ActualHeight >= 56 && statusBounds.Bottom <= sidebar.ActualHeight + 0.5,
+            "Serial sidebar retains its queue header, a row and final status without bottom clipping");
+        var send = (TextBox)view.FindName("SendEditor");
+        Require(send.TransformToAncestor(content).TransformBounds(new Rect(send.RenderSize)).Bottom <= content.ActualHeight + 0.5,
+            "Fixed-height serial send editor fits inside the available content area");
     }
     private static IDisposable AutoConfirm(bool result, Action seen)
     {

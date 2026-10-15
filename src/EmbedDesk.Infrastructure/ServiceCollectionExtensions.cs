@@ -13,7 +13,8 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddEmbedDeskInfrastructure(this IServiceCollection services)
     {
         services.AddSingleton<ITransportService, TcpUdpTransportService>();
-        services.AddSingleton<ISerialPortService, SerialPortService>();
+        services.AddSingleton<SerialPortService>();
+        services.AddSingleton<ISerialPortService>(provider => new SharedSerialPortService(provider.GetRequiredService<SerialPortService>()));
         services.AddSingleton<IVirtualSerialMapper, ExternalVirtualSerialMapper>();
         services.AddSingleton<IHttpDiagnosticsParser, HttpDiagnosticsParser>();
         services.AddSingleton<ISerialBridgeService, SerialBridgeService>();

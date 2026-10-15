@@ -37,7 +37,7 @@
    - `ch347api/__spi.py`：C0 SPI 配置、C1 片选控制字段。
    - 该项目根据实际抓包记录了 HID 协议，其 README 明确说明协议来源与限制。此实现使用 C# / Windows HID API 重写，未运行或分发其 Python 包。MIT 声明保留于 [third-party/CH347-HIDAPI-MIT.txt](third-party/CH347-HIDAPI-MIT.txt)。
 2. **flashrom，GPL-2.0-or-later**，参考提交 [`bcbe6a074f1b0a37e6cfe2cad041d439f8a775f5`](https://github.com/flashrom/flashrom/blob/bcbe6a074f1b0a37e6cfe2cad041d439f8a775f5/programmers/ch347_spi.c)。
-   - `programmers/ch347_spi.c`：交叉核对 C0 / C1 / C2 命令、507 字节分片限制、SPI 配置字段、CS 极性与时钟分频。没有复制其 libusb 后端或捆绑可执行程序。仓库使用 GPL-3.0；GPL-2.0-or-later 的兼容要求可满足。
+   - `programmers/ch347_spi.c`：交叉核对 C0 / C1 / C2 命令、507 字节分片限制、SPI 配置字段、CS 极性与时钟分频。没有复制其 libusb 后端或捆绑可执行程序。仓库原创代码使用 GPL-3.0-only；GPL-2.0-or-later 的兼容要求可满足。
 3. **Winbond W25Q 系列 / W25N01GV 数据手册**：JEDEC ID、03h 读取、02h 编程、20h / D8h 擦除、06h / 04h 写使能、NAND 0Fh / 1Fh 状态、13h page-to-cache、10h program-execute、ECC 与保护寄存器行为。
    - 官方产品入口：[Winbond Serial NAND](https://www.winbond.com/hq/product/code-storage-flash-memory/serial-nand-flash/)。
    - NAND 型号几何、ID 与 buffer-mode 行为亦和 [Linux `drivers/mtd/nand/spi/winbond.c`](https://github.com/torvalds/linux/blob/master/drivers/mtd/nand/spi/winbond.c) 的 W25N01GV 项交叉核对。未复制该文件或 SNANDer 的实现。
@@ -46,4 +46,4 @@
 
 `--ch347-check` 使用模拟 SPI Flash 验证 JEDEC 探测、NOR 页边界、邻块保护、地址越界、保护位、回读差异、取消、NAND 坏块预检、ECC 错误、原始 OOB 导出、失败状态和寄存器恢复；窗口初始化只枚举 HID 设备。
 
-此轮没有连接实际 CH347T / Flash 执行擦写。Windows HID 报告、不同 CH347 固件和上述芯片的实机互操作还需要硬件回归，模拟测试不能替代它。
+现有验证说明不包含实际 CH347T / Flash 擦写验收。Windows HID 报告、不同 CH347 固件和上述芯片的实机互操作仍需硬件回归，模拟测试不能替代它。测试前提见[首页开发与验证](../README.md#开发与验证)。

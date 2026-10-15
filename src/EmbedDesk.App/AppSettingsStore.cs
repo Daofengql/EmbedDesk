@@ -9,13 +9,15 @@ namespace EmbedDesk.App;
 /// <summary>Versioned, local-only application preferences. Secrets and session data do not belong here.</summary>
 internal sealed class AppSettingsStore : IDisposable
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
     private readonly object _sync = new();
+    private readonly object _writeSync = new();
     private readonly string _path;
     private readonly Timer _saveTimer;
     private AppSettingsDocument _document;
     private bool _dirty;
+    private bool _disposed;
 
     public AppSettingsStore(string? directory = null)
     {
@@ -35,7 +37,9 @@ internal sealed class AppSettingsStore : IDisposable
     {
         lock (_sync)
         {
+            if (_disposed) return;
             update(_document);
+            _document.ConnectionPreferences = NormalizeConnectionPreferences(_document.ConnectionPreferences ?? new());
             _document.SchemaVersion = CurrentSchemaVersion;
             _dirty = true;
             _saveTimer.Change(400, Timeout.Infinite);
@@ -286,11 +290,13 @@ internal sealed class AppSettingsStore : IDisposable
     public void SaveUpnpDiscoveryPreferences(UpnpDiscoveryPreferences preferences) => UpdateNetworkToolPreferences(
         current => current with { UpnpDiscovery = NormalizeUpnpDiscoveryPreferences(preferences) });
 
-    public void SaveNow()
+    public void SaveNow() { lock (_writeSync) SaveCore(); }
+    private void SaveCore()
     {
         AppSettingsDocument snapshot;
         lock (_sync)
         {
+            if (_disposed) return;
             _saveTimer.Change(Timeout.Infinite, Timeout.Infinite);
             if (!_dirty) return;
             _dirty = false;
@@ -320,6 +326,7 @@ internal sealed class AppSettingsStore : IDisposable
 
     private void MarkDirtyLocked()
     {
+        if (_disposed) return;
         _document.SchemaVersion = CurrentSchemaVersion;
         _dirty = true;
         _saveTimer.Change(400, Timeout.Infinite);
@@ -327,8 +334,10 @@ internal sealed class AppSettingsStore : IDisposable
 
     public void Dispose()
     {
-        SaveNow();
-        _saveTimer.Dispose();
+        lock (_writeSync)
+        {
+            SaveCore(); lock (_sync) { _disposed = true; _saveTimer.Dispose(); }
+        }
     }
 
     public static void ApplySerialSettings(SerialPortPreference? preference, ViewModels.SerialPortRowViewModel row)
@@ -349,9 +358,15 @@ internal sealed class AppSettingsStore : IDisposable
             if (!File.Exists(path)) return new AppSettingsDocument();
             using var stream = File.OpenRead(path);
             var document = JsonSerializer.Deserialize<AppSettingsDocument>(stream, JsonOptions);
-            if (document?.SchemaVersion != CurrentSchemaVersion) return new AppSettingsDocument();
+            if (document is null || document.SchemaVersion is < 1 or > CurrentSchemaVersion) return new AppSettingsDocument();
+            if (document.SchemaVersion == 1) document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 4) + 1;
+            document.SchemaVersion = CurrentSchemaVersion;
             document.SerialPorts = new Dictionary<string, SerialPortPreference>(document.SerialPorts ?? new Dictionary<string, SerialPortPreference>(), StringComparer.OrdinalIgnoreCase);
-            document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 4);
+            document.LastWorkspaceIndex = Math.Clamp(document.LastWorkspaceIndex, 0, 5);
+            document.ConnectionPreferences = NormalizeConnectionPreferences(document.ConnectionPreferences ?? new());
+            document.RecentDeviceIds = (document.RecentDeviceIds ?? []).Where(s => s is { Length: 12 } && s.All(Uri.IsHexDigit)).Distinct().Take(20).ToList();
+            document.PortMappingRules = (document.PortMappingRules ?? []).Where(r => r is not null && Guid.TryParseExact(r.Id, "N", out _) && r.DeviceId is { Length: 12 } && r.DeviceId.All(Uri.IsHexDigit) && Guid.TryParseExact(r.ServiceId, "N", out _) && r.ServiceName is { Length: > 0 and <= 64 } && r.HasValidTarget).DistinctBy(r => r.Id).Take(128).ToList();
+            document.SharedServices = (document.SharedServices ?? []).Where(s => { if (s is null) return false; try { s.Validate(); return true; } catch (ArgumentException) { return false; } }).DistinctBy(s => s.Id).Take(128).ToList();
             document.RemoteSessionPaneWidth = Math.Clamp(document.RemoteSessionPaneWidth, 160, 236);
             document.NetworkSessionPaneWidth = Math.Clamp(document.NetworkSessionPaneWidth, 180, 280);
             document.NetworkPresets = (document.NetworkPresets ?? new List<NetworkConnectionPreset>()).Where(IsValidNetworkPreset).Take(100).ToList();
@@ -388,6 +403,10 @@ internal sealed class AppSettingsStore : IDisposable
         WindowTop = source.WindowTop,
         WindowState = source.WindowState,
         LastWorkspaceIndex = source.LastWorkspaceIndex,
+        ConnectionPreferences = source.ConnectionPreferences with { RelayServers = (source.ConnectionPreferences.RelayServers ?? []).ToList() },
+        SharedServices = source.SharedServices.ToList(),
+        RecentDeviceIds = source.RecentDeviceIds.Take(20).ToList(),
+        PortMappingRules = source.PortMappingRules.ToList(),
         RemoteSessionPaneWidth = source.RemoteSessionPaneWidth,
         RemoteSessionPaneExpanded = source.RemoteSessionPaneExpanded,
         SerialPorts = (source.SerialPorts ?? new Dictionary<string, SerialPortPreference>()).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
@@ -400,6 +419,46 @@ internal sealed class AppSettingsStore : IDisposable
         NetworkProbePreferences = source.NetworkProbePreferences ?? new NetworkProbePreferences(),
         NetworkToolPreferences = NormalizeNetworkToolPreferences(source.NetworkToolPreferences ?? new NetworkToolPreferences()),
     };
+
+    private static ConnectionPreferences NormalizeConnectionPreferences(ConnectionPreferences value)
+    {
+        var legacyUrl = value.ServerUrl?.Trim() ?? string.Empty;
+        var servers = (value.RelayServers ?? [])
+            .Where(profile => profile is not null && IsValidRelayProfile(profile))
+            .GroupBy(profile => profile.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First() with { Name = group.First().Name.Trim(), Url = group.First().Url.Trim().TrimEnd('/') })
+            .Take(64)
+            .ToList();
+        foreach (var profile in RelayServerCatalog.BuiltInServers)
+        {
+            servers.RemoveAll(existing => existing.Id == profile.Id || string.Equals(existing.Url, profile.Url, StringComparison.OrdinalIgnoreCase));
+            servers.Add(profile);
+        }
+        if (servers.Count == 0 && IsValidRelayUrl(legacyUrl))
+            servers.Add(new RelayServerProfile { Name = "自定义中继", Url = legacyUrl.TrimEnd('/') });
+        var defaultId = value.DefaultRelayServerId ?? string.Empty;
+        if (servers.All(profile => !string.Equals(profile.Id, defaultId, StringComparison.OrdinalIgnoreCase)))
+            defaultId = servers.FirstOrDefault()?.Id ?? string.Empty;
+        var defaultUrl = servers.FirstOrDefault(profile => string.Equals(profile.Id, defaultId, StringComparison.OrdinalIgnoreCase))?.Url ?? legacyUrl;
+        return value with
+        {
+            ServerUrl = defaultUrl,
+            RelayServers = servers,
+            DefaultRelayServerId = defaultId,
+            ProxyUrl = value.ProxyUrl ?? "", ProxyUser = value.ProxyUser ?? "", TrustedRootFile = value.TrustedRootFile ?? "",
+            ProxyMode = value.ProxyMode is "Direct" or "System" or "Custom" ? value.ProxyMode : "Direct",
+            TimeoutSeconds = Math.Clamp(value.TimeoutSeconds, 2, 120), RetrySeconds = Math.Clamp(value.RetrySeconds, 1, 300),
+            CloseAction = Enum.IsDefined(value.CloseAction) ? value.CloseAction : MainWindowCloseAction.Ask
+        };
+    }
+
+    private static bool IsValidRelayProfile(RelayServerProfile? profile) => profile is not null
+        && profile.Id is { Length: > 0 and <= 64 }
+        && profile.Name is { Length: > 0 and <= 64 } && !profile.Name.Any(char.IsControl)
+        && IsValidRelayUrl(profile.Url);
+
+    private static bool IsValidRelayUrl(string? value)
+        => RelayServerProfile.TryNormalizeUrl(value, out _);
 
     private void UpdateNetworkToolPreferences(Func<NetworkToolPreferences, NetworkToolPreferences> update)
     {
@@ -572,7 +631,11 @@ internal sealed class AppSettingsStore : IDisposable
 
 internal sealed class AppSettingsDocument
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
+    public ConnectionPreferences ConnectionPreferences { get; set; } = new();
+    public List<EmbedDesk.Infrastructure.Connections.SharedDeviceService> SharedServices { get; set; } = [];
+    public List<string> RecentDeviceIds { get; set; } = [];
+    public List<ViewModels.PortMappingRule> PortMappingRules { get; set; } = [];
     public double WindowWidth { get; set; } = 1340;
     public double WindowHeight { get; set; } = 940;
     public double? WindowLeft { get; set; }

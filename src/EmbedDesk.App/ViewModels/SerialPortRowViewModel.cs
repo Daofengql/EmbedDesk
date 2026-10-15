@@ -9,6 +9,7 @@ public sealed class SerialPortRowViewModel : ObservableObject
     private bool _isSelected;
     private bool _isOpen;
     private bool _isAvailable = true;
+    private bool _isShared;
     private int _baudRate = 115200;
     private int _customBaudRate;
     private int _dataBits = 8;
@@ -30,7 +31,8 @@ public sealed class SerialPortRowViewModel : ObservableObject
     public string Manufacturer { get; }
     public bool IsRemote { get; init; }
     public bool IsAvailable { get => _isAvailable; set { if (SetProperty(ref _isAvailable, value)) OnPropertyChanged(nameof(SelectionLabel)); } }
-    public string SelectionLabel => $"{PortName}  ·  {DisplayName}{(IsAvailable ? string.Empty : " · 离线")}";
+    public bool IsShared { get => _isShared; set { if (SetProperty(ref _isShared, value)) OnPropertyChanged(nameof(SelectionLabel)); } }
+    public string SelectionLabel => $"{(IsRemote ? DisplayName : PortName + "  ·  " + DisplayName)}{(IsAvailable ? string.Empty : " · 离线")}{(IsShared ? " · 已共享预留" : string.Empty)}";
     public int DataBits { get => _dataBits; set { if (SetProperty(ref _dataBits, value)) SettingsChanged?.Invoke(this); } }
     public System.IO.Ports.Parity Parity { get => _parity; set { if (SetProperty(ref _parity, value)) SettingsChanged?.Invoke(this); } }
     public System.IO.Ports.StopBits StopBits { get => _stopBits; set { if (SetProperty(ref _stopBits, value)) SettingsChanged?.Invoke(this); } }

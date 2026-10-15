@@ -21,7 +21,11 @@
             <Image Source="Assets/embeddesk.ico" Width="26" Height="26" Margin="0,0,10,0" />
             <TextBlock Grid.Column="1" Text="EmbedDesk" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Click="OpenSettings_Click" ToolTip="设置" AutomationProperties.Name="设置"><TextBlock Text="&#xE713;" Style="{StaticResource Icon}" /></Button>
                 <Button Style="{StaticResource IconButton}" Click="OpenConfiguration_Click" ToolTip="导入 / 导出配置"><TextBlock Text="&#xE8B7;" Style="{StaticResource Icon}" /></Button>
+                <Button x:Name="AboutButton" Style="{StaticResource IconButton}" Click="OpenAbout_Click" ToolTip="关于 EmbedDesk" AutomationProperties.Name="关于 EmbedDesk">
+                    <TextBlock Text="&#xE946;" Style="{StaticResource Icon}" />
+                </Button>
                 <Button x:Name="GitHubButton" Style="{StaticResource IconButton}" Click="OpenRepository_Click" ToolTip="在浏览器中打开 EmbedDesk 开源仓库" AutomationProperties.Name="GitHub · EmbedDesk 开源仓库">
                     <!-- Octicons v19.0.0 mark-github-16; MIT, see docs/third-party/octicons-MIT.txt. -->
                     <Path Width="18" Height="18" Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
@@ -37,6 +41,10 @@
                 <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Visibility="{Binding RemoteDebug.IsTerminalFullscreen, Converter={StaticResource FullscreenChromeVisibility}}"><TabPanel IsItemsHost="True" /></Border>
                 <ContentPresenter Grid.Row="1" ContentSource="SelectedContent" />
             </Grid></ControlTemplate></TabControl.Template>
+            <TabItem>
+                <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE774;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="连接中心" /></StackPanel></TabItem.Header>
+                <controls:ConnectionCenterWorkspace DataContext="{Binding Connections}" />
+            </TabItem>
             <TabItem>
                 <TabItem.Header><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE958;" Style="{StaticResource Icon}" Margin="0,0,7,0" /><TextBlock Text="串口调试" /></StackPanel></TabItem.Header>
                 <controls:SerialTabWorkspace />

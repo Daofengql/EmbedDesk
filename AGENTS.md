@@ -6,7 +6,7 @@
 
 - 面向 Windows 的嵌入式开发助手，使用 .NET 8、WPF、MVVM；终端使用 WebView2、xterm.js 和 Windows ConPTY，SSH 终端也应具备相同的 TUI 能力。
 - 优先使用 .NET 内部实现或 Windows 系统 API。新增工具尽量不依赖外部 EXE、Python、命令行程序或额外厂商 DLL；开发验证工具与产品运行依赖应明确区分。
-- 主导航保持「串口调试」「远程调试」「网络调试」「网络工具」「嵌入式工具」。网络工具中不要混入烧录、存储介质等嵌入式功能。
+- 主导航保持「连接中心」「串口调试」「远程调试」「网络调试」「网络工具」「嵌入式工具」。网络工具中不要混入烧录、存储介质等嵌入式功能。
 - 延续现有暗色、紧凑的视觉风格；工具采用分类后的小图标卡片，点击打开独立工具窗口。沿用现有资源和控件样式，避免重复添加入口。
 - 少开子代理，通常由主代理连续完成相关工作。保持已有改动和用户连接；不要为了构建或验证终止正在使用的程序。
 - 原创代码采用 `GPL-3.0-only`，接受商业使用及收费分发；不要重新添加非商业限制。移植第三方代码时保留许可、版权、来源版本及实现边界，更新 `THIRD_PARTY_NOTICES.md`；相关许可随单 EXE 嵌入。
@@ -30,7 +30,8 @@
 
 - 串口顶部包括设备描述、波特率、数据位 / 校验 / 停止位和流控，硬件流控默认关闭。普通模式为主接收区和较小、固定高度的发送区；Shell 模式为统一终端。
 - 发送工具是常驻侧栏，循环发送和队列发送直接呈现，不增加「发送工具」开关按钮。串口标签文字支持双击重命名。
-- 网络串口映射在独立窗口管理。服务端只发布可映射的 COM，客户端打开时才携带串口参数请求服务端打开；关闭时释放对应设备。
+- 连接中心统一设备 ID、授权和自动局域网直连 / 中继回退，无手动节点角色。网络串口和 STCP 工具窗口复用该共享服务配置，映射只有连接方本机回环端口到被连接方已发布目标的方向；目标可在被连接方网络中。
+- 共享 COM 由统一串口资源管理器软件预留，不预打开、不改变 DTR / RTS，覆盖本地调试和烧录互斥。远端打开时才提交参数并实际独占；失败按真实原因返回连接方并释放本次占用，关闭后保留共享预留。
 - 应用内远程串口可以直接出现在串口选择列表；系统级虚拟 COM 仍需要外部驱动，两者不能混淆。长报文使用有界分帧，防止缓冲区无限增长。
 - 网络调试使用普通会话列表，点击加号后选择 TCP / UDP / HTTP 客户端或服务端、MQTT 客户端。创建时客户端显示远程地址，服务端显示监听地址；服务端可选择全部或指定已连接对端发送。
 
@@ -48,6 +49,9 @@
 ## 工具能力与实现边界
 
 - 网络工具包括 CIDR、DNS / DoH、TLS、Ping / 路由追踪、端口扫描、内网发现、STUN NAT 与 UPnP；Ping 和路由追踪放在同一工具，端口扫描只列出开放端口。NAT 类型使用中英名称，不根据一次失败或单个映射草率下结论。
+- 局域网文件工具保持独立服务端 / 客户端、主动发现和共享根目录内的子目录浏览，不建立系统目录映射。TCP HTTP 传输、UDP 发现；支持剪贴板、3 文件 / 每文件 3 路分块上传、右下角悬浮传输队列、实时速率 / 剩余时间、持久化断点和逐块 SHA-256。版本指纹只采样首尾，不做整文件扫描或承诺检测旧缓存静默损坏；不设固定文件大小上限，遵循磁盘空间与文件系统限制，完成才原子发布。客户端可从任意本地目录选源文件，但远端目标必须是共享根目录内的相对路径。关闭可后台保留，重开恢复同一实例，真正退出等待清理。仅用于可信 IPv4 局域网；Base64 不是加密，访问码不广播，路径不得超出共享根目录，不将 UDP 发现描述为文件正文加速。详见 `docs/LanFiles.md`。
+- 全局中继为独立 Go / Gin / GORM / SQLite 服务，仅监听 HTTP，TLS 由 Nginx 等反向代理提供。控制与数据共用 WebSocket，保持心跳、超时检测及有上限的退避重连；平权准入，每客户端双向合计带宽由 JSON 配置定义，1 Mbps 仅为默认示例。无默认公共节点和管理面板；人工授权依赖可信中继与传输链路，不能声称抗恶意中继冒充。具体协议与边界见 `docs/DeviceConnections.md` 和 `server/relay/README.md`。
+- 连接中心突出显示设备 ID 和密码，底部集中管理共享服务及映射。右上角设置有独立中继服务器列表、默认节点和异步延迟探测；启动自动上线，不提供自动连接开关。默认节点优先，其次免费和备用节点；正式部署前不内置私人测试服务器。设置下次上线生效，取消不保存；托盘隐藏保持原连接，真正退出才取消并等待资源清理。
 - DNS 直接实现 UDP / TCP / DoH，支持记录类型、自定义服务器、超时重试和 UDP 截断后转 TCP；不依赖 `nslookup`，DoH 正常验证 TLS 证书。
 - iperf3 为内置 TCP/UDP 单流客户端及服务端，支持上传 / 下载、报文或写入块大小、带宽限速、UDP 包/s、丢包 / 乱序 / 抖动。遵循标准控制协议，不回退为裸 TCP 流量。
 - iperf3 当前范围为 `-P 1`、`-O 0`、按时长测试；尚未实现多流、双向同时测试、SCTP、认证及 CPU / 重传统计。UDP 同时需要 TCP 控制连接；TCP 写入块大小不等于网线上单包大小。
@@ -71,6 +75,7 @@
 - `src/EmbedDesk.Core/`：模型与接口；`src/EmbedDesk.Protocols/`：桥接帧协议。
 - `src/EmbedDesk.Infrastructure/`：串口、网络、桥接、远程、烧录及录制实现。
 - `src/EmbedDesk.App/`：WPF 窗口、控件、MVVM、本地终端与嵌入资源。
+- `server/relay/`：独立中继及原始第三方许可，不依赖桌面运行时或外部数据库。
 - `tests/EmbedDesk.Core.Tests/`：核心测试；`tests/EmbedDesk.App.SmokeTests/`：桌面与协议回归。
 - 架构、桥接及性能说明分别见 `docs/Architecture.md`、`docs/SerialBridgeProtocol.md`、`docs/performance.md`。
 
@@ -92,10 +97,17 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | 远程调试空状态入口 | `--remote-empty-check` |
 | 本地 Shell 目录拖放与启动路径 | `--shell-directory-check` |
 | 网络串口桥接 | `--serial-bridge-check` |
+| 设备连接、映射与共享资源 | `--device-connections-check` |
+| 可选系统虚拟串口（模拟驱动） | `--virtual-serial-check` |
+| 中继 TLS 与代理 | `--device-security-check` |
+| 连接中心、设置与托盘截图 | `--connection-center-window-check` |
+| 局域网文件 | `--lan-files-check` |
+| 本机设置与迁移 | `--app-settings-check` |
 | RDP / VNC / 网络调试 | `--desktop-network-check` |
 | 连接质量与网络工具 | `--network-quality-check`、`--network-tools-check` |
 | DNS / DoH 与工具窗口 | `--dns-query-check`、`--utility-tools-check` |
 | Hosts 管理器与旧方案迁移 | `--hosts-check`、`--hosts-window-check` |
+| 摄像头 / PID / 二进制调试辅助 | `--debug-tools-check` |
 | iperf3 协议、限速与界面 | `--iperf3-check` |
 | 固件协议模拟 | `--firmware-check`，或专项 `--esp-check`、`--ch347-check` |
 | 录制回放与镜像文件流 | `--recording-media-check` |
@@ -103,6 +115,7 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | 单文件与终端资源 | `--packaging-check` |
 
 - `--packaging-check` 应使用发布后的烟雾测试 EXE，在仅有该 EXE 的隔离目录执行，检查 WebView2、本地 Shell 和终端嵌入资源；普通 build 不代表单文件验证通过。
+- 设备连接 / TLS 检查前，在 `server/relay` 执行 `go build -o ../../artifacts/relay-test.exe .`；服务端执行 `go test ./...`、`go vet ./...`。设备检查使用本机临时数据库、TLS 和模拟 COM，不能代替公网或硬件实测。解决方案未包含 Smoke 项目，修改后需单独构建 Smoke 项目，避免 `--no-build` 运行旧程序集。
 - `--iperf3-peer-check HOST PORT`、`--live-doh-check` 等真实网络入口会产生外部流量，不纳入默认本机回归；需要实测时使用当前任务范围内的目标和适当时长、限速。
 - 报告区分编译、自动测试、截图检查、真实对端互通和硬件实测。分析器警告存在时不要声称零警告。
 

@@ -1,0 +1,35 @@
+<Window x:Class="EmbedDesk.App.RemoteSerialUseWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="使用远程串口" Width="600" Height="540" MinWidth="600" MinHeight="540" WindowStartupLocation="CenterOwner">
+    <Grid Margin="22">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock x:Name="ServiceLabel" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,0,16"/>
+            <TextBlock Text="使用方式"/>
+            <ComboBox x:Name="UsageMode" SelectedIndex="0" SelectionChanged="Mode_Changed" Margin="0,6,0,16">
+                <ComboBoxItem Content="在本软件内使用"/>
+                <ComboBoxItem Content="映射为系统虚拟 COM（实验性）"/>
+            </ComboBox>
+        </StackPanel>
+        <Grid Grid.Row="1">
+            <TextBlock x:Name="AppHint" Text="在串口调试中打开一个远程串口标签，设置参数后连接。无需虚拟串口驱动。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+            <StackPanel x:Name="VirtualFields" Visibility="Collapsed">
+                <TextBlock Text="本机虚拟串口对"/>
+                <Grid Margin="0,6,0,8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <ComboBox x:Name="PairBox" DisplayMemberPath="DisplayName" SelectionChanged="Pair_Changed" Margin="0,0,10,0"/>
+                    <Button x:Name="RefreshPairsButton" Grid.Column="1" Content="刷新" Click="Refresh_Click"/>
+                </Grid>
+                <TextBlock x:Name="DriverStatus" Foreground="#FFB4A5" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <TextBlock Text="左侧 COM 供其他软件打开，右侧由 EmbedDesk 占用。先在 com0com 中创建串口对，并为桥接端设置 dcd=ropen、cts=rrts、dsr=rdtr。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                <TextBlock Text="外部软件打开时才打开远端设备，关闭后释放。同步波特率、数据位、校验、停止位和 DTR/RTS；暂不支持 Break 与远端硬件流控。" Style="{StaticResource MutedText}" TextWrapping="Wrap"/>
+            </StackPanel>
+        </Grid>
+        <TextBlock Grid.Row="2" Text="两种方式共用设备连接；同一远端串口同时只能由一个使用方打开。" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,12,0,14"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取消" IsCancel="True"/>
+            <Button x:Name="UseSerialButton" Content="进入串口调试" IsDefault="True" Click="Use_Click" Margin="8,0,0,0"/>
+        </StackPanel>
+    </Grid>
+</Window>

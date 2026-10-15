@@ -6,6 +6,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using EmbedDesk.Core.Abstractions;
 using EmbedDesk.Core.Models;
+using EmbedDesk.Infrastructure.Connections;
+using EmbedDesk.Infrastructure.Serial;
 
 namespace EmbedDesk.App.ViewModels;
 
@@ -42,7 +44,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         LocalShellStartupOptions? startup = null)
     {
         _transportService = transportService;
-        _serialPortService = serialPortService;
+        _serialPortService = serialPortService is ISerialPortSharing ? serialPortService : new SharedSerialPortService(serialPortService);
         _serialBridgeService = serialBridgeService;
         _remoteSerialClient = remoteSerialClient;
         _appSettings = new AppSettingsStore(remoteSettingsDirectory);
@@ -82,6 +84,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         AddSerialSessionCommand = new RelayCommand(() => AddSerialSession());
         AddSerialSession();
         SerialPorts.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSerialPorts));
+        Connections = new ConnectionCenterViewModel(new DeviceNode(_serialPortService), _appSettings);
+        Connections.Node.Changed += OnDeviceConnectionsChanged;
     }
 
     public ObservableCollection<string> ProtocolOptions { get; }
@@ -93,6 +97,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public ObservableCollection<SerialPortRowViewModel> SerialPorts { get; }
     public ObservableCollection<LogEntryViewModel> Logs { get; }
     public RemoteDebugWorkspaceViewModel? RemoteDebug { get; }
+    public ConnectionCenterViewModel Connections { get; }
     internal AppSettingsStore AppSettings => _appSettings;
     internal NetworkDisplayPreferences NetworkDisplayPreferences => _appSettings.Snapshot().NetworkDisplayPreferences;
     internal IReadOnlyList<NetworkConnectionPreset> GetNetworkPresets() => _appSettings.GetNetworkPresets();
@@ -150,6 +155,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     internal bool TryAcquireSerialPort(SerialSessionViewModel session, SerialPortRowViewModel port, out string error)
     {
+        if (!port.IsRemote && Connections.Node.IsShared(port.PortName)) { error = "串口已预留给网络共享，请先在连接中心取消共享。"; return false; }
         if (_serialOwners.TryGetValue(port.PortName, out var owner))
         {
             SelectedSerialSession = owner;
@@ -181,7 +187,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         foreach (var row in SerialPorts) row.IsOpen = _serialOwners.ContainsKey(row.PortName);
         StartBridgeCommand.NotifyCanExecuteChanged();
     }
-    internal ISerialPortChannel CreateSerialChannel(SerialPortRowViewModel port) => port.IsRemote
+    internal ISerialPortChannel CreateSerialChannel(SerialPortRowViewModel port) => port.PortName.StartsWith("NODE:", StringComparison.Ordinal)
+        ? Connections.Node.CreateSerialChannel(port.PortName, port.ToSettings()) : port.IsRemote
         ? _remoteSerialClient.CreateChannel(port.PortName, port.ToSettings()) : _serialPortService.CreateChannel(port.ToSettings());
     internal void AddSerialLog(string message, TransportEventKind kind) => AddLog("串口", message, kind);
     private void RefreshSerialSessions()
@@ -240,6 +247,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await ScanSerialPortsAsync(cancellationToken);
+        await Connections.InitializeAsync();
         AddLog("系统", "EmbedDesk 已就绪", TransportEventKind.Info);
     }
 
@@ -248,6 +256,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
         _serialPortAutoRefresh.Dispose();
+        Connections.Node.Changed -= OnDeviceConnectionsChanged;
+        await Connections.DisposeAsync();
         foreach (var session in SerialSessions.ToArray()) await session.DisposeAsync();
         _remoteSerialClient.PortsChanged -= OnRemotePortsChanged;
         _remoteSerialClient.ConnectionChanged -= OnRemoteConnectionChanged;
@@ -355,7 +365,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             foreach (var row in SerialPorts) row.PropertyChanged -= OnSerialPortChanged;
             SerialPorts.Clear();
             foreach (var row in rows) { row.PropertyChanged += OnSerialPortChanged; SerialPorts.Add(row); }
+            Connections.UpdateLocalSerialDevices(ports);
             RefreshSerialSessions();
+            OnDeviceConnectionsChanged(this, EventArgs.Empty);
             StartBridgeCommand.NotifyCanExecuteChanged();
             AddLog("串口", $"扫描到 {ports.Count} 个本地串口", TransportEventKind.Info);
         }
@@ -438,7 +450,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     }
     internal SerialPortRowViewModel CreateSerialPortRow(EmbedDesk.Core.Models.SerialPortDescriptor descriptor, bool isRemote = false)
     {
-        var row = new SerialPortRowViewModel(descriptor) { IsRemote = isRemote };
+        var row = new SerialPortRowViewModel(descriptor) { IsRemote = isRemote, IsShared = !isRemote && _serialPortService is ISerialPortSharing sharing && sharing.IsShared(descriptor.PortName) };
         if (!isRemote) AppSettingsStore.ApplySerialSettings(_appSettings.GetSerialPreferences(row.PortName), row);
         row.SettingsChanged = _appSettings.SaveSerialPreferences;
         return row;
@@ -459,11 +471,26 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     }
 
     private void OnRemoteConnectionChanged(object? sender, EventArgs e) => RunOnUi(NotifyBridgeState);
+    private void OnDeviceConnectionsChanged(object? sender, EventArgs e) => RunOnUi(() =>
+    {
+        if (_disposed) return;
+        var services = Connections.Node.RemoteServices.Where(s => s.Service.Kind == SharedServiceKind.Serial).ToArray();
+        var changed = false;
+        foreach (var row in SerialPorts.Where(r => r.PortName.StartsWith("NODE:", StringComparison.Ordinal) && services.All(s => s.PortName != r.PortName)).ToArray())
+        { row.PropertyChanged -= OnSerialPortChanged; SerialPorts.Remove(row); changed = true; }
+        foreach (var service in services.Where(s => SerialPorts.All(r => r.PortName != s.PortName)))
+        {
+            var row = CreateSerialPortRow(new(service.PortName, service.DisplayName, "设备共享串口 · 应用内端口", "EmbedDesk"), true);
+            row.PropertyChanged += OnSerialPortChanged; SerialPorts.Add(row); changed = true;
+        }
+        foreach (var row in SerialPorts.Where(r => !r.IsRemote)) { var shared = Connections.Node.IsShared(row.PortName); if (row.IsShared != shared) { row.IsShared = shared; changed = true; } }
+        if (changed) RefreshSerialSessions();
+    });
     private void OnRemotePortsChanged(object? sender, EventArgs e) => RunOnUi(() =>
     {
         if (_disposed) return;
         var remotePorts = _remoteSerialClient.Ports;
-        foreach (var row in SerialPorts.Where(row => row.IsRemote && remotePorts.All(port => port.PortName != row.PortName)).ToArray())
+        foreach (var row in SerialPorts.Where(row => row.IsRemote && !row.PortName.StartsWith("NODE:", StringComparison.Ordinal) && remotePorts.All(port => port.PortName != row.PortName)).ToArray())
         {
             row.IsOpen = false;
             row.PropertyChanged -= OnSerialPortChanged;

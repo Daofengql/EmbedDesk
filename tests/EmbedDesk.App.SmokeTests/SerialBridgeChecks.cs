@@ -148,6 +148,7 @@ internal static class SerialBridgeChecks
         var tab = vm.SelectedSerialSession!;
         tab.SelectedSerialPort = tab.SerialPorts.Single(p => p.PortName == "REMOTE:1");
         var main = new MainWindow(vm); main.Show();
+        ((TabControl)main.FindName("MainWorkspaceTabs")).SelectedIndex = 1;
         try
         {
             await Task.Delay(100);

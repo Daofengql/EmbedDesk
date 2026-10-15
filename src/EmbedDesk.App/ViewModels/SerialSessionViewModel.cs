@@ -58,7 +58,9 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
     public bool IsOpen => SelectedSerialPort?.IsOpen == true;
     public bool IsBusy { get => _busy; private set { if (SetProperty(ref _busy, value)) NotifyState(); } }
     public bool CanConfigure => !_disposed && !IsOpen && !IsBusy;
-    public string Status { get => _status; private set { if (SetProperty(ref _status, value)) OnPropertyChanged(nameof(Detail)); } }
+    public string Status { get => _status; private set { if (SetProperty(ref _status, value)) { OnPropertyChanged(nameof(Detail)); OnPropertyChanged(nameof(StatusLabel)); OnPropertyChanged(nameof(ConnectionError)); } } }
+    public string StatusLabel => Status.StartsWith("连接失败", StringComparison.Ordinal) ? "连接失败" : Status.StartsWith("连接中断", StringComparison.Ordinal) ? "连接中断" : Status;
+    public string ConnectionError => StatusLabel is "连接失败" or "连接中断" ? Status : "";
     public string SerialJobStatus { get => _jobStatus; private set => SetProperty(ref _jobStatus, value); }
     public string SerialSendText { get => _sendText; set { if (SetProperty(ref _sendText, value)) SendSelectedSerialCommand.NotifyCanExecuteChanged(); } }
     public bool SerialSendAsHex { get => _sendHex; set => SetProperty(ref _sendHex, value); }
@@ -111,6 +113,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         foreach (var row in SerialPorts.ToArray())
         {
             row.IsAvailable = available.Any(p => string.Equals(p.PortName, row.PortName, StringComparison.OrdinalIgnoreCase));
+            row.IsShared = available.FirstOrDefault(p => p.PortName == row.PortName)?.IsShared == true;
             if (!row.IsAvailable && row != SelectedSerialPort) SerialPorts.Remove(row);
         }
         foreach (var port in available)
@@ -133,6 +136,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
             var channel = Owner.CreateSerialChannel(port);
             _channel = channel;
             channel.DataReceived += OnDataReceived;
+            if (channel is ISerialPortFaultNotifier notifier) notifier.Faulted += OnChannelFaulted;
             await Task.Run(() => channel.OpenAsync(cancellation.Token), cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             port.IsOpen = true; Status = "已连接";
@@ -141,7 +145,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         catch (Exception ex)
         {
             await ReleaseChannelAsync();
-            Status = ex is OperationCanceledException ? "已断开" : "连接失败";
+            Status = ex is OperationCanceledException ? "已断开" : "连接失败：" + ex.Message;
             if (ex is not OperationCanceledException) Owner.AddSerialLog($"{port.PortName} 打开失败: {ex.Message}", TransportEventKind.Error);
         }
         finally { _connecting = null; IsBusy = false; }
@@ -177,6 +181,7 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
             if (channel is not null)
             {
                 channel.DataReceived -= OnDataReceived;
+                if (channel is ISerialPortFaultNotifier notifier) notifier.Faulted -= OnChannelFaulted;
                 await Task.Run(async () => await channel.DisposeAsync());
             }
         }
@@ -200,6 +205,12 @@ public sealed class SerialSessionViewModel : ObservableObject, IAsyncDisposable
         }
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null || dispatcher.CheckAccess()) Append(); else dispatcher.BeginInvoke(Append);
+    }
+    private void OnChannelFaulted(object? sender, string error)
+    {
+        void Handle() { if (!_disposed && ReferenceEquals(sender, _channel)) { Owner.AddSerialLog(error, TransportEventKind.Error); _ = CloseAsync("连接中断：" + error); } }
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess()) Handle(); else dispatcher.BeginInvoke(new Action(Handle));
     }
 
     private async Task SendBytesAsync(byte[] bytes, CancellationToken token)

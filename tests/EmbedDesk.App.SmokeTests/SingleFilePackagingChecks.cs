@@ -26,7 +26,7 @@ internal static class SingleFilePackagingChecks
             await FileWorkspaceChecks.CaptureAsync(window, "embeddesk-main-small.png");
             window.Width = originalSize.Width;
             window.Height = originalSize.Height;
-            Descendants<TabControl>(window).First().SelectedIndex = 1;
+            Descendants<TabControl>(window).First().SelectedIndex = 2;
             window.UpdateLayout();
             var terminal = Descendants<ShellTerminal>(window).First();
             var browser = (WebView2)terminal.FindName("Browser");

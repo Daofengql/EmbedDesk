@@ -11,6 +11,11 @@ public partial class NetworkToolsWorkspace : UserControl
     private void OpenTool_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string tool }) return;
+        if (tool == "LanFiles")
+        {
+            var existing = Window.GetWindow(this)?.OwnedWindows.OfType<LanFileShareWindow>().FirstOrDefault();
+            if (existing is not null) { existing.RestoreFromBackground(); return; }
+        }
         var workspace = DataContext as MainWindowViewModel;
         var toolPreferences = workspace?.AppSettings.GetNetworkToolPreferences();
         var settings = workspace?.AppSettings;
@@ -32,7 +37,8 @@ public partial class NetworkToolsWorkspace : UserControl
             "Tls" => new TlsCertificateWindow(toolPreferences?.TlsDiagnostic, settings is null ? null : new Action<TlsDiagnosticPreferences>(settings.SaveTlsDiagnosticPreferences)),
             "LocalInfo" => new LocalInfoWindow(),
             "Hosts" => new HostsManagerWindow(settings is null ? AppDataPaths.SettingsDirectory : System.IO.Path.GetDirectoryName(settings.FilePath)!),
-            "Stcp" when settings is not null => new StcpTunnelManagerWindow(settings),
+            "Stcp" when workspace is not null => new DeviceServicesWindow(workspace.Connections),
+            "LanFiles" => new LanFileShareWindow(),
             _ => throw new InvalidOperationException($"Unknown network tool: {tool}")
         };
         window.Owner = Window.GetWindow(this);
