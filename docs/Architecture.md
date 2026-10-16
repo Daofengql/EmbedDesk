@@ -52,7 +52,7 @@ flowchart TB
 
 ## 配置与生命周期
 
-`%LOCALAPPDATA%\EmbedDesk` 保存 app-settings schema 3、窗口与工具偏好、命名预设、中继列表、共享服务和映射规则；短时间内的写入合并后以临时文件替换。schema 1 / 2 自动迁移旧导航索引和普通 TCP / UDP 预设，保留原预设记录。`remote-profiles.json` 只保存非敏感远程资料，`ssh-keys.json` 保存路径索引。设备随机凭据、静态密码、准入密钥、代理口令和可选 S3 密钥进入 Windows Credential Manager；普通设置不保存会话密码、私钥内容、发送载荷、历史或业务流量。
+`%LOCALAPPDATA%\EmbedDesk` 保存 app-settings schema 3、窗口与工具偏好、命名预设、中继列表、共享服务和映射规则；短时间内的写入合并后以临时文件替换。schema 1 / 2 自动迁移旧导航索引和普通 TCP / UDP 预设，保留原预设记录。`remote-profiles.json` 只保存非敏感远程资料，`ssh-keys.json` 保存路径索引。设备随机凭据、静态密码、按中继条目和地址绑定的准入 Token、代理口令和可选 S3 密钥进入 Windows Credential Manager；普通设置只记录准入迁移标记，不保存 Token、会话密码、私钥内容、发送载荷、历史或业务流量。旧全局准入凭据仅供已有节点迁移使用；设置编辑区暂存 Token，保存时才提交，取消不写入凭据管理器。
 
 配置包是独立的 `EmbedDesk.Configuration` schema 2，兼容导入 schema 1。最大 1 MiB、每类最多 100 项，产品界面导出命名远程连接和旧桥接 / STCP 预设，不导出密码、私钥路径、密钥口令、凭据索引、活动会话或新共享服务 / 映射。调试助手已移除连接预设功能，历史记录仅保留文件读取兼容，产品入口不再导入 / 导出这两类旧预设。加载配置不会恢复设备授权、实际 COM 或活动会话。
 

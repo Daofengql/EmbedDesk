@@ -27,7 +27,7 @@ go build -o ../../artifacts/relay-test.exe .
 | --- | --- |
 | `EMBEDDESK_LISTEN` | `127.0.0.1:7080`，HTTP 监听端点 |
 | `EMBEDDESK_DATABASE` | `data/relay.sqlite`，可写数据库文件路径 |
-| `EMBEDDESK_ADMISSION_KEY` | 空；非空时注册需提供相同 bearer 准入密钥 |
+| `EMBEDDESK_ADMISSION_KEY` | 空；非空时注册需提供相同 bearer 准入 Token，桌面按每个中继独立配置；环境变量与 JSON 字段保留旧名称 |
 | `EMBEDDESK_CONFIG` | 可选 JSON 配置文件；字段见下方，环境变量可覆盖对应字段 |
 | `EMBEDDESK_BANDWIDTH_BITS_PER_SECOND` | 可选环境变量覆盖，默认 `1000000`；配置优先用于部署，范围 8 Kbit/s–100 Gbit/s |
 
@@ -77,6 +77,19 @@ Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED
 ```
 
 把二进制以普通服务账号运行，固定工作目录并给予数据库目录写权限；公网只开放反向代理 HTTPS 端口，内部 HTTP 限制为代理可达。中继不承担客户端 COM / TCP / UDP 目标的监听；UDP 映射也由桌面客户端通过已有加密会话转发。生产服务由 systemd 或现有进程管理器维护。SIGTERM / Ctrl+C 会停止准入、关闭 WebSocket、结束工作协程和关闭数据库。
+
+## 生成桌面导入代码
+
+配置好该服务的 `admissionKey`（或 `EMBEDDESK_ADMISSION_KEY`）后，用客户端实际访问的地址生成代码：
+
+```powershell
+$env:EMBEDDESK_CONFIG = 'relay.json'
+./../../artifacts/relay-test.exe --connection-code 'https://HOST' '自建中继'
+```
+
+此命令只向标准输出写一条 `EMBEDDESK-RELAY:` 连接代码并退出，不创建数据库或启动监听，也不会在正常服务启动日志中输出代码。Token 从配置读取，不放在命令参数中。公开 CA 签发的 HTTPS 使用系统信任；自建 CA 的根证书需在桌面「连接安全」中另外配置。
+
+把完整代码交给获准接入的人，在设置 →「中继服务器」点击「导入连接代码」，核对名称和地址，点击「添加」或「更新」，最后保存。代码包含名称、地址和该服务的准入 Token；也可以从已配置的桌面条目复制。Base64 不加密，代码应按接入凭据保管，不提交到仓库或公开日志。空 Token 表示服务未启用准入限制；准入 Token 不等同于 HTTPS 链路证书或设备连接密码。
 
 ## 数据与资源
 

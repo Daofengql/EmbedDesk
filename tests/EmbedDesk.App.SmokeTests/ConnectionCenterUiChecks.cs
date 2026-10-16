@@ -49,13 +49,24 @@ internal static class ConnectionCenterUiChecks
         using (var store = new AppSettingsStore(Path.Combine(Path.GetTempPath(), "EmbedDesk-Schema-Test", Guid.NewGuid().ToString("N"))))
         { store.Update(s => { s.ConnectionPreferences = s.ConnectionPreferences with { CloseAction = MainWindowCloseAction.Tray }; }); store.SaveNow(); using var reload = new AppSettingsStore(Path.GetDirectoryName(store.FilePath)); DeviceConnectionsChecks.Require(reload.Snapshot().ConnectionPreferences.CloseAction == MainWindowCloseAction.Tray, "close preference persists"); Directory.Delete(Path.GetDirectoryName(store.FilePath)!, true); }
         var profiles = new[] { new RelayServerProfile { Name = "本机中继", Url = "http://127.0.0.1:7080" }, new RelayServerProfile { Name = "备用中继示例", Url = "http://127.0.0.1:1" } };
+        using var credentials = new RelayCredentialCleanup(model.Connections, profiles);
         model.AppSettings.Update(s => s.ConnectionPreferences = s.ConnectionPreferences with { RelayServers = profiles.ToList(), DefaultRelayServerId = profiles[0].Id });
+        model.Connections.SaveSecret("admission", "test-ui-legacy-token");
         var settings = new SettingsWindow(model); settings.Show(); await settings.ProbeTask;
         var tabs = Find<TabControl>(settings);
         await CaptureAsync(settings, "settings-relays-default", 820, 680);
-        for (var index = 0; index < tabs.Items.Count; index++) { tabs.SelectedIndex = index; await CaptureAsync(settings, "settings-" + index, 680, 570); }
+        CheckRelayEditorAlignment(settings);
+        for (var index = 0; index < tabs.Items.Count; index++) { tabs.SelectedIndex = index; await CaptureAsync(settings, "settings-" + index, 680, 570); if (index == 0) CheckRelayEditorAlignment(settings); }
         DeviceConnectionsChecks.Require(settings.FindName("AutoConnect") is null && settings.RelayStatuses.Count == 2
             && settings.RelayStatuses.Any(s => s.IsDefault), "relay settings list replaces the retired auto-connect control and marks the default server");
+        DeviceConnectionsChecks.Require(settings.FindName("AdmissionKey") is null && settings.FindName("ClearAdmission") is null,
+            "connection options no longer contain a global admission key");
+        tabs.SelectedIndex = 0;
+        settings.ImportRelayCode(RelayConnectionInfo.Encode("导入的中继", profiles[0].Url, "test-ui-replacement-token"));
+        DeviceConnectionsChecks.Require(settings.RelayStatuses.Count == 2 && ((Button)settings.FindName("AddRelayButton")).Content.Equals("更新"), "importing an existing address stages a replacement without adding duplicates");
+        await CaptureAsync(settings, "settings-relay-import-minimum", 680, 570);
+        ((Button)settings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        DeviceConnectionsChecks.Require(RelayConnectionInfo.Parse(settings.ExportRelayCode(settings.RelayStatuses[0])).AdmissionToken == "test-ui-replacement-token", "copyable relay code contains the staged per-relay token");
         ((TextBox)settings.FindName("RelayNameInput")).Text = "取消时不保存";
         ((TextBox)settings.FindName("RelayUrlInput")).Text = "http://127.0.0.1:7082";
         ((Button)settings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -63,14 +74,30 @@ internal static class ConnectionCenterUiChecks
         ((Button)settings.FindName("SetDefaultRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         settings.Close();
         DeviceConnectionsChecks.Require(model.Connections.Preferences.RelayServers.Count == 2
-            && model.Connections.Preferences.DefaultRelayServerId == profiles[0].Id, "canceling settings discards added servers and default selection");
+            && model.Connections.Preferences.DefaultRelayServerId == profiles[0].Id
+            && model.Connections.ReadRelayAdmissionToken(profiles[0]) == "test-ui-legacy-token", "canceling settings discards tokens, added servers and default selection");
         var saveSettings = new SettingsWindow(model);
+        saveSettings.ImportRelayCode(RelayConnectionInfo.Encode(profiles[1].Name, profiles[1].Url, "test-ui-token-b"));
+        ((Button)saveSettings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         ((ListBox)saveSettings.FindName("RelayServers")).SelectedItem = saveSettings.RelayStatuses[1];
         ((Button)saveSettings.FindName("SetDefaultRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         saveSettings.Loaded += (_, _) => saveSettings.Dispatcher.BeginInvoke(new Action(() =>
             ((Button)saveSettings.FindName("SaveSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
         DeviceConnectionsChecks.Require(saveSettings.ShowDialog() == true
-            && model.Connections.Preferences.DefaultRelayServerId == profiles[1].Id, "save commits the selected default relay");
+            && model.Connections.Preferences.DefaultRelayServerId == profiles[1].Id
+            && model.Connections.Preferences.RelayTokensMigrated
+            && model.Connections.ReadSecret("admission").Length == 0
+            && model.Connections.ReadRelayAdmissionToken(profiles[0]) == "test-ui-legacy-token"
+            && model.Connections.ReadRelayAdmissionToken(profiles[1]) == "test-ui-token-b", "save migrates existing tokens and commits the selected relay's imported token");
+        var clearSettings = new SettingsWindow(model);
+        clearSettings.ImportRelayCode(RelayConnectionInfo.Encode(profiles[1].Name, profiles[1].Url, ""));
+        ((Button)clearSettings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        clearSettings.Loaded += (_, _) => clearSettings.Dispatcher.BeginInvoke(new Action(() =>
+            ((Button)clearSettings.FindName("SaveSettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent))));
+        DeviceConnectionsChecks.Require(clearSettings.ShowDialog() == true && model.Connections.ReadRelayAdmissionToken(profiles[1]).Length == 0
+            && model.Connections.ReadRelayAdmissionToken(profiles[0]) == "test-ui-legacy-token", "clearing one relay token preserves the other and does not reuse the global key");
+        foreach (var profile in profiles) model.Connections.SaveRelayAdmissionToken(profile, string.Empty);
+        model.Connections.SaveSecret("admission", string.Empty);
         model.Connections.Peers.Clear();
         var services = new DeviceServicesWindow(model.Connections); services.Show(); await CaptureAsync(services, "services-minimum", 600, 420);
         model.Connections.Peers.Add(new("example", "ABCDEF012345", false, "已连接", "局域网直连", 1024, 2048));
@@ -137,6 +164,27 @@ internal static class ConnectionCenterUiChecks
         var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
         var folder = Path.Combine(Path.GetTempPath(), "EmbedDesk-Design-QA"); Directory.CreateDirectory(folder); var path = Path.Combine(folder, name + ".png");
         using var output = File.Create(path); new PngBitmapEncoder { Frames = { BitmapFrame.Create(bitmap) } }.Save(output); Console.WriteLine("UI SCREENSHOT " + path);
+    }
+    private static void CheckRelayEditorAlignment(SettingsWindow window)
+    {
+        var button = (Button)window.FindName("AddRelayButton");
+        foreach (var name in new[] { "RelayNameInput", "RelayUrlInput" })
+        {
+            var input = (TextBox)window.FindName(name);
+            DeviceConnectionsChecks.Require(Math.Abs(button.ActualHeight - input.ActualHeight) < 0.1
+                && Math.Abs(button.TranslatePoint(new Point(), window).Y - input.TranslatePoint(new Point(), window).Y) < 0.1,
+                "relay add button aligns with both input boxes at the current window size");
+        }
+        var list = (ListBox)window.FindName("RelayServers");
+        DeviceConnectionsChecks.Require(list.ActualHeight >= 100, "relay list remains usable at the minimum window size");
+    }
+    private sealed class RelayCredentialCleanup(ConnectionCenterViewModel model, RelayServerProfile[] profiles) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var profile in profiles) model.SaveRelayAdmissionToken(profile, string.Empty);
+            model.SaveSecret("admission", string.Empty);
+        }
     }
     private static T Find<T>(DependencyObject root) where T : DependencyObject
     { if (root is T result) return result; for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { try { return Find<T>(VisualTreeHelper.GetChild(root, i)); } catch (InvalidOperationException) { } } throw new InvalidOperationException(typeof(T).Name); }

@@ -14,6 +14,7 @@ internal static class DeviceSecurityChecks
 {
     public static async Task RunAsync()
     {
+        await RelayAdmissionChecks.RunAsync();
         var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-Tls-Test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
         using var rootKey = RSA.Create(2048); var rootRequest = new CertificateRequest("CN=EmbedDesk test root", rootKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         rootRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true)); rootRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign, true));

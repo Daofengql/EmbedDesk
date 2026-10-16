@@ -18,7 +18,7 @@
 | 网络工具 | [DNS / DoH、CIDR、TLS、Hosts、Ping / 路由、端口扫描、NAT / UPnP 与 iperf3](docs/guide/network-tools.md)，以及[局域网文件](docs/guide/lan-files.md) |
 | 嵌入式工具 | [ESP / STM32 / STC89 / CH347T、原始镜像、二进制编辑、校验 / 编解码与录制回放](docs/guide/embedded-tools.md) |
 
-连接中心没有预置公共中继，需[自行部署或配置可信中继](server/relay/README.md)。应用内远程串口无需驱动，系统虚拟 COM 是需预装 com0com 的实验性功能。局域网文件只用于可信 IPv4 局域网，文件与访问码不加密。硬件、协议和真实互通边界见[技术参考](docs/reference/index.md)；候选工作见[产品方向](docs/ProductRoadmap.md)，不代表当前支持。
+连接中心没有预置公共中继，需[自行部署或配置可信中继](server/relay/README.md)。每个中继独立配置准入 Token，可通过连接代码导入名称、地址和 Token；HTTPS 另行提供链路加密。应用内远程串口无需驱动，系统虚拟 COM 是需预装 com0com 的实验性功能。局域网文件只用于可信 IPv4 局域网，文件与访问码不加密。硬件、协议和真实互通边界见[技术参考](docs/reference/index.md)；候选工作见[产品方向](docs/ProductRoadmap.md)，不代表当前支持。
 
 ## 开发与验证
 

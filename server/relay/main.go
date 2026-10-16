@@ -619,6 +619,17 @@ func main() {
 	if err != nil {
 		log.Fatal("configuration failed: ", err)
 	}
+	if len(os.Args) > 1 {
+		if len(os.Args) != 4 || os.Args[1] != "--connection-code" {
+			log.Fatal("usage: relay [--licenses | --connection-code PUBLIC_URL NAME]")
+		}
+		code, codeErr := relayConnectionCode(os.Args[3], os.Args[2], config.AdmissionKey)
+		if codeErr != nil {
+			log.Fatal("connection code export failed: ", codeErr)
+		}
+		fmt.Println(code)
+		return
+	}
 	relay, err := newRelayWithConfig(config)
 	if err != nil {
 		log.Fatal("database initialization failed")

@@ -336,7 +336,8 @@ internal sealed class AppSettingsStore : IDisposable
         current => current with { UpnpDiscovery = NormalizeUpnpDiscoveryPreferences(preferences) });
 
     public void SaveNow() { lock (_writeSync) SaveCore(); }
-    private void SaveCore()
+    public void SaveNowOrThrow() { lock (_writeSync) SaveCore(throwOnFailure: true); }
+    private void SaveCore(bool throwOnFailure = false)
     {
         AppSettingsDocument snapshot;
         lock (_sync)
@@ -365,8 +366,8 @@ internal sealed class AppSettingsStore : IDisposable
             if (File.Exists(_path)) File.Replace(temporaryPath, _path, null);
             else File.Move(temporaryPath, _path);
         }
-        catch (IOException) { MarkDirty(); TryDeleteTemporary(temporaryPath); }
-        catch (UnauthorizedAccessException) { MarkDirty(); TryDeleteTemporary(temporaryPath); }
+        catch (IOException) { MarkDirty(); TryDeleteTemporary(temporaryPath); if (throwOnFailure) throw; }
+        catch (UnauthorizedAccessException) { MarkDirty(); TryDeleteTemporary(temporaryPath); if (throwOnFailure) throw; }
     }
 
     private void MarkDirtyLocked()

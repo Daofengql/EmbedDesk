@@ -21,7 +21,7 @@ public partial class AboutWindow : Window
         var version = typeof(AboutWindow).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion;
-        if (string.IsNullOrWhiteSpace(version)) return "v0.0.1";
+        if (string.IsNullOrWhiteSpace(version)) return "v0.0.2";
         var metadataSeparator = version.IndexOf('+');
         if (metadataSeparator >= 0) version = version[..metadataSeparator];
         return version.StartsWith('v') ? version : $"v{version}";

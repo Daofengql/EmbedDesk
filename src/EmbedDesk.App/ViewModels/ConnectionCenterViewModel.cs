@@ -81,6 +81,51 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
         if (value.Length == 0) WindowsCredentialStore.Delete(_credentialPrefix + "/" + name);
         else WindowsCredentialStore.Save(_credentialPrefix + "/" + name, value, string.Empty, "EmbedDesk 连接中心");
     }
+    private static string RelayTokenSecretName(RelayServerProfile profile)
+        => "relay-admission-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(profile.Id + "\n" + profile.Url.TrimEnd('/'))));
+    internal string ReadRelayAdmissionToken(RelayServerProfile profile)
+    {
+        var stored = WindowsCredentialStore.Read(_credentialPrefix + "/" + RelayTokenSecretName(profile));
+        if (stored is not null) return stored.Secret;
+        var preferences = Preferences;
+        return !preferences.RelayTokensMigrated && preferences.RelayServers.Any(saved => saved.Id == profile.Id && saved.Url == profile.Url)
+            ? ReadSecret("admission") : string.Empty;
+    }
+    internal void SaveRelayAdmissionToken(RelayServerProfile profile, string token)
+        => SaveSecret(RelayTokenSecretName(profile), token);
+    internal void SaveConnectionPreferences(ConnectionPreferences preferences, IReadOnlyDictionary<string, string> relayTokens,
+        string? password = null, string? proxyPassword = null)
+    {
+        var previous = Preferences;
+        var changes = previous.RelayServers.ToDictionary(RelayTokenSecretName, _ => string.Empty, StringComparer.Ordinal);
+        foreach (var profile in preferences.RelayServers) changes[RelayTokenSecretName(profile)] = relayTokens[profile.Id];
+        // Retire the global key only after all existing relay entries have independent credentials.
+        changes["admission"] = string.Empty;
+        if (password is not null) changes["password"] = password;
+        if (proxyPassword is not null) changes["proxy"] = proxyPassword;
+        var originals = changes.Keys.ToDictionary(key => key, ReadSecret, StringComparer.Ordinal);
+        var written = new List<string>();
+        try
+        {
+            foreach (var change in changes) { SaveSecret(change.Key, change.Value); written.Add(change.Key); }
+            _settings.Update(s => s.ConnectionPreferences = preferences with { RelayTokensMigrated = true });
+            _settings.SaveNowOrThrow();
+        }
+        catch (Exception failure)
+        {
+            var rollbackErrors = new List<Exception>();
+            foreach (var key in written)
+            {
+                try { SaveSecret(key, originals[key]); }
+                catch (Win32Exception ex) { rollbackErrors.Add(ex); }
+            }
+            _settings.Update(s => s.ConnectionPreferences = previous);
+            _settings.SaveNow();
+            if (rollbackErrors.Count > 0)
+                throw new InvalidOperationException("设置保存失败，部分原凭据无法恢复；请重新检查中继 Token 和密码设置。", new AggregateException(rollbackErrors.Prepend(failure)));
+            throw;
+        }
+    }
     public async Task InitializeAsync()
     {
         if (Preferences.RelayServers.Count > 0 || Preferences.ServerUrl.Length > 0) await StartAsync();
@@ -115,7 +160,7 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
         if (!preferences.ManualApprovalOnly && Password.Length < 8) throw new ArgumentException("请在设置中配置至少 8 个字符的静态密码。");
         await Node.StartAsync(transport with
         {
-            ServerUrl = serverProfile.Url, Credential = credential, AdmissionKey = ReadSecret("admission"), Password = preferences.ManualApprovalOnly ? string.Empty : Password,
+            ServerUrl = serverProfile.Url, Credential = credential, AdmissionKey = ReadRelayAdmissionToken(serverProfile), Password = preferences.ManualApprovalOnly ? string.Empty : Password,
             ManualApprovalOnly = preferences.ManualApprovalOnly, PreferDirect = preferences.PreferDirect, TimeoutSeconds = preferences.TimeoutSeconds, RetrySeconds = preferences.RetrySeconds,
         }, lifetime.Token);
         }); }

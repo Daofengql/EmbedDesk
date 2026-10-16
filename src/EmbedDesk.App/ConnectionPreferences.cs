@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using EmbedDesk.Infrastructure.Connections;
 
 namespace EmbedDesk.App;
 
@@ -11,15 +12,7 @@ internal sealed record RelayServerProfile
     public bool BuiltIn { get; init; }
 
     public static bool TryNormalizeUrl(string? value, out string normalized)
-    {
-        normalized = string.Empty;
-        if (value is not { Length: > 0 and <= 2048 } || value.Any(char.IsControl)
-            || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
-            || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0
-            || uri.Scheme is not ("http" or "https")) return false;
-        normalized = uri.AbsoluteUri.TrimEnd('/');
-        return true;
-    }
+        => RelayConnectionInfo.TryNormalizeUrl(value, out normalized);
 }
 
 internal static class RelayServerCatalog
@@ -30,8 +23,11 @@ internal static class RelayServerCatalog
 
 internal sealed class RelayServerStatus : ObservableObject
 {
-    public RelayServerStatus(RelayServerProfile profile) => Profile = profile;
+    public RelayServerStatus(RelayServerProfile profile, bool hasAdmissionToken = false)
+    { Profile = profile; HasAdmissionToken = hasAdmissionToken; }
     public RelayServerProfile Profile { get; }
+    public bool HasAdmissionToken { get; }
+    public string AdmissionLabel => HasAdmissionToken ? "准入 Token 已配置" : "未配置准入 Token";
     private string _state = "未测速";
     private string _latencyText = "—";
     private string _error = string.Empty;
@@ -57,6 +53,8 @@ internal sealed record ConnectionPreferences
     public bool AutoConnect { get; init; } = true;
     public List<RelayServerProfile> RelayServers { get; init; } = RelayServerCatalog.BuiltInServers.ToList();
     public string DefaultRelayServerId { get; init; } = RelayServerCatalog.BuiltInServers.FirstOrDefault()?.Id ?? string.Empty;
+    // Until the next settings save, only existing profiles may use the old global admission secret.
+    public bool RelayTokensMigrated { get; init; }
     public bool PreferDirect { get; init; } = true;
     public int TimeoutSeconds { get; init; } = 10;
     public int RetrySeconds { get; init; } = 5;

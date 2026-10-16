@@ -64,10 +64,10 @@ internal static class DeviceConnectionsChecks
         }
         finally { if (!restarted.HasExited) restarted.Kill(); await restarted.WaitForExitAsync(); await Task.WhenAll(stdout, stderr); }
     }
-    internal static async Task<ProcessStartInfo> RelayStartAsync(string directory, int port, long bandwidth)
+    internal static async Task<ProcessStartInfo> RelayStartAsync(string directory, int port, long bandwidth, string admissionToken = "")
     {
         var configPath = Path.Combine(directory, "relay.json");
-        await File.WriteAllTextAsync(configPath, JsonSerializer.Serialize(new { listen = "127.0.0.1:" + port, database = Path.Combine(directory, "relay.sqlite"), admissionKey = "", bandwidthBitsPerSecond = bandwidth }));
+        await File.WriteAllTextAsync(configPath, JsonSerializer.Serialize(new { listen = "127.0.0.1:" + port, database = Path.Combine(directory, "relay.sqlite"), admissionKey = admissionToken, bandwidthBitsPerSecond = bandwidth }));
         var start = new ProcessStartInfo(Path.Combine(FindRepository(), "artifacts", "relay-test.exe")) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var key in new[] { "EMBEDDESK_LISTEN", "EMBEDDESK_DATABASE", "EMBEDDESK_ADMISSION_KEY", "EMBEDDESK_BANDWIDTH_BITS_PER_SECOND", "EMBEDDESK_TLS_CERT", "EMBEDDESK_TLS_KEY" }) start.Environment.Remove(key);
         start.Environment["EMBEDDESK_CONFIG"] = configPath;

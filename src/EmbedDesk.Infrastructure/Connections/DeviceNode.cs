@@ -116,7 +116,7 @@ public sealed partial class DeviceNode : IAsyncDisposable
                 using var handler = RelayHttpTransport.CreateHandler(_options);
                 using var http = new HttpClient(handler) { BaseAddress = new Uri(_options.ServerUrl.TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds) };
                 using var request = new HttpRequestMessage(HttpMethod.Post, "v1/register") { Content = new StringContent(JsonSerializer.Serialize(new { credential = _options.Credential }, Json), Encoding.UTF8, "application/json") };
-                request.Headers.Authorization = new("Bearer", _options.AdmissionKey);
+                if (_options.AdmissionKey.Length > 0) request.Headers.Authorization = new("Bearer", _options.AdmissionKey);
                 using var response = await http.SendAsync(request, token).ConfigureAwait(false); response.EnsureSuccessStatusCode();
                 using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 DeviceId = document.RootElement.GetProperty("id").GetString()!;
