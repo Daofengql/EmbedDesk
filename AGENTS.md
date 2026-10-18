@@ -30,7 +30,7 @@
 
 - 串口顶部包括设备描述、波特率、数据位 / 校验 / 停止位和流控，硬件流控默认关闭。普通模式为主接收区和较小、固定高度的发送区；Shell 模式为统一终端。
 - 发送工具是常驻侧栏，循环发送和队列发送直接呈现，不增加「发送工具」开关按钮。串口标签文字支持双击重命名。
-- 连接中心统一设备 ID、授权和自动局域网直连 / 中继回退，无手动节点角色。网络串口和 STCP 工具窗口复用该共享服务配置，映射只有连接方本机回环端口到被连接方已发布目标的方向；目标可在被连接方网络中。
+- 连接中心统一设备 ID、授权和自动局域网直连 / 中继回退，无手动节点角色。连接方与被连接方互斥，握手和待授权也占用角色，全部请求与会话结束后可切换，相同方向可多会话；客户端与中继均检查。网络串口和 STCP 工具窗口复用该共享服务配置，映射只有连接方本机 `127.0.0.1` 端口到被连接方已发布目标的方向，不提供监听范围选择；目标可在被连接方网络中。客户端分配速率称“可用带宽”，以 1000 进制在 bps / Kbps / Mbps / Gbps 等单位间自动换算。
 - 共享 COM 由统一串口资源管理器软件预留，不预打开、不改变 DTR / RTS，覆盖本地调试和烧录互斥。远端打开时才提交参数并实际独占；失败按真实原因返回连接方并释放本次占用，关闭后保留共享预留。
 - 应用内远程串口可以直接出现在串口选择列表；系统级虚拟 COM 仍需要外部驱动，两者不能混淆。长报文使用有界分帧，防止缓冲区无限增长。
 - 调试助手默认无标签，显示「开始第一个调试会话」。加号与空状态按钮在主界面内打开分类新建弹窗，不新建 Windows 窗口，不提供连接预设栏；基础通信包含串口调试、TCP/UDP 客户端、TCP/UDP 服务端，网络表单内再选择 TCP 或 UDP；设备调试包含 PID、摄像头，应用协议暂时只保留 MQTT 客户端，HTTP 入口待设计确定后再规划。客户端显示远程地址，服务端显示监听地址；服务端可选择全部或指定对端发送，UDP 服务端可锁定首个发送端。每个标签独立实例化；编辑前停止连接，不覆盖工具协议设置。详见 `docs/DebugAssistantDesign.md`。
@@ -103,10 +103,12 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | 网络串口桥接 | `--serial-bridge-check` |
 | 设备连接、映射与共享资源 | `--device-connections-check` |
 | 可选系统虚拟串口（模拟驱动） | `--virtual-serial-check` |
+| 串口背压、持续收发与断线取消（独立测试中继） | `--serial-flow-check`，通过 `EMBEDDESK_TEST_RELAY_URL` 指定测试节点，可选 `EMBEDDESK_TEST_RELAY_ADMISSION_KEY` |
+| 映射添加、对端目录与端口校验（独立测试中继） | `--device-mappings-check`，使用同一测试中继环境变量 |
 | 中继 TLS 与代理 | `--device-security-check` |
 | 连接中心、设置与托盘截图 | `--connection-center-window-check` |
 | 局域网文件 | `--lan-files-check` |
-| 本机设置、迁移与内置中继目录 | `--app-settings-check`、`--relay-catalog-check` |
+| 本机设置、迁移、内置中继目录与延迟刷新 | `--app-settings-check`、`--relay-catalog-check`、`--relay-latency-check` |
 | RDP / VNC / 网络调试 | `--desktop-network-check` |
 | 连接质量与网络工具 | `--network-quality-check`、`--network-tools-check` |
 | DNS / DoH 与工具窗口 | `--dns-query-check`、`--utility-tools-check` |

@@ -121,7 +121,7 @@ CLI `--connection-code PUBLIC_URL NAME` 使用启动配置的 `admissionKey`，�
 - `POST /api/console/sessions/ID/close` 结束会话；`POST /api/console/devices/ID/disconnect` 断开设备；`DELETE /api/console/devices/ID` 删除登记。
 - `POST /api/console/users/batch`（管理员）可对当前选中的 1–100 个账号批量启用、禁用、设置账号总带宽或设备数量上限；`POST /api/console/devices/batch` 可批量启用、禁用、断开、删除或由管理员分配／清空归属；`POST /api/console/sessions/batch` 可批量关闭会话。批量请求整批校验，失败不产生部分修改；会话中已结束的 ID 返回 `skipped`。
 
-握手、加密转发、心跳和有界队列保持现有协议。最多 1,024 在线设备、4,096 设备会话、每设备 16 会话；待授权超时 90 秒。每设备三类队列各 64 项，报文最多 96 KiB、加密 body 最多 64 KiB。账号设备共享双向总限速，匿名设备各自限速；局域网直连不受中继配额限制。详见[设备协议](../docs/DeviceConnections.md)。
+握手、加密转发、心跳和有界队列保持现有协议。连接方与被连接方互斥，待授权也占用角色：持有入站会话不能发起连接，持有出站会话的设备不能接受入站；相同方向允许多个会话，全部结束后可切换方向。最多 1,024 在线设备、4,096 设备会话、每设备 16 会话；待授权超时 90 秒。每设备三类队列各 64 项，报文最多 96 KiB、加密 body 最多 64 KiB。账号设备共享双向总限速，匿名设备各自限速；局域网直连不受中继配额限制。详见[设备协议](../docs/DeviceConnections.md)。
 
 ## 数据与边界
 

@@ -20,20 +20,33 @@ public partial class DeviceNode
         if (password.Length > 128) throw new ArgumentException("连接密码不能超过 128 个字符。");
         deviceId = deviceId.Trim().ToUpperInvariant();
         if (deviceId.Length != 12 || !deviceId.All(Uri.IsHexDigit) || deviceId == DeviceId) throw new ArgumentException("对方设备 ID 无效。");
-        if (_requests.Count >= 8 || _peers.Count >= 16) throw new InvalidOperationException("连接请求过多。");
-        var request = new VisitorRequest(deviceId, password);
-        _requests[request.Id] = request;
+        VisitorRequest request;
+        lock (_connectionRoleGate)
+        {
+            if (!_online) throw new InvalidOperationException("请先连接中继服务端。");
+            if (!CanInitiateConnection) throw new InvalidOperationException("当前作为被连接方，不能发起连接；请先结束入站连接或拒绝待授权请求。");
+            if (_requests.Count >= 8 || _peers.Count >= 16) throw new InvalidOperationException("连接请求过多。");
+            request = new VisitorRequest(deviceId, password);
+            _requests[request.Id] = request;
+        }
         try
         {
+            Notify();
             await SendMessageAsync(new("connect", To: deviceId, Body: Element(new NodeHello(request.Id, password.Length == 0 ? "manual" : "password", request.Key.PublicKey, request.Nonce))), token).ConfigureAwait(false);
             await request.Completion.Task.WaitAsync(TimeSpan.FromSeconds(90), token).ConfigureAwait(false);
         }
         catch
         {
-            if (request.SessionId is { } id) await DisconnectPeerAsync(id).ConfigureAwait(false);
+            string? sessionId;
+            lock (_connectionRoleGate) { request.Active = false; sessionId = request.SessionId; }
+            if (sessionId is { } id) await DisconnectPeerAsync(id).ConfigureAwait(false);
             throw;
         }
-        finally { _requests.TryRemove(request.Id, out _); request.Dispose(); }
+        finally
+        {
+            lock (_connectionRoleGate) { request.Active = false; _requests.TryRemove(request.Id, out _); request.Dispose(); }
+            Notify();
+        }
     }
     public async Task ApproveAsync(string sessionId, bool approve, CancellationToken token = default)
     {
@@ -60,8 +73,13 @@ public partial class DeviceNode
             if (message.Type == "pending")
             {
                 var hello = message.Body!.Value.Deserialize<NodeHello>(Json)!;
-                if (_requests.TryGetValue(hello.RequestId, out var pending)) pending.SessionId = message.Session;
-                else await SendMessageAsync(new("close", Session: message.Session), token).ConfigureAwait(false);
+                bool active;
+                lock (_connectionRoleGate)
+                {
+                    active = _requests.TryGetValue(hello.RequestId, out var pending) && pending.Active;
+                    if (active) pending!.SessionId = message.Session;
+                }
+                if (!active) await SendMessageAsync(new("close", Session: message.Session), token).ConfigureAwait(false);
                 return;
             }
             if (message.Type == "connect")
@@ -69,7 +87,19 @@ public partial class DeviceNode
                 var hello = message.Body!.Value.Deserialize<NodeHello>(Json) ?? throw new InvalidDataException("连接请求为空。");
                 ValidateHello(hello);
                 var owner = new Peer(this, message.Session!, message.From!, true, CollaborationKeyAgreement.CreateKeyPair(), RandomNumberGenerator.GetBytes(32)) { Hello = hello };
-                if (!_peers.TryAdd(owner.Id, owner)) { await owner.DisposeAsync().ConfigureAwait(false); return; }
+                bool added, roleConflict;
+                lock (_connectionRoleGate)
+                {
+                    roleConflict = !_requests.IsEmpty || _peers.Values.Any(peer => !peer.IsOwner);
+                    added = !roleConflict && _peers.TryAdd(owner.Id, owner);
+                }
+                if (!added)
+                {
+                    await owner.DisposeAsync().ConfigureAwait(false);
+                    if (roleConflict) await SendMessageAsync(new("close", Session: message.Session, Error: "对方当前作为连接发起方，暂不接受入站连接。"), token).ConfigureAwait(false);
+                    return;
+                }
+                Notify();
                 if (hello.Mode == "manual") { owner.AwaitingApproval = true; ApprovalRequested?.Invoke(this, new(owner.Id, owner.RemoteId)); Notify(); }
                 else
                 {
@@ -82,22 +112,41 @@ public partial class DeviceNode
             if (message.Type == "challenge")
             {
                 var challenge = message.Body!.Value.Deserialize<NodeChallenge>(Json) ?? throw new InvalidDataException("握手为空。");
-                if (!_requests.TryGetValue(challenge.RequestId, out var request) || request.RemoteId != message.From) throw new InvalidDataException("握手不属于当前连接请求。");
-                request.SessionId = message.Session;
-                var visitor = new Peer(this, message.Session!, message.From!, false, request.TakeKey(), request.Nonce);
-                visitor.Secret = request.Password.Length == 0
-                    ? challenge.ManualSecret is { Length: 32 } secret ? secret : throw new InvalidDataException("人工授权密钥无效。")
-                    : PasswordSecret(request.Password, visitor.Id, DeviceId, visitor.RemoteId);
-                visitor.Transcript = CollaborationHandshake.CreateTranscript(Convert.FromHexString(visitor.Id), challenge.PublicKey, visitor.Key.PublicKey, challenge.Nonce, visitor.Nonce);
-                if (!CollaborationHandshake.VerifyProof(visitor.Secret, visitor.Transcript, CollaborationPeerRole.Owner, challenge.Proof))
+                VisitorRequest? request = null;
+                Peer? visitor = null;
+                var added = false;
+                try
                 {
-                    await visitor.DisposeAsync().ConfigureAwait(false); request.Completion.TrySetException(new UnauthorizedAccessException("连接密码错误或握手身份校验失败。"));
-                    await SendMessageAsync(new("close", Session: message.Session), token).ConfigureAwait(false); return;
+                    // Cancellation, role selection and key transfer share the same gate so
+                    // a late challenge cannot register a visitor after an owner takes over.
+                    lock (_connectionRoleGate)
+                    {
+                        if (!_requests.TryGetValue(challenge.RequestId, out request) || !request.Active || request.RemoteId != message.From)
+                            throw new InvalidDataException("握手不属于当前连接请求。");
+                        if (request.Key is null) throw new InvalidDataException("握手重复。");
+                        if (_peers.Values.Any(current => current.IsOwner)) throw new InvalidOperationException("当前作为被连接方，不能发起连接。");
+                        request.SessionId = message.Session;
+                        visitor = new Peer(this, message.Session!, message.From!, false, request.TakeKey(), request.Nonce);
+                        visitor.Secret = request.Password.Length == 0
+                            ? challenge.ManualSecret is { Length: 32 } secret ? secret : throw new InvalidDataException("人工授权密钥无效。")
+                            : PasswordSecret(request.Password, visitor.Id, DeviceId, visitor.RemoteId);
+                        visitor.Transcript = CollaborationHandshake.CreateTranscript(Convert.FromHexString(visitor.Id), challenge.PublicKey, visitor.Key.PublicKey, challenge.Nonce, visitor.Nonce);
+                        if (!CollaborationHandshake.VerifyProof(visitor.Secret, visitor.Transcript, CollaborationPeerRole.Owner, challenge.Proof))
+                            throw new UnauthorizedAccessException("连接密码错误或握手身份校验失败。");
+                        visitor.InitializeKeys(challenge.PublicKey);
+                        visitor.Request = request;
+                        added = _peers.TryAdd(visitor.Id, visitor);
+                        if (!added) throw new InvalidDataException("握手重复。");
+                    }
+                    await SendMessageAsync(new("proof", Session: visitor.Id, Body: Element(CollaborationHandshake.CreateProof(visitor.Secret, visitor.Transcript, CollaborationPeerRole.Visitor))), token).ConfigureAwait(false);
                 }
-                visitor.InitializeKeys(challenge.PublicKey);
-                visitor.Request = request;
-                if (!_peers.TryAdd(visitor.Id, visitor)) { await visitor.DisposeAsync().ConfigureAwait(false); throw new InvalidDataException("握手重复。"); }
-                await SendMessageAsync(new("proof", Session: visitor.Id, Body: Element(CollaborationHandshake.CreateProof(visitor.Secret, visitor.Transcript, CollaborationPeerRole.Visitor))), token).ConfigureAwait(false); return;
+                catch (Exception ex)
+                {
+                    request?.Completion.TrySetException(ex);
+                    if (!added && visitor is not null) await visitor.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
+                return;
             }
             if (message.Session is null || !_peers.TryGetValue(message.Session, out var peer))
             {
@@ -253,6 +302,7 @@ public partial class DeviceNode
 
     private sealed class VisitorRequest(string remoteId, string password) : IDisposable
     {
+        public bool Active { get; set; } = true;
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public string RemoteId { get; } = remoteId;
         public string Password { get; } = password;
@@ -386,6 +436,15 @@ public partial class DeviceNode
             if (payload.Length > 32 * 1024) throw new InvalidDataException("服务报文过大。");
             var rpc = JsonSerializer.Deserialize<NodeRpc>(payload, Json) ?? throw new InvalidDataException("服务报文为空。");
             if (rpc.Data?.Length > 8192) throw new InvalidDataException("服务数据块过大。");
+            if (rpc.Type is not ("services" or "open" or "opened" or "error" or "data" or "udp" or "close" or "credit" or "serial-configure" or "serial-configured") || rpc.Type != "services" && (rpc.Channel?.Length != 32 || !Guid.TryParseExact(rpc.Channel, "N", out _))) throw new InvalidDataException("服务通道报文无效。");
+            // A serial callback may be waiting for send credit while the RPC processor is
+            // writing to that same COM. Credits must not wait behind that write or callback.
+            if (rpc.Type == "credit")
+            {
+                if (Serials.TryGetValue(rpc.Channel, out var flowSerial)) flowSerial.ReleaseCredit();
+                if (Channels.TryGetValue(rpc.Channel, out var flowChannel)) flowChannel.ReleaseCredit();
+                return;
+            }
             if (!_in.Writer.TryWrite(rpc)) { Abort("接收队列已满。"); return; }
             Interlocked.Add(ref _received, rpc.Data?.Length ?? 0); NotifyTraffic();
         }
@@ -401,13 +460,20 @@ public partial class DeviceNode
         }
         private async Task ProcessRpcAsync(NodeRpc rpc)
         {
-            if (rpc.Type is not ("services" or "open" or "opened" or "error" or "data" or "udp" or "close" or "credit" or "serial-configure" or "serial-configured") || rpc.Type != "services" && (rpc.Channel?.Length != 32 || !Guid.TryParseExact(rpc.Channel, "N", out _))) throw new InvalidDataException("服务通道报文无效。");
             switch (rpc.Type)
             {
                 case "services":
                     if (IsOwner || rpc.Services is null || rpc.Services.Length > 128) throw new InvalidDataException("服务列表无效。");
                     if (rpc.Services.Any(s => s is null || s.Id?.Length != 32 || !Guid.TryParseExact(s.Id, "N", out _) || s.Name?.Length is not (> 0 and <= 64) || s.Name.Any(char.IsControl) || !Enum.IsDefined(s.Kind))
                         || rpc.Services.Select(s => s.Id).Distinct().Count() != rpc.Services.Length) throw new InvalidDataException("服务定义无效。");
+                    foreach (var published in rpc.Services)
+                    {
+                        // Older clients omit network targets. Accept that catalog without
+                        // inventing an address, and validate any actual endpoint metadata.
+                        if (published.Kind != SharedServiceKind.Serial && published.TargetHost == string.Empty && published.TargetPort == 0) continue;
+                        try { published.Validate(); }
+                        catch (ArgumentException ex) { throw new InvalidDataException("对端服务目标无效。", ex); }
+                    }
                     Services = rpc.Services; Owner.Notify(); return;
                 case "open":
                     if (!IsOwner || Channels.Count >= 32 || rpc.Channel.Length != 32) { await QueueAsync(new("error", rpc.Channel, Error: "通道请求无效或达到上限。")).ConfigureAwait(false); return; }
@@ -452,9 +518,6 @@ public partial class DeviceNode
                     if (Channels.TryGetValue(rpc.Channel, out var datagramChannel)) await datagramChannel.SendDatagramPartAsync(rpc, Token).ConfigureAwait(false);
                     await QueueAsync(new("credit", rpc.Channel)).ConfigureAwait(false);
                     return;
-                case "credit":
-                    if (Serials.TryGetValue(rpc.Channel, out var flowSerial)) flowSerial.ReleaseCredit();
-                    if (Channels.TryGetValue(rpc.Channel, out var flowTcp)) flowTcp.ReleaseCredit(); return;
                 case "close":
                     if (Serials.TryRemove(rpc.Channel, out var closed)) closed.Reject("远端关闭了串口。");
                     if (Channels.TryRemove(rpc.Channel, out var removed)) await removed.DisposeAsync().ConfigureAwait(false);
@@ -611,12 +674,13 @@ public partial class DeviceNode
             {
                 for (var offset = 0; offset < bytes.Length; offset += 8192)
                 {
-                    if (_credits.Wait(0) && peer.TryQueue(new("data", Id, Data: bytes.Slice(offset, Math.Min(8192, bytes.Length - offset)).ToArray()))) continue;
-                    var reason = "串口接收超过通道缓冲容量，已关闭此串口以避免丢失数据。";
-                    peer.Owner.Fail(reason); _ = Task.Run(async () => { try { await peer.QueueAsync(new("error", Id, Error: reason)).ConfigureAwait(false); await peer.CloseChannelAsync(Id).ConfigureAwait(false); } catch (Exception ex) when (ex is IOException or OperationCanceledException) { } }); break;
+                    // Backpressure the driver's background callback rather than closing a
+                    // healthy port whenever eight small reads are awaiting a round trip.
+                    _credits.Wait(Token);
+                    peer.QueueAsync(new("data", Id, Data: bytes.Slice(offset, Math.Min(8192, bytes.Length - offset)).ToArray()), Token).GetAwaiter().GetResult();
                 }
             }
-            catch (IOException) { }
+            catch (Exception ex) when (ex is IOException or OperationCanceledException or ObjectDisposedException) { }
         }
         public void StartRead() => _read = Task.Run(ReadAsync);
         private async Task ReadAsync()

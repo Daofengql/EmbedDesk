@@ -230,9 +230,16 @@ internal sealed class SerialPortChannel : ISerialPortChannel, ISerialPortControl
         {
             var count = _port.BytesToRead;
             if (count <= 0) return;
-            var buffer = new byte[count];
-            var read = _port.Read(buffer, 0, buffer.Length);
-            if (read > 0) DataReceived?.Invoke(this, buffer.AsMemory(0, read));
+            // Bound each callback allocation even when the network consumer is slower
+            // than the serial source and bytes have accumulated in the driver.
+            while (count > 0)
+            {
+                var buffer = new byte[Math.Min(count, 8192)];
+                var read = _port.Read(buffer, 0, buffer.Length);
+                if (read <= 0) break;
+                DataReceived?.Invoke(this, buffer.AsMemory(0, read));
+                count -= read;
+            }
         }
         catch (InvalidOperationException)
         {

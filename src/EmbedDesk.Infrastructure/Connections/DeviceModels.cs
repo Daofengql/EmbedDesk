@@ -16,7 +16,8 @@ public sealed record SharedDeviceService
     [System.Text.Json.Serialization.JsonIgnore]
     public string Description { get; init; } = string.Empty;
     public bool Enabled { get; init; } = true;
-    public string Endpoint => Kind == SharedServiceKind.Serial ? PortName : $"{TargetHost}:{TargetPort}";
+    public string Endpoint => Kind == SharedServiceKind.Serial ? PortName
+        : TargetHost.Contains(':') ? $"[{TargetHost}]:{TargetPort}" : $"{TargetHost}:{TargetPort}";
     public string ProtocolLabel => Kind switch
     {
         SharedServiceKind.Serial => "串口",
@@ -58,7 +59,10 @@ public sealed record DevicePeerInfo(string SessionId, string DeviceId, bool IsOw
 public sealed record DeviceApproval(string SessionId, string DeviceId);
 public sealed record DeviceRemoteService(string SessionId, string DeviceId, SharedDeviceService Service)
 {
-    public string DisplayName => $"{DeviceId} · {Service.ProtocolLabel} · {Service.Name}";
+    public string TargetEndpoint => Service.Kind == SharedServiceKind.Serial ? Service.PortName
+        : !string.IsNullOrWhiteSpace(Service.TargetHost) && Service.TargetPort is >= 1 and <= 65535 ? Service.Endpoint : string.Empty;
+    public string TargetDescription => TargetEndpoint.Length > 0 ? TargetEndpoint : "对端未提供目标地址";
+    public string DisplayName => $"{DeviceId} · {Service.ProtocolLabel} · {Service.Name} · {TargetDescription}";
     public string PortName => $"NODE:{SessionId}:{Service.Id}";
 }
 public sealed record DevicePortMapping(string Id, string SessionId, string ServiceName, int LocalPort, long SentBytes = 0, long ReceivedBytes = 0, string Error = "", SharedServiceKind Kind = SharedServiceKind.Tcp, long DroppedDatagrams = 0)

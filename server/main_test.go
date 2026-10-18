@@ -145,6 +145,79 @@ func TestRoutingAuthorizationAndDisconnect(t *testing.T) {
 		t.Fatal("disconnect cleanup")
 	}
 }
+func TestConnectionRoleExclusion(t *testing.T) {
+	r, err := newRelay(":memory:", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.close()
+	s := httptest.NewServer(r.router())
+	defer s.Close()
+	ids := make([]string, 4)
+	connections := make([]*websocket.Conn, 4)
+	for i := range ids {
+		credential := randomCredential()
+		ids[i] = registerDevice(t, s.URL, credential, "")
+		connections[i] = socketDevice(t, s.URL, ids[i], credential)
+	}
+	hello := json.RawMessage(`{"requestId":"01234567890123456789012345678901"}`)
+	connect := func(origin, owner int) string {
+		t.Helper()
+		if err := connections[origin].WriteJSON(Message{Type: "connect", To: ids[owner], Body: hello}); err != nil {
+			t.Fatal(err)
+		}
+		pending, incoming := readMessage(t, connections[origin]), readMessage(t, connections[owner])
+		if pending.Type != "pending" || incoming.Type != "connect" || pending.Session != incoming.Session {
+			t.Fatal("expected pending connection in the same direction")
+		}
+		return pending.Session
+	}
+	reject := func(origin, owner int) {
+		t.Helper()
+		_ = connections[origin].WriteJSON(Message{Type: "connect", To: ids[owner], Body: hello})
+		failure := readMessage(t, connections[origin])
+		if failure.Type != "error" || failure.Error == "" || !bytes.Equal(failure.Body, hello) {
+			t.Fatal("opposite role must fail with a correlated request and reason")
+		}
+	}
+	closeSession := func(origin, owner int, session string) {
+		t.Helper()
+		_ = connections[origin].WriteJSON(Message{Type: "close", Session: session})
+		if readMessage(t, connections[owner]).Type != "close" {
+			t.Fatal("session close did not release the role")
+		}
+	}
+	sid := connect(0, 1)
+	for _, accepted := range []bool{false, true} {
+		if accepted {
+			for _, step := range []struct {
+				origin, owner int
+				kind          string
+			}{{1, 0, "challenge"}, {0, 1, "proof"}, {1, 0, "accept"}} {
+				_ = connections[step.origin].WriteJSON(Message{Type: step.kind, Session: sid})
+				if readMessage(t, connections[step.owner]).Type != step.kind {
+					t.Fatal("role test handshake failed")
+				}
+			}
+		}
+		reject(1, 2) // A receiver cannot initiate, including while waiting for approval.
+		reject(2, 0) // An initiator cannot receive, including while waiting for approval.
+		r.mu.Lock()
+		count := len(r.sessions)
+		r.mu.Unlock()
+		if count != 1 {
+			t.Fatal("rejected connections left session reservations")
+		}
+	}
+	secondReceiver, secondInitiator := connect(0, 2), connect(3, 1)
+	closeSession(0, 1, sid)
+	reject(1, 0) // One remaining incoming session still holds the receiver role.
+	closeSession(0, 2, secondReceiver)
+	closeSession(3, 1, secondInitiator)
+	reversed := connect(1, 0)
+	closeSession(1, 0, reversed)
+}
+
 func TestAggregateBudgetAndPendingExpiry(t *testing.T) {
 	r, err := newRelay(":memory:", "")
 	if err != nil {

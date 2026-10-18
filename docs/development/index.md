@@ -43,6 +43,7 @@ Smoke 项目没有包含在解决方案中。源码修改后先单独构建，�
 | 远程标签、本地 Shell 与目录 | `--remote-tabs-check`、`--remote-empty-check`、`--shell-directory-check` |
 | RDP / VNC / 网络 | `--desktop-network-check` |
 | 设备连接与共享 | `--device-connections-check`、`--device-security-check`、`--virtual-serial-check` |
+| 独立测试中继上的串口背压、映射添加及目标校验 | `--serial-flow-check`、`--device-mappings-check`；设置 `EMBEDDESK_TEST_RELAY_URL`，可选 `EMBEDDESK_TEST_RELAY_ADMISSION_KEY` |
 | 连接中心、设置与托盘截图 | `--connection-center-window-check` |
 | 局域网文件、设置与内置中继目录 | `--lan-files-check`、`--app-settings-check`、`--relay-catalog-check` |
 | 质量与网络工具 | `--network-quality-check`、`--network-tools-check`、`--dns-query-check`、`--utility-tools-check` |

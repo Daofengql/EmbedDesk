@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Windows;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using EmbedDesk.Core.Models;
 using EmbedDesk.Infrastructure.Connections;
@@ -17,6 +18,7 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     private readonly string _credentialPrefix;
     private string _password = string.Empty, _error = string.Empty;
     private string _relayName = string.Empty;
+    private readonly RelayLatencyStatus _relayLatency = new();
     private string _selectionStatus = string.Empty;
     private CancellationTokenSource? _startLife;
     private Task _startTask = Task.CompletedTask;
@@ -32,6 +34,9 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     internal ConnectionCenterViewModel(DeviceNode node, AppSettingsStore settings, Func<VirtualSerialPair, IVirtualSerialEndpoint>? openVirtualEndpoint = null)
     {
         Node = node; _settings = settings;
+        _relayLatency.PropertyChanged += (_, _) => { OnPropertyChanged(nameof(RelayLatencyText)); OnPropertyChanged(nameof(RelayLatencyColor)); OnPropertyChanged(nameof(RelayLatencyHint)); };
+        SerialMappingRules = new ListCollectionView(MappingRules) { Filter = item => item is PortMappingRuleViewModel { Rule.Kind: SharedServiceKind.Serial } };
+        NetworkMappingRules = new ListCollectionView(MappingRules) { Filter = item => item is PortMappingRuleViewModel { Rule.Kind: SharedServiceKind.Tcp or SharedServiceKind.Udp } };
         _openVirtualEndpoint = openVirtualEndpoint ?? Com0ComEndpoint.Open;
         _statistics = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; _statistics.Tick += (_, _) => RefreshMappingStates(); _statistics.Start();
         _credentialPrefix = "EmbedDesk/device/" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.FilePath))).Substring(0, 24);
@@ -40,7 +45,7 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
         foreach (var rule in settings.Snapshot().PortMappingRules) MappingRules.Add(new(rule));
         node.Changed += OnChanged;
         node.OperationFailed += OnFailed;
-        Peers.CollectionChanged += (_, _) => OnPropertyChanged(nameof(IsRemoteMappingMode));
+        Peers.CollectionChanged += (_, _) => { OnPropertyChanged(nameof(IsRemoteMappingMode)); NotifyConnectionAvailability(); };
         try { node.ConfigureServices(LocalServices); }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { Error = ex.Message; }
     }
@@ -54,18 +59,29 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     public ObservableCollection<DeviceRemoteService> RemoteServices { get; } = [];
     public ObservableCollection<DevicePortMapping> Mappings { get; } = [];
     public ObservableCollection<PortMappingRuleViewModel> MappingRules { get; } = [];
+    public ICollectionView SerialMappingRules { get; }
+    public ICollectionView NetworkMappingRules { get; }
     public PortMappingRuleViewModel? SelectedRule { get; set; }
     public ObservableCollection<string> RecentIds { get; } = [];
     public string DeviceId => Node.DeviceId.Length == 0 ? "等待登记" : Node.DeviceId;
     public string Status => _selectionStatus.Length > 0 ? _selectionStatus : Node.Status;
     public bool IsOnline => Node.IsOnline;
     public bool IsRemoteMappingMode => Peers.Any(peer => !peer.IsOwner && string.Equals(peer.State, "已连接", StringComparison.Ordinal));
-    public bool IsBusy { get => _busy; private set => SetProperty(ref _busy, value); }
-    public bool IsConnecting { get => _connecting; private set => SetProperty(ref _connecting, value); }
+    public bool CanInitiateConnection => IsOnline && !IsConnecting && !IsBusy && Node.CanInitiateConnection && !Peers.Any(peer => peer.IsOwner);
+    public string ConnectionHint => Peers.Any(peer => peer.IsOwner) || !Node.CanInitiateConnection
+        ? "被连接期间不能发起连接，请先断开。"
+        : IsConnecting || Peers.Any(peer => !peer.IsOwner) ? "作为连接方期间，暂停接受入站连接。" : "密码留空时请求对方授权";
+    private void NotifyConnectionAvailability() { OnPropertyChanged(nameof(CanInitiateConnection)); OnPropertyChanged(nameof(ConnectionHint)); }
+    public bool IsBusy { get => _busy; private set { if (SetProperty(ref _busy, value)) NotifyConnectionAvailability(); } }
+    public bool IsConnecting { get => _connecting; private set { if (SetProperty(ref _connecting, value)) NotifyConnectionAvailability(); } }
     public string Password { get => _password; private set { if (SetProperty(ref _password, value)) OnPropertyChanged(nameof(PasswordDisplay)); } }
     public string PasswordDisplay => Password.Length == 0 ? "—" : Password;
     public string Error { get => _error; private set => SetProperty(ref _error, value); }
     public string RelayName { get => _relayName; private set => SetProperty(ref _relayName, value); }
+    public string RelayLatencyText => _relayLatency.Text;
+    public string RelayLatencyColor => _relayLatency.Color;
+    public string RelayLatencyHint => _relayLatency.Hint;
+    internal RelayLatencyStatus RelayLatency => _relayLatency;
     public string TargetId { get; set; } = string.Empty;
     public SharedDeviceService? SelectedLocalSerialService { get; set; }
     public SharedDeviceService? SelectedLocalNetworkService { get; set; }
@@ -170,6 +186,7 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
             ServerUrl = serverProfile.Url, Credential = credential, AdmissionKey = ReadRelayAdmissionToken(serverProfile), Password = preferences.ManualApprovalOnly ? string.Empty : Password,
             ManualApprovalOnly = preferences.ManualApprovalOnly, PreferDirect = preferences.PreferDirect, TimeoutSeconds = preferences.TimeoutSeconds, RetrySeconds = preferences.RetrySeconds,
         }, lifetime.Token);
+        await _relayLatency.StartAsync(transport with { ServerUrl = serverProfile.Url }, Node.IsOnline);
         }); }
         finally
         {
@@ -197,12 +214,14 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     public async Task StopAsync()
     {
         CancelConnect(); _startLife?.Cancel(); await _startTask;
+        await _relayLatency.StopAsync();
         await RunAsync(async () => { await StopVirtualMappingsAsync(); await Node.StopAsync(); });
     }
     public void CancelConnect() => _connectLife?.Cancel();
     public Task ConnectAsync(string password)
     {
         if (IsConnecting || IsBusy) return Task.CompletedTask;
+        if (!Node.CanInitiateConnection || Peers.Any(peer => peer.IsOwner)) { Error = "当前作为被连接方，不能发起连接；请先结束入站连接或拒绝待授权请求。"; return Task.CompletedTask; }
         _connectLife = new(); IsConnecting = true; Error = string.Empty;
         return _connectTask = ConnectCoreAsync(TargetId.Trim().ToUpperInvariant(), password, _connectLife);
     }
@@ -220,21 +239,26 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     }
     public Task ApproveAsync(DeviceApproval approval, bool allow) => RunAsync(() => Node.ApproveAsync(approval.SessionId, allow));
     public Task DisconnectAsync(DevicePeerInfo peer) => RunAsync(() => Node.DisconnectPeerAsync(peer.SessionId));
-    public Task MapAsync(int port) => RunAsync(async () =>
+    public DeviceRemoteService ResolveRemoteService(DeviceRemoteService service) => Node.RemoteServices.FirstOrDefault(current =>
+        current.SessionId == service.SessionId && current.DeviceId == service.DeviceId && current.Service.Id == service.Service.Id && current.Service.Kind == service.Service.Kind)
+        ?? throw new IOException("对端服务已离线或已更改，请重新连接并选择当前发布的服务。");
+    public Task MapAsync(int port) => SelectedRemoteService is { } service ? MapAsync(service, port) : RunAsync(() => throw new ArgumentException("请选择对端发布的 TCP 或 UDP 服务。"));
+    public Task<bool> MapAsync(DeviceRemoteService service, int port) => RunMappingAsync(async () =>
     {
-        var service = SelectedRemoteService ?? throw new ArgumentException("请选择对端发布的 TCP 或 UDP 服务。");
+        service = ResolveRemoteService(service);
         if (service.Service.Kind is not (SharedServiceKind.Tcp or SharedServiceKind.Udp) || port is < 1 or > 65535) throw new ArgumentException("请选择 TCP 或 UDP 服务并输入有效端口。");
         var rule = MappingRules.FirstOrDefault(r => r.Rule.DeviceId == service.DeviceId && r.Rule.ServiceId == service.Service.Id && r.Rule.LocalPort == port && r.Rule.Kind == service.Service.Kind);
         if (rule is null)
         {
             if (MappingRules.Count >= 128) throw new InvalidOperationException("映射规则已达到 128 条上限。");
-            rule = new(new(Guid.NewGuid().ToString("N"), service.DeviceId, service.Service.Id, service.Service.Name, port, service.Service.Kind)); MappingRules.Add(rule); SaveRules();
+            rule = new(new(Guid.NewGuid().ToString("N"), service.DeviceId, service.Service.Id, service.Service.Name, port, service.Service.Kind, RemoteEndpoint: service.TargetEndpoint)); MappingRules.Add(rule); SaveRules();
         }
         await EnableRuleCoreAsync(rule);
     });
-    public Task MapVirtualSerialAsync(VirtualSerialPair pair) => RunAsync(async () =>
+    public Task MapVirtualSerialAsync(VirtualSerialPair pair) => SelectedRemoteService is { } service ? MapVirtualSerialAsync(service, pair) : RunAsync(() => throw new ArgumentException("请选择远端串口。"));
+    public Task<bool> MapVirtualSerialAsync(DeviceRemoteService service, VirtualSerialPair pair) => RunMappingAsync(async () =>
     {
-        var service = SelectedRemoteService ?? throw new ArgumentException("请选择远端串口。");
+        service = ResolveRemoteService(service);
         if (service.Service.Kind != SharedServiceKind.Serial) throw new ArgumentException("请选择远端串口。");
         var rule = MappingRules.FirstOrDefault(r => r.Rule.DeviceId == service.DeviceId && r.Rule.ServiceId == service.Service.Id
             && r.Rule.Kind == SharedServiceKind.Serial && string.Equals(r.Rule.VirtualPort, pair.PublicPort, StringComparison.OrdinalIgnoreCase)
@@ -242,16 +266,23 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
         if (rule is null)
         {
             if (MappingRules.Count >= 128) throw new InvalidOperationException("映射规则已达到 128 条上限。");
-            rule = new(new(Guid.NewGuid().ToString("N"), service.DeviceId, service.Service.Id, service.Service.Name, 0, SharedServiceKind.Serial, pair.PublicPort, pair.BridgePort));
+            rule = new(new(Guid.NewGuid().ToString("N"), service.DeviceId, service.Service.Id, service.Service.Name, 0, SharedServiceKind.Serial, pair.PublicPort, pair.BridgePort, service.TargetEndpoint));
             MappingRules.Add(rule); SaveRules();
         }
         await EnableRuleCoreAsync(rule);
     });
+    private async Task<bool> RunMappingAsync(Func<Task> operation)
+    {
+        var success = false;
+        await RunAsync(async () => { await operation(); success = true; });
+        return success;
+    }
     public Task EnableRuleAsync(PortMappingRuleViewModel rule) => RunAsync(() => EnableRuleCoreAsync(rule));
     private async Task EnableRuleCoreAsync(PortMappingRuleViewModel rule)
     {
         if (rule.MappingId is not null) return;
         var service = Node.RemoteServices.FirstOrDefault(s => s.DeviceId == rule.Rule.DeviceId && s.Service.Id == rule.Rule.ServiceId && s.Service.Kind == rule.Rule.Kind) ?? throw new IOException("请先连接该设备；对端需要继续发布规则对应协议的服务。");
+        if (rule.Rule.ServiceName != service.Service.Name || rule.Rule.RemoteEndpoint != service.TargetEndpoint) { rule.UpdateTarget(service); SaveRules(); }
         if (rule.Rule.Kind == SharedServiceKind.Serial)
         {
             try
@@ -355,7 +386,9 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     }
     private void Refresh()
     {
+        _relayLatency.SetOnline(Node.IsOnline);
         OnPropertyChanged(nameof(DeviceId)); OnPropertyChanged(nameof(Status)); OnPropertyChanged(nameof(IsOnline)); OnPropertyChanged(nameof(IsRemoteMappingMode));
+        NotifyConnectionAvailability();
         Replace(Peers, Node.Peers); Replace(Approvals, Node.PendingApprovals);
         var remote = SelectedRemoteService?.PortName;
         Replace(RemoteServices, Node.RemoteServices);
@@ -401,6 +434,6 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     public async ValueTask DisposeAsync()
     {
         _disposed = true; _statistics.Stop(); Node.Changed -= OnChanged; Node.OperationFailed -= OnFailed;
-        CancelConnect(); _startLife?.Cancel(); await _startTask; await _operationTask; await StopVirtualMappingsAsync(); await Node.DisposeAsync(); await _connectTask;
+        CancelConnect(); _startLife?.Cancel(); await _startTask; await _operationTask; await _relayLatency.DisposeAsync(); await StopVirtualMappingsAsync(); await Node.DisposeAsync(); await _connectTask;
     }
 }

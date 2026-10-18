@@ -11,7 +11,13 @@
    <Border Style="{StaticResource Card}">
     <Grid>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <DockPanel><TextBlock Text="本机设备" FontWeight="SemiBold" FontSize="16"/><TextBlock Text="{Binding RelayName}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding RelayName}" HorizontalAlignment="Right" Margin="20,0,0,0"/></DockPanel>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+      <TextBlock Text="本机设备" FontWeight="SemiBold" FontSize="16"/>
+      <TextBlock Grid.Column="1" Text="{Binding RelayName}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding RelayName}" HorizontalAlignment="Right" Margin="20,0,10,0" VerticalAlignment="Center"/>
+      <Border Grid.Column="2" Background="{StaticResource InputBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="7,3" ToolTip="{Binding RelayLatencyHint}">
+       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Ellipse Width="6" Height="6" Fill="{Binding RelayLatencyColor}" Margin="0,0,6,0" VerticalAlignment="Center"/><TextBlock x:Name="RelayLatencyDisplay" Text="{Binding RelayLatencyText}" Foreground="{Binding RelayLatencyColor}" FontSize="12" FontFamily="Consolas" VerticalAlignment="Center"/></StackPanel>
+      </Border>
+     </Grid>
      <Grid Grid.Row="1" Margin="0,12,0,10">
       <Grid.ColumnDefinitions><ColumnDefinition Width="1.35*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <StackPanel VerticalAlignment="Center"><TextBlock Text="设备 ID" Style="{StaticResource MutedText}"/>
@@ -24,7 +30,7 @@
      <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
        <Ellipse Width="7" Height="7" Margin="0,0,7,0"><Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="{StaticResource MutedBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsOnline}" Value="True"><Setter Property="Fill" Value="{StaticResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></Ellipse.Style></Ellipse>
-       <TextBlock Text="{Binding Status}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" MaxWidth="270"/>
+       <TextBlock x:Name="DeviceStatusDisplay" Text="{Binding Status}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}" MaxWidth="270"/>
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal"><Button Content="重新上线" Click="Start_Click" MinHeight="28" Padding="8,4" Margin="8,0,6,0"/><Button Content="停止" Click="Stop_Click" MinHeight="28" Padding="8,4"/></StackPanel>
      </Grid>
@@ -33,14 +39,14 @@
    <Border Grid.Column="2" Style="{StaticResource Card}">
     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Text="连接另一台设备" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
-     <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
+     <Grid Grid.Row="1" IsEnabled="{Binding CanInitiateConnection}"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
       <StackPanel Margin="0,0,10,0"><TextBlock Text="对方设备 ID" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><ComboBox x:Name="TargetDeviceId" IsEditable="True" Height="34" VerticalAlignment="Top" ItemsSource="{Binding RecentIds}" Text="{Binding TargetId, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
       <StackPanel Grid.Column="1"><TextBlock Text="对方密码" Style="{StaticResource MutedText}" Margin="0,0,0,5"/><PasswordBox x:Name="RemotePassword" Height="34" VerticalAlignment="Top" VerticalContentAlignment="Center"/></StackPanel>
      </Grid>
      <Grid Grid.Row="2" Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <TextBlock Text="密码留空时请求对方授权" Style="{StaticResource MutedText}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+      <TextBlock Text="{Binding ConnectionHint}" Style="{StaticResource MutedText}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
       <StackPanel Grid.Column="1" Orientation="Horizontal">
-       <Button Content="连接设备" Click="Connect_Click" Style="{StaticResource PrimaryButton}" MinWidth="88"/>
+       <Button x:Name="ConnectDeviceButton" Content="连接设备" Click="Connect_Click" Style="{StaticResource PrimaryButton}" MinWidth="88" IsEnabled="{Binding CanInitiateConnection}"/>
        <Button Content="取消请求" Click="CancelConnect_Click" Visibility="{Binding IsConnecting, Converter={StaticResource BooleanVisibility}}" Margin="8,0,0,0"/>
       </StackPanel>
      </Grid>

@@ -534,6 +534,14 @@ func (r *Relay) route(p *peer, m Message) {
 		}
 		count, targetCount := 0, 0
 		for _, s := range r.sessions {
+			if s.owner == p.id {
+				fail("当前作为被连接方，不能发起连接；请先结束入站连接或待授权请求。")
+				return
+			}
+			if s.origin == m.To {
+				fail("对方当前作为连接发起方，暂不接受入站连接。")
+				return
+			}
 			if s.origin == p.id || s.owner == p.id {
 				count++
 			}

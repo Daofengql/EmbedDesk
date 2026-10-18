@@ -46,12 +46,17 @@ internal static class VirtualSerialChecks
             Require(bridge.Error.Contains("occupied", StringComparison.Ordinal) && !occupiedEndpoint.Ready && occupiedEndpoint.Disposals == 1,
                 "remote open failure preserves its real reason and releases the virtual bridge");
         }
-        var overflowEndpoint = new Endpoint { State = State(true) }; var flood = new Remote { Burst = true };
-        await using (var bridge = new VirtualSerialBridge(overflowEndpoint, _ => flood, () => true))
+        await CheckReceiveFlowAsync();
+        await CheckCloseAndReopenAsync();
+        await CheckBlockedDisposalAsync();
+        var failedWriteEndpoint = new Endpoint { State = State(true), BeforeWrite = _ => throw new IOException("Test: native COM write failed") };
+        var failedWriteRemote = new Remote { Response = Pattern(20 * 8192) };
+        await using (var bridge = new VirtualSerialBridge(failedWriteEndpoint, _ => failedWriteRemote, () => true))
         {
-            await Until(() => flood.IsOpen); overflowEndpoint.Input.Enqueue([1]);
+            await Until(() => failedWriteEndpoint.Ready); failedWriteEndpoint.Input.Enqueue([1]);
             await Until(() => !bridge.IsRunning);
-            Require(bridge.Error.Contains("队列已满", StringComparison.Ordinal) && !flood.IsOpen, "bounded virtual-COM receive queue stops on overflow instead of dropping data silently");
+            Require(bridge.Error == "Test: native COM write failed" && !failedWriteRemote.IsOpen && failedWriteEndpoint.Disposals == 1,
+                "real endpoint write failures retain their reason while unblocking a synchronous receive producer");
         }
         var disconnectedEndpoint = new Endpoint(); var connected = true;
         await using (var bridge = new VirtualSerialBridge(disconnectedEndpoint, _ => new Remote(), () => connected))
@@ -60,6 +65,105 @@ internal static class VirtualSerialChecks
             Require(disconnectedEndpoint.Disposals == 1 && bridge.Error.Contains("断开", StringComparison.Ordinal), "device loss releases a virtual mapping even while the external COM is closed");
         }
         Console.WriteLine("PASS virtual serial: native metadata codec, lazy open, binary duplex, live settings, bounded queues and cleanup (simulated driver)");
+    }
+
+    private static byte[] Pattern(int count) => Enumerable.Range(0, count).Select(i => (byte)(i * 31 + i / 8192)).ToArray();
+    private static byte[] Flatten(ConcurrentQueue<byte[]> queue) => queue.SelectMany(bytes => bytes).ToArray();
+
+    private static async Task CheckReceiveFlowAsync()
+    {
+        var payload = Pattern(24 * 8192 + 317);
+        var endpoint = new Endpoint { State = State(true) }; var remote = new Remote { Response = payload };
+        await using (var bridge = new VirtualSerialBridge(endpoint, _ => remote, () => true))
+        {
+            await Until(() => endpoint.Ready); endpoint.Input.Enqueue([1]);
+            await Until(() => bridge.ReceivedBytes == payload.Length && remote.SendCompletions == 1);
+            Require(Flatten(endpoint.Output).SequenceEqual(payload) && bridge.SentBytes == 1 && bridge.IsRunning && bridge.Error.Length == 0,
+                "a synchronous echo exceeding eight frames applies backpressure and delivers every byte in order");
+        }
+
+        using var gate = new ManualResetEventSlim(false);
+        var slowEndpoint = new Endpoint { State = State(true), BeforeWrite = _ => WaitForWrite(gate) };
+        var duplex = new Remote { Echo = false };
+        await using var duplexBridge = new VirtualSerialBridge(slowEndpoint, _ => duplex, () => true);
+        try
+        {
+            await Until(() => slowEndpoint.Ready);
+            var incoming = Task.Run(() => duplex.Emit(payload));
+            await Until(() => slowEndpoint.WriteAttempts > 0);
+            var outgoing = Enumerable.Range(0, 16).Select(i => Pattern(1024 + i)).ToArray();
+            foreach (var block in outgoing) slowEndpoint.Input.Enqueue(block);
+            await Until(() => duplex.SendCompletions == outgoing.Length);
+            Require(!incoming.IsCompleted && slowEndpoint.Output.IsEmpty && duplexBridge.IsRunning,
+                "a slow receiving COM backpressures a bounded burst while the opposite direction continues sending");
+            gate.Set();
+            await incoming.WaitAsync(TimeSpan.FromSeconds(3));
+            await Until(() => duplexBridge.ReceivedBytes == payload.Length);
+            Require(Flatten(slowEndpoint.Output).SequenceEqual(payload) && Flatten(duplex.Sent).SequenceEqual(outgoing.SelectMany(bytes => bytes)),
+                "simultaneous inbound burst and outbound traffic retain complete ordered streams");
+        }
+        finally { gate.Set(); }
+    }
+
+    private static async Task CheckCloseAndReopenAsync()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var endpoint = new Endpoint { State = State(true), BeforeWrite = _ => WaitForWrite(gate) };
+        var remotes = new ConcurrentQueue<Remote>();
+        await using var bridge = new VirtualSerialBridge(endpoint, _ => { var remote = new Remote { Echo = false }; remotes.Enqueue(remote); return remote; }, () => true);
+        try
+        {
+            await Until(() => endpoint.Ready && remotes.Count == 1);
+            var first = remotes.Single();
+            var staleCallback = first.CaptureReceiver();
+            var blocked = Task.Run(() => first.Emit(Pattern(24 * 8192)));
+            await Until(() => endpoint.WriteAttempts > 0);
+            Require(!blocked.IsCompleted, "receive producer waits when the virtual-COM queue reaches its bounded capacity");
+            endpoint.State = State(false);
+            await blocked.WaitAsync(TimeSpan.FromSeconds(3));
+            await Until(() => !endpoint.Ready);
+            Require(!endpoint.Ready, "external close cancels a blocked receive producer before joining the native write");
+            gate.Set();
+            await Until(() => !first.IsOpen);
+            endpoint.BeforeWrite = null;
+            endpoint.State = State(true);
+            await Until(() => endpoint.Ready && remotes.Count == 2);
+            staleCallback(new byte[] { 99 });
+            await Task.Delay(60);
+            Require(endpoint.Output.IsEmpty, "callbacks captured before closing cannot enqueue into a reopened mapping");
+            var fresh = Pattern(521); remotes.Last().Emit(fresh);
+            await Until(() => !endpoint.Output.IsEmpty);
+            Require(Flatten(endpoint.Output).SequenceEqual(fresh) && bridge.IsRunning && bridge.Error.Length == 0,
+                "reopening creates a fresh receive queue with no bytes left over from the previous COM opening");
+        }
+        finally { gate.Set(); }
+    }
+
+    private static async Task CheckBlockedDisposalAsync()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var endpoint = new Endpoint { State = State(true), BeforeWrite = _ => WaitForWrite(gate) };
+        var remote = new Remote { Echo = false };
+        await using var bridge = new VirtualSerialBridge(endpoint, _ => remote, () => true);
+        try
+        {
+            await Until(() => endpoint.Ready);
+            var blocked = Task.Run(() => remote.Emit(Pattern(24 * 8192)));
+            await Until(() => endpoint.WriteAttempts > 0);
+            var disposing = bridge.DisposeAsync().AsTask();
+            await blocked.WaitAsync(TimeSpan.FromSeconds(3));
+            Require(!disposing.IsCompleted, "mapping shutdown cancels receive backpressure and waits for the in-flight native write");
+            gate.Set();
+            await disposing.WaitAsync(TimeSpan.FromSeconds(3));
+            Require(endpoint.Disposals == 1 && !remote.IsOpen && bridge.Error.Length == 0,
+                "disposing a mapping with a full receive queue joins both pumps and releases all resources");
+        }
+        finally { gate.Set(); }
+    }
+
+    private static void WaitForWrite(ManualResetEventSlim gate)
+    {
+        if (!gate.Wait(TimeSpan.FromSeconds(8))) throw new IOException("Test: simulated COM write gate timed out");
     }
 
     internal static async Task CheckDeviceBridgeAsync(DeviceNode node, DeviceRemoteService service, Func<SerialPortSettings?> settings, Func<bool> inUse)
@@ -87,11 +191,13 @@ internal static class VirtualSerialChecks
         public VirtualSerialPeerState State { get => Volatile.Read(ref _state); set => Volatile.Write(ref _state, value); }
         public volatile bool Ready;
         public int Disposals;
+        public int WriteAttempts;
+        public Action<byte[]>? BeforeWrite;
         public ConcurrentQueue<byte[]> Input { get; } = new();
         public ConcurrentQueue<byte[]> Output { get; } = new();
         public VirtualSerialPeerState GetPeerState() => State;
         public int Read(byte[] buffer) { if (!Input.TryDequeue(out var bytes)) return 0; bytes.CopyTo(buffer, 0); return bytes.Length; }
-        public void Write(byte[] bytes) => Output.Enqueue(bytes.ToArray());
+        public void Write(byte[] bytes) { Interlocked.Increment(ref WriteAttempts); BeforeWrite?.Invoke(bytes); Output.Enqueue(bytes.ToArray()); }
         public void SetReady(bool ready) => Ready = ready;
         public void Discard() { Input.Clear(); Output.Clear(); }
         public ValueTask DisposeAsync() { Interlocked.Increment(ref Disposals); return ValueTask.CompletedTask; }
@@ -101,14 +207,24 @@ internal static class VirtualSerialChecks
         private SerialPortSettings _settings = new();
         public string Id { get; } = Guid.NewGuid().ToString("N");
         public SerialPortSettings Settings { get => Volatile.Read(ref _settings); set => Volatile.Write(ref _settings, value); }
-        public bool IsOpen { get; private set; }
-        public int Opens;
-        public bool FailOpen, Burst;
+        private volatile bool _open;
+        public bool IsOpen => _open;
+        public int Opens, SendCompletions;
+        public bool FailOpen, Echo = true;
+        public byte[]? Response;
+        public ConcurrentQueue<byte[]> Sent { get; } = new();
         public event EventHandler<ReadOnlyMemory<byte>>? DataReceived;
-        public Task OpenAsync(CancellationToken token = default) { if (FailOpen) throw new IOException("Test: remote COM occupied externally"); IsOpen = true; Opens++; return Task.CompletedTask; }
-        public Task CloseAsync(CancellationToken token = default) { IsOpen = false; return Task.CompletedTask; }
-        public Task SendAsync(ReadOnlyMemory<byte> bytes, CancellationToken token = default) { DataReceived?.Invoke(this, Burst ? new byte[9 * 8192] : bytes); return Task.CompletedTask; }
+        public Task OpenAsync(CancellationToken token = default) { if (FailOpen) throw new IOException("Test: remote COM occupied externally"); _open = true; Interlocked.Increment(ref Opens); return Task.CompletedTask; }
+        public Task CloseAsync(CancellationToken token = default) { _open = false; return Task.CompletedTask; }
+        public Task SendAsync(ReadOnlyMemory<byte> bytes, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested(); Sent.Enqueue(bytes.ToArray());
+            if (Response is not null) Emit(Response); else if (Echo) Emit(bytes);
+            token.ThrowIfCancellationRequested(); Interlocked.Increment(ref SendCompletions); return Task.CompletedTask;
+        }
+        public void Emit(ReadOnlyMemory<byte> bytes) => DataReceived?.Invoke(this, bytes);
+        public Action<ReadOnlyMemory<byte>> CaptureReceiver() { var receiver = DataReceived; return bytes => receiver?.Invoke(this, bytes); }
         public Task ConfigureAsync(SerialPortSettings settings, CancellationToken token = default) { Settings = settings; return Task.CompletedTask; }
-        public ValueTask DisposeAsync() { IsOpen = false; return ValueTask.CompletedTask; }
+        public ValueTask DisposeAsync() { _open = false; return ValueTask.CompletedTask; }
     }
 }

@@ -14,6 +14,21 @@
         <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
             <Setter Property="Background" Value="Transparent" />
         </Style>
+        <DataTemplate x:Key="MappingRuleTemplate">
+            <StackPanel ToolTip="{Binding DisplayName}">
+                <TextBlock Text="{Binding LocalEndpoint}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                <TextBlock Text="{Binding RemoteTarget, StringFormat='→ {0}'}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                <TextBlock Text="{Binding Status}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+            </StackPanel>
+        </DataTemplate>
+        <Style x:Key="SerialRuleAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Style.Triggers><DataTrigger Binding="{Binding SelectedItem, ElementName=SerialMappingRulesList}" Value="{x:Null}"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers>
+        </Style>
+        <Style x:Key="NetworkRuleAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Style.Triggers><DataTrigger Binding="{Binding SelectedItem, ElementName=NetworkMappingRulesList}" Value="{x:Null}"><Setter Property="IsEnabled" Value="False" /></DataTrigger></Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -102,9 +117,9 @@
                 </Style>
             </Grid.Style>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.12*" />
+                <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="16" />
-                <ColumnDefinition Width="1.35*" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -112,40 +127,36 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBlock Text="对端发布的服务" Style="{StaticResource MutedText}" Margin="0,0,0,8" />
-            <ListBox Grid.Row="1" x:Name="RemoteServicesList" Style="{StaticResource ServiceList}"
-                     ItemsSource="{Binding RemoteServices}"
-                     SelectedItem="{Binding SelectedRemoteService}"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                <ListBox.ItemTemplate>
-                    <DataTemplate><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" /></DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-            <WrapPanel Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center">
-                <WrapPanel.Style><Style TargetType="WrapPanel"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding IsSerialServiceSelected}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></WrapPanel.Style>
-                <TextBlock Text="本机端口" VerticalAlignment="Center" />
-                <TextBox x:Name="LocalPort" Width="84" MaxLength="5" Text="22022" Margin="8,0" VerticalAlignment="Center" />
-                <Button Content="保存并启用" Click="Map_Click" VerticalAlignment="Center" />
-            </WrapPanel>
-            <WrapPanel Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center">
-                <WrapPanel.Style><Style TargetType="WrapPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsSerialServiceSelected}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></WrapPanel.Style>
-                <Button x:Name="UseRemoteSerialButton" Content="使用串口…" Click="UseSerial_Click" ToolTip="选择在本软件内使用，或映射为系统虚拟 COM"/>
+            <TextBlock Text="串口映射" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Grid Grid.Row="1">
+                <ListBox x:Name="SerialMappingRulesList" Style="{StaticResource ServiceList}" ItemsSource="{Binding SerialMappingRules}"
+                         ItemTemplate="{StaticResource MappingRuleTemplate}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ToolTip="本机 COM → 对端串口；规则保存在本机，设备重连后手动启用。" />
+                <TextBlock Text="尚无串口映射&#x0a;点击“添加”选择对端串口。" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False">
+                    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=SerialMappingRulesList}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
+            </Grid>
+            <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                <Button x:Name="AddSerialMappingButton" Content="添加" Click="AddSerialMapping_Click" Margin="0,0,6,0" ToolTip="选择对端串口，在本软件内使用或映射为系统 COM" />
+                <Button x:Name="EnableSerialMappingButton" Content="启用" Click="EnableSerialRule_Click" Style="{StaticResource SerialRuleAction}" />
+                <Button Content="停用" Click="DisableSerialRule_Click" Style="{StaticResource SerialRuleAction}" />
+                <Button Content="删除" Click="DeleteSerialRule_Click" Style="{StaticResource SerialRuleAction}" Margin="0" />
             </WrapPanel>
 
-            <TextBlock Grid.Column="2" Text="本地映射" Style="{StaticResource MutedText}" Margin="0,0,0,8" />
-            <ListBox Grid.Row="1" Grid.Column="2" x:Name="MappingRulesList" Style="{StaticResource ServiceList}"
-                     ItemsSource="{Binding MappingRules}"
-                     SelectedItem="{Binding SelectedRule}"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ToolTip="规则保存在本机；设备断线或重启后手动启用。">
-                <ListBox.ItemTemplate>
-                    <DataTemplate><TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" /></DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-            <WrapPanel Grid.Row="2" Grid.Column="2" Margin="0,8,0,0" VerticalAlignment="Center">
-                <Button Content="启用" Click="EnableRule_Click" Margin="0,0,8,0" />
-                <Button Content="停用" Click="Unmap_Click" Margin="0,0,8,0" />
-                <Button Content="删除规则" Click="DeleteRule_Click" />
+            <TextBlock Grid.Column="2" Text="端口映射" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Grid Grid.Row="1" Grid.Column="2">
+                <ListBox x:Name="NetworkMappingRulesList" Style="{StaticResource ServiceList}" ItemsSource="{Binding NetworkMappingRules}"
+                         ItemTemplate="{StaticResource MappingRuleTemplate}" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ToolTip="本机回环端口 → 对端已发布的 TCP / UDP 目标；设备重连后手动启用。" />
+                <TextBlock Text="尚无端口映射&#x0a;点击“添加”选择 TCP / UDP 目标。" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Margin="12" IsHitTestVisible="False">
+                    <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource MutedText}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=NetworkMappingRulesList}" Value="False"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                </TextBlock>
+            </Grid>
+            <WrapPanel Grid.Row="2" Grid.Column="2" Margin="0,8,0,0">
+                <Button x:Name="AddNetworkMappingButton" Content="添加" Click="AddNetworkMapping_Click" Margin="0,0,6,0" ToolTip="选择对端已发布的网络目标，设置本机监听端口" />
+                <Button x:Name="EnableNetworkMappingButton" Content="启用" Click="EnableNetworkRule_Click" Style="{StaticResource NetworkRuleAction}" />
+                <Button Content="停用" Click="DisableNetworkRule_Click" Style="{StaticResource NetworkRuleAction}" />
+                <Button Content="删除" Click="DeleteNetworkRule_Click" Style="{StaticResource NetworkRuleAction}" Margin="0" />
             </WrapPanel>
         </Grid>
     </Grid>

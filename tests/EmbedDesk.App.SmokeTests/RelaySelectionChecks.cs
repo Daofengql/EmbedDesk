@@ -57,7 +57,7 @@ internal static class RelaySelectionChecks
         finally { Directory.Delete(directory, true); }
     }
 
-    private sealed class HealthFixture : IAsyncDisposable
+    internal sealed class HealthFixture : IAsyncDisposable
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly CancellationTokenSource _life = new();

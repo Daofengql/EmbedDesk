@@ -53,7 +53,7 @@ internal static class DeviceSecurityChecks
             catch { Console.WriteLine("TLS OWNER " + owner.Status); Console.WriteLine("TLS VISITOR " + visitor.Status); Console.WriteLine("PROXY CONNECTS " + proxy.Connections); throw; }
             await visitor.ConnectPeerAsync(owner.DeviceId, "test-pair-code");
             DeviceConnectionsChecks.Require(proxy.Connections >= 4 && visitor.Peers.Single().State == "已连接", "registration and WebSocket both use the HTTP CONNECT proxy with custom TLS trust");
-            DeviceConnectionsChecks.Require(visitor.Status.Contains("2000 kbit/s", StringComparison.Ordinal), "client displays configured relay bandwidth through TLS reverse proxy");
+            DeviceConnectionsChecks.Require(visitor.Status.Contains("可用带宽 2 Mbps", StringComparison.Ordinal), "client displays configured relay bandwidth through TLS reverse proxy");
             await visitor.StopAsync(); await owner.StopAsync();
             Console.WriteLine("PASS HTTP relay behind TLS reverse proxy and HTTP CONNECT proxy checks");
         }

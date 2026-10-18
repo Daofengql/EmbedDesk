@@ -50,11 +50,14 @@ internal sealed class SmokeApplication : Application
         try
         {
             if (e.Args.Contains("--relay-catalog-check")) { await AppSettingsChecks.RunRelayCatalogChecksAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--relay-latency-check")) { await RelayLatencyChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--debug-tools-check")) { await DebugToolsChecks.RunAsync(viewModel); SetExitCode(0); return; }
             if (e.Args.Contains("--debug-connections-check")) { await DebugConnectionChecks.RunAsync(); SetExitCode(0); return; }
             viewModel.AddSerialSession();
             if (e.Args.Contains("--device-connections-check")) { await DeviceConnectionsChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--virtual-serial-check")) { await VirtualSerialChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--serial-flow-check")) { await SerialFlowChecks.RunAsync(); SetExitCode(0); return; }
+            if (e.Args.Contains("--device-mappings-check")) { await DeviceConnectionsChecks.RunMappingsAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--device-security-check")) { await DeviceSecurityChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--lan-files-check")) { await LanFileChecks.RunAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--connection-center-window-check")) { await ConnectionCenterUiChecks.RunAsync(viewModel); SetExitCode(0); return; }

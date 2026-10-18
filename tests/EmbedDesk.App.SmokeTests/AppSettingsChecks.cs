@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Ports;
 using System.Text;
+using System.Text.Json;
 using System.Windows;
 using EmbedDesk.App;
 using EmbedDesk.App.ViewModels;
@@ -305,13 +306,19 @@ internal static class AppSettingsChecks
                 {
                     s.SharedServices.Add(udpService);
                     s.SharedServices.Add(new() { Name = "serial board", Kind = EmbedDesk.Infrastructure.Connections.SharedServiceKind.Serial, PortName = "COM3", Description = "transient scan metadata" });
-                    s.PortMappingRules.Add(new(Guid.NewGuid().ToString("N"), "ABCDEF012345", udpService.Id, udpService.Name, 22023, udpService.Kind));
+                    s.PortMappingRules.Add(new(Guid.NewGuid().ToString("N"), "ABCDEF012345", udpService.Id, udpService.Name, 22023, udpService.Kind, RemoteEndpoint: udpService.Endpoint));
                 });
                 restored.SaveNow();
                 using (var udpReload = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath)))
                 {
-                    Require(udpReload.Snapshot().SharedServices.Count == 3 && udpReload.Snapshot().PortMappingRules.Last().Kind == EmbedDesk.Infrastructure.Connections.SharedServiceKind.Udp,
-                        "UDP targets and protocol-specific mapping rules round-trip");
+                    Require(udpReload.Snapshot().SharedServices.Count == 3 && udpReload.Snapshot().PortMappingRules.Last() is { Kind: EmbedDesk.Infrastructure.Connections.SharedServiceKind.Udp, RemoteEndpoint: "127.0.0.1:9000" },
+                        "UDP targets, remote endpoints and protocol-specific mapping rules round-trip");
+                    var legacyRule = JsonSerializer.Deserialize<EmbedDesk.App.ViewModels.PortMappingRule>(JsonSerializer.Serialize(new
+                    {
+                        Id = Guid.NewGuid().ToString("N"), DeviceId = "ABCDEF012345", ServiceId = udpService.Id, ServiceName = "old TCP rule", LocalPort = 22022,
+                        Kind = EmbedDesk.Infrastructure.Connections.SharedServiceKind.Tcp
+                    }));
+                    Require(legacyRule is { RemoteEndpoint: "", HasValidTarget: true }, "old mapping JSON without endpoint metadata remains valid");
                     Require(udpReload.Snapshot().PortMappingRules.First().Kind == EmbedDesk.Infrastructure.Connections.SharedServiceKind.Tcp
                         && !(await File.ReadAllTextAsync(restored.FilePath)).Contains("transient scan metadata", StringComparison.Ordinal),
                         "existing TCP rules retain their protocol and scanned serial metadata never enters settings JSON");

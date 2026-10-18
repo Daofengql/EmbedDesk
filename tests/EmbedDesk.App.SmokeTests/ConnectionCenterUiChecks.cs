@@ -30,20 +30,48 @@ internal static class ConnectionCenterUiChecks
         var center = Find<ConnectionCenterWorkspace>(main);
         var identity = (TextBlock)center.FindName("DeviceIdDisplay");
         var password = (TextBlock)center.FindName("PasswordDisplay");
+        var status = (TextBlock)center.FindName("DeviceStatusDisplay");
         // Only the screenshot uses synthetic values; session state remains the real view model.
         identity.SetCurrentValue(TextBlock.TextProperty, "ABCDEF012345");
         password.SetCurrentValue(TextBlock.TextProperty, "DEMO12345678");
+        status.SetCurrentValue(TextBlock.TextProperty, "在线 · 可用带宽 4.096 Gbps");
+        model.Connections.RelayLatency.Apply(new(true, 48, ""));
         await CaptureAsync(main, "center-default", 1340, 940);
         await CaptureAsync(main, "center-minimum", 1080, 680);
         var mappingCard = (Border)center.FindName("MappingControlCard");
         DeviceConnectionsChecks.Require(identity.FontSize >= 30 && mappingCard.ActualHeight >= 200,
             "large identity and bottom mapping controls fit the minimum main window");
+        var latency = (TextBlock)center.FindName("RelayLatencyDisplay");
+        foreach (var (milliseconds, expectedColor, screenshot) in new[]
+        {
+            (48, "#FF4CC9B0", "center-latency-green-minimum"),
+            (150, "#FFF0C36D", "center-latency-yellow-minimum"),
+            (320, "#FFFF8585", "center-latency-red-minimum")
+        })
+        {
+            model.Connections.RelayLatency.Apply(new(true, milliseconds, ""));
+            await CaptureAsync(main, screenshot, 1080, 680);
+            DeviceConnectionsChecks.Require(latency.Text == milliseconds + " ms" && ((SolidColorBrush)latency.Foreground).Color.ToString() == expectedColor,
+                "relay header renders latency and the matching quality color");
+            CheckInsideWindow(main, latency);
+        }
+        model.Connections.RelayLatency.Apply(new(false, 0, "HTTP 503"));
+        await CaptureAsync(main, "center-latency-unavailable-minimum", 1080, 680);
+        DeviceConnectionsChecks.Require(latency.Text == "不可用" && ((SolidColorBrush)latency.Foreground).Color.ToString() == "#FF9AA5AF",
+            "unavailable latency uses a neutral color instead of a stale good reading");
+        model.Connections.Peers.Clear();
+        model.Connections.Peers.Add(new("example", "ABCDEF012345", true, "等待本机授权", "协商中", 0, 0));
+        await CaptureAsync(main, "center-receiving-role-minimum", 1080, 680);
+        DeviceConnectionsChecks.Require(!((Button)center.FindName("ConnectDeviceButton")).IsEnabled
+            && model.Connections.ConnectionHint.Contains("被连接期间", StringComparison.Ordinal),
+            "receiving connections disable initiation and explain the role restriction");
         model.Connections.Peers.Clear();
         await CaptureAsync(main, "center-local-mapping-minimum", 1080, 680);
         model.Connections.Peers.Add(new("example", "ABCDEF012345", false, "已连接", "局域网直连", 1024, 2048));
         await CaptureAsync(main, "center-mappings-minimum", 1080, 680);
         identity.GetBindingExpression(TextBlock.TextProperty)?.UpdateTarget();
         password.GetBindingExpression(TextBlock.TextProperty)?.UpdateTarget();
+        status.GetBindingExpression(TextBlock.TextProperty)?.UpdateTarget();
         var session = model.SelectedSerialSession!; session.SelectedSerialPort = session.SerialPorts.Single(p => p.PortName == "COM7"); await session.OpenSelectedSerialCommand.ExecuteAsync(null);
         DeviceConnectionsChecks.Require(session.IsOpen, "local serial opens outside reservations");
         main.HideToTray(); DeviceConnectionsChecks.Require(!main.IsVisible && session.IsOpen, "tray hide keeps live serial");
@@ -111,25 +139,12 @@ internal static class ConnectionCenterUiChecks
         var services = new DeviceServicesWindow(model.Connections); services.Show(); await CaptureAsync(services, "services-minimum", 600, 420);
         model.Connections.Peers.Add(new("example", "ABCDEF012345", false, "已连接", "局域网直连", 1024, 2048));
         await CaptureAsync(services, "mappings-minimum", 600, 420); services.Close();
-        model.Connections.SelectedRemoteService = model.Connections.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Serial);
-        await CaptureAsync(main, "center-remote-serial-minimum", 1080, 680);
-        var useSerial = new RemoteSerialUseWindow(model.Connections.SelectedRemoteService, []); useSerial.Show();
-        await CaptureAsync(useSerial, "remote-serial-app", 600, 540);
-        DeviceConnectionsChecks.Require(((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex == 0 && ((Button)useSerial.FindName("UseSerialButton")).IsEnabled,
-            "remote serial defaults to application use without requiring a driver");
-        ((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex = 1;
-        await CaptureAsync(useSerial, "remote-serial-no-driver", 600, 540);
-        DeviceConnectionsChecks.Require(!((Button)useSerial.FindName("UseSerialButton")).IsEnabled,
-            "system COM mapping clearly blocks when no driver-backed pair is available");
-        ((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex = 0;
-        DeviceConnectionsChecks.Require(((Button)useSerial.FindName("UseSerialButton")).IsEnabled, "application serial remains usable when virtual COM is unavailable");
-        useSerial.Close();
-        var configuredSerial = new RemoteSerialUseWindow(model.Connections.SelectedRemoteService, [new VirtualSerialPair("COM101", "CNCB0", "CNCB0", string.Empty)]);
-        configuredSerial.Show(); ((ComboBox)configuredSerial.FindName("UsageMode")).SelectedIndex = 1;
-        await CaptureAsync(configuredSerial, "remote-serial-virtual", 600, 540);
-        DeviceConnectionsChecks.Require(configuredSerial.UseVirtualPort && configuredSerial.SelectedPair?.PublicPort == "COM101"
-            && ((Button)configuredSerial.FindName("UseSerialButton")).IsEnabled, "configured pair enables optional virtual COM mapping");
-        configuredSerial.Close();
+        // Settings and offline-node notifications may refresh the view model; install
+        // the synthetic remote catalog immediately before exercising its UI pickers.
+        model.Connections.RemoteServices.Clear();
+        foreach (var service in model.Connections.LocalServices)
+            model.Connections.RemoteServices.Add(new("example", "ABCDEF012345", service));
+        await CheckMappingUiAsync(main, center, model.Connections);
         var editor = new SharedServiceEditorWindow(model.Connections.LocalServices.First()); editor.Show(); await CaptureAsync(editor, "service-editor", 480, 440); editor.Close();
         var serialEditor = new SharedServiceEditorWindow(model.Connections.LocalSerialServices.Single(), devices: model.Connections.LocalSerialDevices);
         serialEditor.Show(); await CaptureAsync(serialEditor, "serial-service-editor", 480, 440);
@@ -166,6 +181,134 @@ internal static class ConnectionCenterUiChecks
         var files = new LanFileShareWindow(); files.Show(); await CaptureAsync(files, "files-server-minimum", 700, 500); ((TabControl)files.FindName("Modes")).SelectedIndex = 1; await CaptureAsync(files, "files-client-minimum", 700, 500); await files.ShutdownAsync(); files.Close();
         main.Close();
         Console.WriteLine("PASS connection center/settings/tray/LAN windows screenshots");
+    }
+
+    private static async Task CheckMappingUiAsync(MainWindow main, ConnectionCenterWorkspace center, ConnectionCenterViewModel model)
+    {
+        var controls = (DeviceServicesControl)center.FindName("ServicesControl");
+        var serialRules = (ListBox)controls.FindName("SerialMappingRulesList");
+        var networkRules = (ListBox)controls.FindName("NetworkMappingRulesList");
+        var serial = model.RemoteServices.Single(service => service.Service.Kind == SharedServiceKind.Serial);
+        var tcp = model.RemoteServices.Single(service => service.Service.Kind == SharedServiceKind.Tcp);
+        var udp = model.RemoteServices.Single(service => service.Service.Kind == SharedServiceKind.Udp);
+        var serialRule = new PortMappingRuleViewModel(new(Guid.NewGuid().ToString("N"), serial.DeviceId, serial.Service.Id, serial.Service.Name, 0,
+            SharedServiceKind.Serial, "COM101", "CNCB0", serial.TargetEndpoint));
+        var networkRule = new PortMappingRuleViewModel(new(Guid.NewGuid().ToString("N"), tcp.DeviceId, tcp.Service.Id, tcp.Service.Name, 22022,
+            RemoteEndpoint: tcp.TargetEndpoint));
+        model.MappingRules.Add(serialRule); model.MappingRules.Add(networkRule);
+        try
+        {
+            serialRules.SelectedItem = serialRule; networkRules.SelectedItem = networkRule;
+            await CaptureAsync(main, "center-separated-mappings-minimum", 1080, 680);
+            DeviceConnectionsChecks.Require(controls.FindName("RemoteServicesList") is null && controls.FindName("LocalPort") is null
+                && serialRules.Items.Cast<PortMappingRuleViewModel>().All(rule => rule.Rule.Kind == SharedServiceKind.Serial)
+                && networkRules.Items.Cast<PortMappingRuleViewModel>().All(rule => rule.Rule.Kind is SharedServiceKind.Tcp or SharedServiceKind.Udp)
+                && ReferenceEquals(serialRules.SelectedItem, serialRule) && ReferenceEquals(networkRules.SelectedItem, networkRule)
+                && ((Button)controls.FindName("EnableSerialMappingButton")).IsEnabled && ((Button)controls.FindName("EnableNetworkMappingButton")).IsEnabled,
+                "serial and network mappings have independent filtered lists and retain their own selected rule");
+            CheckInsideWindow(main, controls, (Button)controls.FindName("AddSerialMappingButton"), (Button)controls.FindName("AddNetworkMappingButton"));
+            var serialEntry = OpenMappingDialog<RemoteSerialUseWindow>((Button)controls.FindName("AddSerialMappingButton"));
+            var portEntry = OpenMappingDialog<RemotePortMappingWindow>((Button)controls.FindName("AddNetworkMappingButton"));
+            DeviceConnectionsChecks.Require(((ComboBox)serialEntry.FindName("ServiceBox")).Items.Cast<DeviceRemoteService>().All(service => service.Service.Kind == SharedServiceKind.Serial)
+                && ((ComboBox)portEntry.FindName("ServiceBox")).Items.Cast<DeviceRemoteService>().All(service => service.Service.Kind is SharedServiceKind.Tcp or SharedServiceKind.Udp),
+                "the two add buttons open only their corresponding resource picker");
+
+            var published = model.RemoteServices.ToArray(); model.RemoteServices.Clear();
+            try
+            {
+                var emptySerial = OpenMappingDialog<RemoteSerialUseWindow>((Button)controls.FindName("AddSerialMappingButton"));
+                var emptyNetwork = OpenMappingDialog<RemotePortMappingWindow>((Button)controls.FindName("AddNetworkMappingButton"));
+                DeviceConnectionsChecks.Require(((ComboBox)emptySerial.FindName("ServiceBox")).Items.Count == 0 && !((Button)emptySerial.FindName("UseSerialButton")).IsEnabled
+                    && ((ComboBox)emptyNetwork.FindName("ServiceBox")).Items.Count == 0 && !((Button)emptyNetwork.FindName("SavePortButton")).IsEnabled
+                    && ((TextBlock)emptySerial.FindName("EmptyServicesHint")).Visibility == Visibility.Visible
+                    && ((TextBlock)emptyNetwork.FindName("EmptyServicesHint")).Visibility == Visibility.Visible,
+                    "both add dialogs remain accessible and explain the empty state when no matching resources are published");
+            }
+            finally { foreach (var service in published) model.RemoteServices.Add(service); }
+
+            var useSerial = new RemoteSerialUseWindow(serial, []); useSerial.Show();
+            await CaptureAsync(useSerial, "remote-serial-app", 620, 640);
+            DeviceConnectionsChecks.Require(((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex == 0 && ((Button)useSerial.FindName("UseSerialButton")).IsEnabled,
+                "remote serial defaults to application use without requiring a driver");
+            ((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex = 1;
+            await CaptureAsync(useSerial, "remote-serial-no-driver-minimum", 560, 580);
+            DeviceConnectionsChecks.Require(!((Button)useSerial.FindName("UseSerialButton")).IsEnabled,
+                "system COM mapping clearly blocks when no driver-backed pair is available");
+            CheckInsideWindow(useSerial, (ComboBox)useSerial.FindName("ServiceBox"), (ComboBox)useSerial.FindName("PairBox"), (Button)useSerial.FindName("UseSerialButton"));
+            ((ComboBox)useSerial.FindName("UsageMode")).SelectedIndex = 0;
+            DeviceConnectionsChecks.Require(((Button)useSerial.FindName("UseSerialButton")).IsEnabled, "application serial remains usable when virtual COM is unavailable");
+            useSerial.Close();
+
+            var secondSerial = new DeviceRemoteService("example", "ABCDEF012345", serial.Service with { Id = Guid.NewGuid().ToString("N"), Name = "第二个板卡串口", PortName = "COM12" });
+            var choices = new[] { serial, secondSerial, tcp, udp };
+            var pairs = new[] { new VirtualSerialPair("COM101", "CNCB0", "CNCB0", string.Empty) };
+            var configuredSerial = new RemoteSerialUseWindow(choices, pairs, (service, pair) => model.MapVirtualSerialAsync(service, pair!), () => model.Error);
+            configuredSerial.Show(); ((ComboBox)configuredSerial.FindName("ServiceBox")).SelectedItem = secondSerial;
+            ((ComboBox)configuredSerial.FindName("UsageMode")).SelectedIndex = 1;
+            await CaptureAsync(configuredSerial, "remote-serial-target-minimum", 560, 580);
+            DeviceConnectionsChecks.Require(((ComboBox)configuredSerial.FindName("ServiceBox")).Items.Count == 2 && configuredSerial.SelectedService == secondSerial
+                && configuredSerial.UseVirtualPort && configuredSerial.SelectedPair?.PublicPort == "COM101"
+                && ((TextBlock)configuredSerial.FindName("MappingPreview")).Text.Contains("COM12", StringComparison.Ordinal)
+                && ((Button)configuredSerial.FindName("UseSerialButton")).IsEnabled, "serial target picker fixes the explicit remote COM and previews the real driver-backed pair");
+            model.SelectedRemoteService = tcp;
+            ((Button)configuredSerial.FindName("UseSerialButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await configuredSerial.SubmissionTask;
+            DeviceConnectionsChecks.Require(configuredSerial.IsVisible && configuredSerial.SelectedService == secondSerial
+                && ((TextBlock)configuredSerial.FindName("ErrorText")).Text == model.Error && model.Error.Contains("已离线", StringComparison.Ordinal),
+                "virtual COM submission uses its selected target and retains the dialog with the real failure reason");
+            await CaptureAsync(configuredSerial, "remote-serial-failed-minimum", 560, 580); configuredSerial.Close();
+
+            var unknown = new DeviceRemoteService("example", "ABCDEF012345", tcp.Service with { Id = Guid.NewGuid().ToString("N"), Name = "旧版目标", TargetHost = string.Empty, TargetPort = 0 });
+            var ports = new RemotePortMappingWindow(choices.Append(unknown), model); ports.Show();
+            var localPort = (TextBox)ports.FindName("LocalPort"); var savePort = (Button)ports.FindName("SavePortButton");
+            DeviceConnectionsChecks.Require(localPort.Text.Length == 0 && !savePort.IsEnabled && ((ComboBox)ports.FindName("ServiceBox")).Items.Count == 3,
+                "port mapping starts with an explicit local port and offers only published network targets");
+            foreach (var invalid in new[] { "0", "65536", "1x" })
+            { localPort.Text = invalid; DeviceConnectionsChecks.Require(!savePort.IsEnabled && ((TextBlock)ports.FindName("ValidationText")).Text.Length > 0, "invalid mapping ports are rejected inline"); }
+            localPort.Text = "22022"; ((ComboBox)ports.FindName("ServiceBox")).SelectedItem = udp;
+            await CaptureAsync(ports, "remote-port-default", 620, 550);
+            await CaptureAsync(ports, "remote-port-udp-minimum", 540, 510);
+            DeviceConnectionsChecks.Require(savePort.IsEnabled && ports.SelectedService == udp && ((TextBlock)ports.FindName("ProtocolLabel")).Text.Contains("UDP", StringComparison.Ordinal)
+                && ((TextBlock)ports.FindName("MappingPreview")).Text.Contains("127.0.0.1:22022", StringComparison.Ordinal)
+                && ((TextBlock)ports.FindName("MappingPreview")).Text.Contains(udp.TargetEndpoint, StringComparison.Ordinal),
+                "network preview shows the fixed selected protocol and both real mapping endpoints");
+            CheckInsideWindow(ports, (ComboBox)ports.FindName("ServiceBox"), localPort, savePort, (TextBlock)ports.FindName("MappingPreview"));
+            savePort.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await ports.SubmissionTask;
+            DeviceConnectionsChecks.Require(ports.IsVisible && ports.SelectedService == udp && localPort.Text == "22022"
+                && ((TextBlock)ports.FindName("ErrorText")).Text == model.Error && model.Error.Contains("已离线", StringComparison.Ordinal),
+                "a failed network submission preserves the selected UDP target, local port and real model error");
+            await CaptureAsync(ports, "remote-port-failed-minimum", 540, 510);
+            ((ComboBox)ports.FindName("ServiceBox")).SelectedItem = unknown;
+            DeviceConnectionsChecks.Require(((TextBlock)ports.FindName("MappingPreview")).Text.Contains("未提供目标地址", StringComparison.Ordinal)
+                && !((TextBlock)ports.FindName("MappingPreview")).Text.Contains(":0", StringComparison.Ordinal), "legacy peers display an unknown target instead of inventing port zero");
+            await CaptureAsync(ports, "remote-port-unknown-minimum", 540, 510); ports.Close();
+        }
+        finally { model.MappingRules.Remove(serialRule); model.MappingRules.Remove(networkRule); }
+    }
+
+    private static T OpenMappingDialog<T>(Button button) where T : Window
+    {
+        T? opened = null; Exception? failure = null;
+        button.Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try { opened = Application.Current.Windows.OfType<T>().LastOrDefault(window => window.IsVisible) ?? throw new InvalidOperationException("mapping dialog did not open"); }
+            catch (Exception ex) { failure = ex; }
+            finally { opened?.Close(); }
+        }));
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (failure is not null) throw failure;
+        return opened ?? throw new InvalidOperationException("mapping add button did not create a dialog");
+    }
+
+    private static void CheckInsideWindow(Window window, params FrameworkElement[] elements)
+    {
+        foreach (var element in elements)
+        {
+            var position = element.TranslatePoint(new Point(), window);
+            DeviceConnectionsChecks.Require(element.ActualWidth > 0 && element.ActualHeight > 0 && position.X >= 0 && position.Y >= 0
+                && position.X + element.ActualWidth <= window.ActualWidth + 1 && position.Y + element.ActualHeight <= window.ActualHeight + 1,
+                "mapping controls and actions fit inside the minimum window without clipping");
+        }
     }
     private static async Task CaptureAsync(Window window, string name, double width, double height)
     {

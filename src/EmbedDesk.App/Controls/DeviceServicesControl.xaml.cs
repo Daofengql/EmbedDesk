@@ -27,25 +27,30 @@ public partial class DeviceServicesControl : UserControl
     {
         if (service is not null && new ConfirmationWindow("删除映射服务", $"取消发布并删除“{service.Name}”？", "删除") { Owner = Window.GetWindow(this) }.ShowDialog() == true) Try(() => Model?.RemoveService(service));
     }
-    private async void Map_Click(object sender, RoutedEventArgs e)
-    { if (Model is { } model) { if (!int.TryParse(LocalPort.Text, out var port)) { Error("请输入有效端口。"); return; } await model.MapAsync(port); } }
-    private async void UseSerial_Click(object sender, RoutedEventArgs e)
+    private void AddSerialMapping_Click(object sender, RoutedEventArgs e)
     {
-        if (Model?.SelectedRemoteService is not { } service || !Model.IsSerialServiceSelected) return;
-        var dialog = new RemoteSerialUseWindow(service) { Owner = Window.GetWindow(this) };
-        if (dialog.ShowDialog() != true) return;
-        if (dialog.UseVirtualPort && dialog.SelectedPair is { } pair) await Model.MapVirtualSerialAsync(pair);
-        else
+        if (Model is not { } model) return;
+        new RemoteSerialUseWindow(model.RemoteServices, model, service =>
         {
-            var main = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault(w => w.DataContext is MainWindowViewModel model && ReferenceEquals(model.Connections, Model));
-            if (main is not null) Try(() => main.ShowRemoteSerial(service));
-        }
+            var main = Application.Current.Windows.OfType<MainWindow>().FirstOrDefault(w => w.DataContext is MainWindowViewModel mainModel && ReferenceEquals(mainModel.Connections, model))
+                ?? throw new InvalidOperationException("未找到主窗口，无法打开远程串口调试。");
+            main.ShowRemoteSerial(service);
+        }) { Owner = Window.GetWindow(this) }.ShowDialog();
     }
-    private async void Unmap_Click(object sender, RoutedEventArgs e)
-    { if (Model?.SelectedRule is { } rule && new ConfirmationWindow("停用映射", "停止此映射并关闭转发通道？", "停用映射") { Owner = Window.GetWindow(this) }.ShowDialog() == true) await Model.DisableRuleAsync(rule); }
-    private async void EnableRule_Click(object sender, RoutedEventArgs e) { if (Model?.SelectedRule is { } rule) await Model.EnableRuleAsync(rule); }
-    private async void DeleteRule_Click(object sender, RoutedEventArgs e)
-    { if (Model?.SelectedRule is { } rule && new ConfirmationWindow("删除映射规则", "停止映射并删除已保存的规则？", "删除规则") { Owner = Window.GetWindow(this) }.ShowDialog() == true) await Model.DeleteRuleAsync(rule); }
+    private void AddNetworkMapping_Click(object sender, RoutedEventArgs e)
+    { if (Model is { } model) new RemotePortMappingWindow(model.RemoteServices, model) { Owner = Window.GetWindow(this) }.ShowDialog(); }
+    private async void EnableSerialRule_Click(object sender, RoutedEventArgs e) => await EnableRuleAsync(SerialMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async void EnableNetworkRule_Click(object sender, RoutedEventArgs e) => await EnableRuleAsync(NetworkMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async void DisableSerialRule_Click(object sender, RoutedEventArgs e) => await DisableRuleAsync(SerialMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async void DisableNetworkRule_Click(object sender, RoutedEventArgs e) => await DisableRuleAsync(NetworkMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async void DeleteSerialRule_Click(object sender, RoutedEventArgs e) => await DeleteRuleAsync(SerialMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async void DeleteNetworkRule_Click(object sender, RoutedEventArgs e) => await DeleteRuleAsync(NetworkMappingRulesList.SelectedItem as PortMappingRuleViewModel);
+    private async Task EnableRuleAsync(PortMappingRuleViewModel? rule)
+    { if (Model is { } model && rule is not null) await model.EnableRuleAsync(rule); }
+    private async Task DisableRuleAsync(PortMappingRuleViewModel? rule)
+    { if (Model is { } model && rule is not null && new ConfirmationWindow("停用映射", $"停止“{rule.LocalEndpoint}”并关闭转发通道？", "停用映射") { Owner = Window.GetWindow(this) }.ShowDialog() == true) await model.DisableRuleAsync(rule); }
+    private async Task DeleteRuleAsync(PortMappingRuleViewModel? rule)
+    { if (Model is { } model && rule is not null && new ConfirmationWindow("删除映射规则", $"停止“{rule.LocalEndpoint}”并删除已保存的规则？", "删除规则") { Owner = Window.GetWindow(this) }.ShowDialog() == true) await model.DeleteRuleAsync(rule); }
     private void Try(Action action) { try { action(); } catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { Error(ex.Message); } }
     private void Error(string text) => MessageBox.Show(Window.GetWindow(this), text, "映射设置", MessageBoxButton.OK, MessageBoxImage.Information);
 }

@@ -24,6 +24,7 @@ public sealed partial class DeviceNode : IAsyncDisposable
     private readonly ConcurrentDictionary<string, VisitorRequest> _requests = new();
     private readonly ConcurrentDictionary<string, PortMapping> _mappings = new();
     private readonly SemaphoreSlim _lifecycle = new(1, 1), _socketSend = new(1, 1);
+    private readonly object _connectionRoleGate = new();
     private SharedDeviceService[] _services = [];
     private CancellationTokenSource? _lifetime;
     private TcpListener? _listener;
@@ -37,6 +38,7 @@ public sealed partial class DeviceNode : IAsyncDisposable
     public string DeviceId { get; private set; } = string.Empty;
     public string Status => _status;
     public bool IsOnline => _online;
+    public bool CanInitiateConnection { get { lock (_connectionRoleGate) return !_peers.Values.Any(peer => peer.IsOwner); } }
     public event EventHandler? Changed;
     public event EventHandler<DeviceApproval>? ApprovalRequested;
     public event EventHandler<string>? OperationFailed;
@@ -50,7 +52,7 @@ public sealed partial class DeviceNode : IAsyncDisposable
         var next = services.ToArray();
         if (next.Length > 128 || next.Select(s => s.Id).Distinct().Count() != next.Length) throw new ArgumentException("共享服务过多或编号重复。");
         foreach (var service in next) service.Validate();
-        var catalog = next.Where(s => s.Enabled).Select(s => s with { TargetHost = string.Empty, TargetPort = 0 }).ToArray();
+        var catalog = next.Where(s => s.Enabled).ToArray();
         if (JsonSerializer.SerializeToUtf8Bytes(new NodeRpc("services", Services: catalog), Json).Length > 32 * 1024) throw new ArgumentException("共享服务目录过大，请减少数量或缩短服务名称。");
         if (_peers.Values.Any(p => p.HasOpenChannels)) throw new InvalidOperationException("请先关闭正在使用的服务通道，再修改共享配置。");
         if (_serial is ISerialPortSharing sharing) sharing.SetSharedPorts(next.Where(s => s.Enabled && s.Kind == SharedServiceKind.Serial).Select(s => s.PortName));
@@ -58,7 +60,9 @@ public sealed partial class DeviceNode : IAsyncDisposable
         foreach (var peer in _peers.Values.Where(p => p.Ready && p.IsOwner)) _ = peer.QueueAsync(new NodeRpc("services", Services: PublishedServices()));
         Notify();
     }
-    private SharedDeviceService[] PublishedServices() => _services.Where(s => s.Enabled).Select(s => s with { TargetHost = string.Empty, TargetPort = 0 }).ToArray();
+    // Sent only through the authenticated encrypted peer channel. Targets are display
+    // metadata; opening a channel still resolves its ID against our own local services.
+    private SharedDeviceService[] PublishedServices() => _services.Where(s => s.Enabled).ToArray();
     public async Task StartAsync(DeviceNodeOptions options, CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(options.ServerUrl, UriKind.Absolute, out var uri) || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.Scheme is not ("https" or "http"))
@@ -129,7 +133,7 @@ public sealed partial class DeviceNode : IAsyncDisposable
                 var address = new UriBuilder(new Uri(http.BaseAddress!, "v1/channel")) { Scheme = http.BaseAddress!.Scheme == "https" ? "wss" : "ws" };
                 using var connect = CancellationTokenSource.CreateLinkedTokenSource(token); connect.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
                 await socket.ConnectAsync(address.Uri, connect.Token).ConfigureAwait(false);
-                _online = true; connectedAt = Stopwatch.GetTimestamp(); SetStatus(_relayBitsPerSecond > 0 ? $"在线 · 公网中继额度 {_relayBitsPerSecond / 1000d:0.#} kbit/s" : "在线 · 公网中继");
+                _online = true; connectedAt = Stopwatch.GetTimestamp(); SetStatus(_relayBitsPerSecond > 0 ? $"在线 · 可用带宽 {FormatBandwidth(_relayBitsPerSecond)}" : "在线 · 公网中继");
                 using var heartbeat = CancellationTokenSource.CreateLinkedTokenSource(token);
                 var heart = HeartbeatAsync(socket, heartbeat.Token);
                 try
@@ -207,6 +211,14 @@ public sealed partial class DeviceNode : IAsyncDisposable
         }
     }
     private void SetStatus(string status) { _status = status; Notify(); }
+    public static string FormatBandwidth(long bitsPerSecond)
+    {
+        string[] units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps", "Pbps", "Ebps"];
+        var value = Math.Max(0, (decimal)bitsPerSecond);
+        var unit = 0;
+        while (value >= 1000 && unit < units.Length - 1) { value /= 1000; unit++; }
+        return value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " " + units[unit];
+    }
     internal void Notify() => Changed?.Invoke(this, EventArgs.Empty);
     internal void Fail(string error) => OperationFailed?.Invoke(this, error);
     internal static JsonElement Element<T>(T value) => JsonSerializer.SerializeToElement(value, Json);

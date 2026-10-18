@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -14,6 +15,19 @@ using EmbedDesk.App.ViewModels;
 namespace EmbedDesk.App.SmokeTests;
 internal static class DeviceConnectionsChecks
 {
+    public static async Task RunMappingsAsync()
+    {
+        var url = Environment.GetEnvironmentVariable("EMBEDDESK_TEST_RELAY_URL");
+        if (string.IsNullOrWhiteSpace(url)) throw new InvalidOperationException("Set EMBEDDESK_TEST_RELAY_URL to an isolated test relay before running this check.");
+        var admission = Environment.GetEnvironmentVariable("EMBEDDESK_TEST_RELAY_ADMISSION_KEY") ?? string.Empty;
+        CheckBandwidthDisplay();
+        await CheckConnectionRolesAsync(url, admission);
+        await CheckViewModelAsync(url, admission);
+        await CheckPathAsync(url, false, admission: admission);
+        await CheckPathAsync(url, true, admission: admission);
+        await CheckUdpPathAsync(url, false, admission);
+        await CheckUdpPathAsync(url, true, admission);
+    }
     public static async Task RunAsync()
     {
         var root = FindRepository(); var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-Node-Test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
@@ -24,17 +38,103 @@ internal static class DeviceConnectionsChecks
         try
         {
             await Task.Delay(500);
+            CheckBandwidthDisplay();
+            await CheckConnectionRolesAsync("http://127.0.0.1:" + port);
             await RelaySelectionChecks.RunAsync("http://127.0.0.1:" + port);
             await CheckPathAsync("http://127.0.0.1:" + port, false);
             await CheckPathAsync("http://127.0.0.1:" + port, true);
             await CheckPathAsync("http://127.0.0.1:" + port, true, true);
             await CheckUdpPathAsync("http://127.0.0.1:" + port, false);
             await CheckUdpPathAsync("http://127.0.0.1:" + port, true);
+            await SerialFlowChecks.CheckAsync("http://127.0.0.1:" + port, "", false);
+            await SerialFlowChecks.CheckAsync("http://127.0.0.1:" + port, "", true);
             await CheckViewModelAsync("http://127.0.0.1:" + port);
             await CheckReconnectAsync(start, process, "http://127.0.0.1:" + port);
             Console.WriteLine("PASS device node: Go relay, password/manual auth, direct/fallback, TCP/UDP mapping, serial failures and cleanup");
         }
         finally { if (!process.HasExited) process.Kill(); await process.WaitForExitAsync(); await Task.WhenAll(stdout, stderr); Directory.Delete(directory, true); }
+    }
+    private static void CheckBandwidthDisplay()
+    {
+        foreach (var (bits, expected) in new (long, string)[]
+        {
+            (0, "0 bps"), (999, "999 bps"), (1000, "1 Kbps"), (8000, "8 Kbps"),
+            (1_000_000, "1 Mbps"), (10_000_000, "10 Mbps"), (1_000_000_000, "1 Gbps"),
+            (4_096_000_000, "4.096 Gbps"), (100_000_000_000, "100 Gbps"), (1_000_000_000_000, "1 Tbps")
+        }) Require(DeviceNode.FormatBandwidth(bits) == expected, "available bandwidth uses decimal bps units: " + expected);
+    }
+    private static async Task CheckConnectionRolesAsync(string url, string admission = "")
+    {
+        await using var a = new DeviceNode(new FakeSerialService());
+        await using var b = new DeviceNode(new FakeSerialService());
+        await using var c = new DeviceNode(new FakeSerialService());
+        await using var d = new DeviceNode(new FakeSerialService());
+        const string password = "test-role-password";
+        foreach (var node in new[] { a, b, c, d }) await node.StartAsync(Options(url, password, false, admission));
+        await UntilAsync(() => new[] { a, b, c, d }.All(node => node.IsOnline));
+        Require(a.Status.Contains("可用带宽 1 Mbps", StringComparison.Ordinal) && !a.Status.Contains("额度", StringComparison.Ordinal),
+            "online status reports available bandwidth without the old quota label");
+        using var requestLife = new CancellationTokenSource();
+        var pending = a.ConnectPeerAsync(b.DeviceId, "", requestLife.Token);
+        await UntilAsync(() => b.PendingApprovals.Count == 1);
+        Require(!b.CanInitiateConnection, "pending incoming approval reserves the receiving role");
+        await ExpectAsync<InvalidOperationException>(() => b.ConnectPeerAsync(c.DeviceId, password));
+        await ExpectAsync<IOException>(() => c.ConnectPeerAsync(a.DeviceId, password));
+        Require(a.PendingApprovals.Count == 0 && b.Peers.All(peer => peer.IsOwner), "pending outgoing request rejects reverse incoming connections");
+        requestLife.Cancel(); await ExpectAsync<OperationCanceledException>(() => pending);
+        await UntilAsync(() => a.Peers.Count == 0 && b.Peers.Count == 0);
+        Require(b.CanInitiateConnection, "canceling authorization releases the receiving role");
+        await a.ConnectPeerAsync(b.DeviceId, password);
+        await UntilAsync(() => b.Peers.Any(peer => peer.State == "已连接"));
+        await ExpectAsync<InvalidOperationException>(() => b.ConnectPeerAsync(c.DeviceId, password));
+        await ExpectAsync<IOException>(() => c.ConnectPeerAsync(a.DeviceId, password));
+        await a.ConnectPeerAsync(c.DeviceId, password);
+        await d.ConnectPeerAsync(b.DeviceId, password);
+        Require(a.Peers.Count == 2 && a.Peers.All(peer => !peer.IsOwner) && b.Peers.Count == 2 && b.Peers.All(peer => peer.IsOwner),
+            "multiple connections in the same direction remain supported without mixing roles");
+        foreach (var peer in a.Peers) await a.DisconnectPeerAsync(peer.SessionId);
+        foreach (var peer in d.Peers) await d.DisconnectPeerAsync(peer.SessionId);
+        await UntilAsync(() => new[] { a, b, c, d }.All(node => node.Peers.Count == 0));
+        await b.ConnectPeerAsync(a.DeviceId, password);
+        Require(b.Peers.All(peer => !peer.IsOwner), "after disconnect the former receiver can become an initiator");
+        await b.DisconnectPeerAsync(b.Peers.Single().SessionId);
+        await UntilAsync(() => a.Peers.Count == 0 && b.Peers.Count == 0);
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            var attempts = await Task.WhenAll(ConnectOrFailAsync(a, b.DeviceId), ConnectOrFailAsync(b, a.DeviceId));
+            Require(attempts.Count(success => success) <= 1, "simultaneous cross connections cannot establish both directions");
+            Require(!a.Peers.Select(peer => peer.IsOwner).Distinct().Skip(1).Any() && !b.Peers.Select(peer => peer.IsOwner).Distinct().Skip(1).Any(),
+                "simultaneous opposite requests never mix connection roles");
+            foreach (var peer in a.Peers) await a.DisconnectPeerAsync(peer.SessionId);
+            await UntilAsync(() => a.Peers.Count == 0 && b.Peers.Count == 0);
+            if (!attempts.Any(success => success))
+            {
+                await a.ConnectPeerAsync(b.DeviceId, password);
+                await a.DisconnectPeerAsync(a.Peers.Single().SessionId);
+                await UntilAsync(() => a.Peers.Count == 0 && b.Peers.Count == 0);
+            }
+        }
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            using var cancel = new CancellationTokenSource();
+            var connecting = a.ConnectPeerAsync(b.DeviceId, "", cancel.Token);
+            await UntilAsync(() => b.PendingApprovals.Count == 1);
+            var authorizing = b.ApproveAsync(b.PendingApprovals.Single().SessionId, true);
+            cancel.Cancel();
+            try { await connecting; }
+            catch (OperationCanceledException) { }
+            foreach (var peer in a.Peers) await a.DisconnectPeerAsync(peer.SessionId);
+            try { await authorizing; }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException) { }
+            await UntilAsync(() => a.Peers.Count == 0 && b.Peers.Count == 0);
+            Require(a.CanInitiateConnection && b.CanInitiateConnection, "cancel racing with approval releases late handshake sessions and both roles");
+        }
+        Console.WriteLine("PASS connection role exclusion through authorization, active sessions, cancellation and opposite requests");
+        async Task<bool> ConnectOrFailAsync(DeviceNode node, string id)
+        {
+            try { await node.ConnectPeerAsync(id, password); return true; }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException) { return false; }
+        }
     }
     private static async Task CheckReconnectAsync(ProcessStartInfo start, Process running, string url)
     {
@@ -73,7 +173,7 @@ internal static class DeviceConnectionsChecks
         start.Environment["EMBEDDESK_CONFIG"] = configPath;
         return start;
     }
-    private static async Task CheckPathAsync(string url, bool direct, bool failDirect = false)
+    private static async Task CheckPathAsync(string url, bool direct, bool failDirect = false, string admission = "")
     {
         var hardware = new TestSerial(); using var serial = new SharedSerialPortService(hardware);
         await using var local = serial.CreateChannel(new() { PortName = "COM7" }); await local.OpenAsync();
@@ -93,7 +193,7 @@ internal static class DeviceConnectionsChecks
             owner.ConfigureServices([serialService, tcpService]); Require(hardware.OpenCount == 1, "reservation does not pre-open COM");
             await using var blocked = serial.CreateChannel(new() { PortName = "COM3" }); await ExpectAsync<InvalidOperationException>(() => blocked.OpenAsync());
             var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(6));
-            await owner.StartAsync(Options(url, password, direct)); await visitor.StartAsync(Options(url, password, direct));
+            await owner.StartAsync(Options(url, password, direct, admission)); await visitor.StartAsync(Options(url, password, direct, admission));
             await UntilAsync(() => owner.IsOnline && visitor.IsOnline);
             if (failDirect)
             {
@@ -132,6 +232,8 @@ internal static class DeviceConnectionsChecks
             await UntilAsync(() => !serial.IsInUse("COM3"));
             await VirtualSerialChecks.CheckDeviceBridgeAsync(visitor, remote, () => hardware.LastSettings, () => serial.IsInUse("COM3"));
             var localPort = FreePort(); var mapping = await visitor.MapPortAsync(peer.SessionId, tcpService.Id, localPort);
+            Require(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Where(endpoint => endpoint.Port == localPort)
+                .All(endpoint => endpoint.Address.Equals(IPAddress.Loopback)), "TCP mapping only listens on IPv4 loopback");
             using var tcp = new TcpClient(); await tcp.ConnectAsync(IPAddress.Loopback, localPort); var payload = RandomNumberGenerator.GetBytes(direct && !failDirect ? 4 * 1024 * 1024 : 96 * 1024);
             var incoming = new byte[payload.Length]; using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var reading = tcp.GetStream().ReadExactlyAsync(incoming, timeout.Token).AsTask(); await tcp.GetStream().WriteAsync(payload, timeout.Token); await reading;
@@ -155,7 +257,7 @@ internal static class DeviceConnectionsChecks
         }
         finally { foreach (var pending in held) pending.Dispose(); echoLife.Cancel(); echo.Stop(); await echoTask; }
     }
-    private static async Task CheckUdpPathAsync(string url, bool direct)
+    private static async Task CheckUdpPathAsync(string url, bool direct, string admission = "")
     {
         await using var owner = new DeviceNode(new SharedSerialPortService(new TestSerial()));
         await using var visitor = new DeviceNode(new SharedSerialPortService(new TestSerial()));
@@ -183,12 +285,14 @@ internal static class DeviceConnectionsChecks
             var tcpService = new SharedDeviceService { Name = "stream echo", Kind = SharedServiceKind.Tcp, TargetPort = ((IPEndPoint)tcpEcho.LocalEndpoint).Port };
             owner.ConfigureServices([udpService, tcpService]);
             var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(6));
-            await owner.StartAsync(Options(url, password, direct)); await visitor.StartAsync(Options(url, password, direct));
+            await owner.StartAsync(Options(url, password, direct, admission)); await visitor.StartAsync(Options(url, password, direct, admission));
             await UntilAsync(() => owner.IsOnline && visitor.IsOnline);
             await visitor.ConnectPeerAsync(owner.DeviceId, password); await UntilAsync(() => visitor.RemoteServices.Count == 2);
             var peer = visitor.Peers.Single(); var port = FreePort();
             var tcpMapping = await visitor.MapPortAsync(peer.SessionId, tcpService.Id, port);
             var udpMapping = await visitor.MapPortAsync(peer.SessionId, udpService.Id, port);
+            Require(IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners().Where(endpoint => endpoint.Port == port)
+                .All(endpoint => endpoint.Address.Equals(IPAddress.Loopback)), "UDP mapping only listens on IPv4 loopback");
             using var first = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)); first.Connect(IPAddress.Loopback, port);
             using var second = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)); second.Connect(IPAddress.Loopback, port);
             using var stream = new TcpClient(); await stream.ConnectAsync(IPAddress.Loopback, port);
@@ -230,7 +334,7 @@ internal static class DeviceConnectionsChecks
         }
     }
 
-    private static async Task CheckViewModelAsync(string url)
+    private static async Task CheckViewModelAsync(string url, string admission = "")
     {
         var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-Connection-VM-Test", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -243,11 +347,11 @@ internal static class DeviceConnectionsChecks
             await using var model = new ConnectionCenterViewModel(visitor, settings, _ =>
             { var endpoint = new VirtualSerialChecks.Endpoint(); virtualEndpoints.Add(endpoint); return endpoint; });
             var tcpService = new SharedDeviceService { Name = "saved rule", Kind = SharedServiceKind.Tcp };
-            var udpService = new SharedDeviceService { Name = "saved UDP rule", Kind = SharedServiceKind.Udp };
+            var udpService = new SharedDeviceService { Name = "saved UDP rule", Kind = SharedServiceKind.Udp, TargetPort = 9000 };
             var serialService = new SharedDeviceService { Name = "saved virtual COM rule", Kind = SharedServiceKind.Serial, PortName = "COM3" };
             owner.ConfigureServices([tcpService, udpService, serialService]);
             var password = Convert.ToHexString(RandomNumberGenerator.GetBytes(6));
-            await owner.StartAsync(Options(url, password, false)); await visitor.StartAsync(Options(url, password, false));
+            await owner.StartAsync(Options(url, password, false, admission)); await visitor.StartAsync(Options(url, password, false, admission));
             await UntilAsync(() => owner.IsOnline && visitor.IsOnline);
             model.TargetId = owner.DeviceId;
             var request = model.ConnectAsync("");
@@ -257,20 +361,48 @@ internal static class DeviceConnectionsChecks
             await UntilAsync(() => owner.Peers.Count == 0 && visitor.Peers.Count == 0);
             Require(!model.IsConnecting && visitor.IsOnline && model.Error.Contains("取消", StringComparison.Ordinal), "cancel removes pending authorization and preserves relay");
             await model.ConnectAsync(password); await UntilAsync(() => visitor.RemoteServices.Count == 3);
-            model.SelectedRemoteService = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Tcp); await model.MapAsync(FreePort());
+            var tcpRemote = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Tcp);
+            var udpRemote = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Udp);
+            var serialRemote = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Serial);
+            Require(tcpRemote.TargetEndpoint == "127.0.0.1:22" && udpRemote.TargetEndpoint == "127.0.0.1:9000" && serialRemote.TargetEndpoint == "COM3",
+                "authenticated service catalog exposes the actual selected remote COM and network targets");
+            Require((tcpRemote with { Service = tcpRemote.Service with { TargetHost = string.Empty, TargetPort = 0 } }).TargetDescription == "对端未提供目标地址",
+                "legacy catalogs show an unknown target instead of inventing port zero");
+            model.SelectedRemoteService = serialRemote;
+            Require(await model.MapAsync(tcpRemote, FreePort()), "mapping dialog submits its explicit target despite another global selection");
             Require(model.MappingRules.Count == 1 && model.MappingRules[0].MappingId is not null && settings.Snapshot().PortMappingRules.Count == 1, "view model saves and activates the selected service rule");
+            Require(model.MappingRules[0].Rule.RemoteEndpoint == "127.0.0.1:22" && model.MappingRules[0].DisplayName.Contains("127.0.0.1:22", StringComparison.Ordinal),
+                "saved mapping describes both the local listener and remote target");
             await model.DisableRuleAsync(model.MappingRules[0]);
             Require(visitor.Mappings.Count == 0 && model.MappingRules[0].MappingId is null, "disabling a rule retains only its configuration");
-            model.SelectedRemoteService = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Udp); await model.MapAsync(FreePort());
+            Require(await model.MapAsync(udpRemote, FreePort()), "explicit UDP selection retains its protocol");
             Require(model.MappingRules[1].MappingId is not null && settings.Snapshot().PortMappingRules[1].Kind == SharedServiceKind.Udp,
                 "view model saves and enables UDP rules with their protocol");
             await model.DisableRuleAsync(model.MappingRules[1]);
+            var beforeInvalid = model.MappingRules.Count;
+            Require(!await model.MapAsync(tcpRemote with { SessionId = Guid.NewGuid().ToString("N") }, FreePort()) && model.MappingRules.Count == beforeInvalid,
+                "stale dialog target cannot silently map a different current session");
+            Require(!await model.MapAsync(tcpRemote, 65536) && model.MappingRules.Count == beforeInvalid,
+                "invalid local port is rejected before saving a rule");
+            var occupied = new TcpListener(IPAddress.Loopback, 0); occupied.Start();
+            try
+            {
+                var occupiedPort = ((IPEndPoint)occupied.LocalEndpoint).Port;
+                Require(!await model.MapAsync(tcpRemote, occupiedPort) && model.Error.Length > 0,
+                    "occupied local port returns failure for the dialog to display");
+                var failedRule = model.MappingRules.Single(r => r.Rule.LocalPort == occupiedPort && r.Rule.Kind == SharedServiceKind.Tcp);
+                Require(failedRule.MappingId is null && failedRule.Status.StartsWith("失败", StringComparison.Ordinal), "failed listener is never shown as enabled");
+                await model.DeleteRuleAsync(failedRule);
+            }
+            finally { occupied.Stop(); }
             model.SelectedRemoteService = visitor.RemoteServices.Single(s => s.Service.Kind == SharedServiceKind.Serial);
-            await model.MapVirtualSerialAsync(new("COM101", "CNCB0", "CNCB0", string.Empty));
+            Require(await model.MapVirtualSerialAsync(serialRemote, new("COM101", "CNCB0", "CNCB0", string.Empty)), "explicit serial target creates the selected local COM mapping");
             var virtualRule = model.MappingRules.Single(r => r.Rule.Kind == SharedServiceKind.Serial);
             Require(virtualRule.MappingId is not null && virtualEndpoints.Count == 1 && !virtualEndpoints[0].Ready
                 && settings.Snapshot().PortMappingRules.Single(r => r.Kind == SharedServiceKind.Serial).VirtualPort == "COM101",
                 "view model saves and enables optional system COM while waiting for external open");
+            Require(model.SerialMappingRules.Cast<PortMappingRuleViewModel>().Single() == virtualRule && model.NetworkMappingRules.Cast<PortMappingRuleViewModel>().Count() == 2
+                && virtualRule.Rule.RemoteEndpoint == "COM3", "serial and network mapping views stay independent and retain the remote endpoint");
             await model.DisableRuleAsync(virtualRule);
             Require(virtualRule.MappingId is null && virtualEndpoints[0].Disposals == 1, "disabling system COM releases its bridge while retaining its saved rule");
             await model.EnableRuleAsync(virtualRule);
@@ -291,7 +423,7 @@ internal static class DeviceConnectionsChecks
         }
         finally { Directory.Delete(directory, true); }
     }
-    private static DeviceNodeOptions Options(string url, string password, bool direct) => new() { ServerUrl = url, Credential = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), Password = password, PreferDirect = direct };
+    private static DeviceNodeOptions Options(string url, string password, bool direct, string admission = "") => new() { ServerUrl = url, AdmissionKey = admission, Credential = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)), Password = password, PreferDirect = direct };
     private static int FreePort() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
     private static async Task EchoAsync(TcpListener listener, CancellationToken token)
     {
