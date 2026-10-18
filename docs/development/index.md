@@ -12,7 +12,7 @@
 | `src/EmbedDesk.Protocols/` | 桥接帧与安全通道原语 |
 | `src/EmbedDesk.Infrastructure/` | 串口、网络、桥接、远程、烧录与录制实现 |
 | `src/EmbedDesk.App/` | WPF、MVVM、终端与嵌入资源 |
-| `server/relay/` | 独立 Go 中继及第三方许可 |
+| `server/` | 独立 Go 中继及第三方许可 |
 | `tests/EmbedDesk.Core.Tests/` | 核心测试 |
 | `tests/EmbedDesk.App.SmokeTests/` | 桌面与协议回归 |
 
@@ -44,7 +44,7 @@ Smoke 项目没有包含在解决方案中。源码修改后先单独构建，�
 | RDP / VNC / 网络 | `--desktop-network-check` |
 | 设备连接与共享 | `--device-connections-check`、`--device-security-check`、`--virtual-serial-check` |
 | 连接中心、设置与托盘截图 | `--connection-center-window-check` |
-| 局域网文件与设置 | `--lan-files-check`、`--app-settings-check` |
+| 局域网文件、设置与内置中继目录 | `--lan-files-check`、`--app-settings-check`、`--relay-catalog-check` |
 | 质量与网络工具 | `--network-quality-check`、`--network-tools-check`、`--dns-query-check`、`--utility-tools-check` |
 | Hosts 与工具窗口 | `--hosts-check`、`--hosts-window-check` |
 | iperf3 | `--iperf3-check` |
@@ -55,20 +55,20 @@ Smoke 项目没有包含在解决方案中。源码修改后先单独构建，�
 
 ## 中继构建与验证
 
-设备连接和 TLS 检查前先构建中继；Go 版本以 [go.mod](../../server/relay/go.mod) 为准。
+设备连接和 TLS 检查前先构建中继；Go 版本以 [go.mod](../../server/go.mod) 为准。
 
 ```powershell
-Push-Location server/relay
+Push-Location server
 try {
     go test ./...
     go vet ./...
-    go build -o ../../artifacts/relay-test.exe .
+    go build -o ../artifacts/relay-test.exe .
 } finally {
     Pop-Location
 }
 ```
 
-检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见[中继 README](../../server/relay/README.md)。
+检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见[中继 README](../../server/README.md)。
 
 ## 记录验证结果
 

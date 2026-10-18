@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,19 +19,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 const maxMessage = 96 * 1024
@@ -45,14 +42,26 @@ type RelayConfig struct {
 	Database               string `json:"database"`
 	AdmissionKey           string `json:"admissionKey"`
 	BandwidthBitsPerSecond int64  `json:"bandwidthBitsPerSecond"`
+	DatabaseDriver         string `json:"databaseDriver"`
+	MySQLDSN               string `json:"mysqlDsn"`
+	RedisURL               string `json:"redisUrl"`
+	RedisPrefix            string `json:"redisPrefix"`
+	ConsoleEnabled         bool   `json:"consoleEnabled"`
+	RegistrationEnabled    bool   `json:"registrationEnabled"`
+	CookieSecure           bool   `json:"cookieSecure"`
+	PublicURL              string `json:"publicUrl"`
+	RelayName              string `json:"relayName"`
+	BootstrapUsername      string `json:"-"`
+	BootstrapPassword      string `json:"-"`
 }
 
 func defaultRelayConfig() RelayConfig {
-	return RelayConfig{Listen: "127.0.0.1:7080", Database: "data/relay.sqlite", BandwidthBitsPerSecond: defaultBandwidthBitsPerSecond}
+	return RelayConfig{Listen: "127.0.0.1:7080", Database: "data/relay.sqlite", BandwidthBitsPerSecond: defaultBandwidthBitsPerSecond,
+		DatabaseDriver: "sqlite", CookieSecure: true, RedisPrefix: "embeddesk:", RelayName: "EmbedDesk 中继"}
 }
 
 func (c RelayConfig) validate() error {
-	if strings.TrimSpace(c.Listen) == "" || strings.TrimSpace(c.Database) == "" {
+	if strings.TrimSpace(c.Listen) == "" || (c.driver() == "sqlite" && strings.TrimSpace(c.Database) == "") {
 		return errors.New("listen and database are required")
 	}
 	_, port, err := net.SplitHostPort(c.Listen)
@@ -66,7 +75,7 @@ func (c RelayConfig) validate() error {
 	if c.BandwidthBitsPerSecond < minBandwidthBitsPerSecond || c.BandwidthBitsPerSecond > maxBandwidthBitsPerSecond {
 		return fmt.Errorf("bandwidthBitsPerSecond must be between %d and %d", minBandwidthBitsPerSecond, maxBandwidthBitsPerSecond)
 	}
-	return nil
+	return c.validateConsole()
 }
 
 //go:embed licenses/*
@@ -76,6 +85,10 @@ type Device struct {
 	ID             string `gorm:"primaryKey;size:24"`
 	CredentialHash string `gorm:"uniqueIndex;size:64;not null"`
 	CreatedAt      time.Time
+	OwnerID        *uint  `gorm:"index"`
+	Label          string `gorm:"size:80"`
+	Disabled       bool
+	LastSeenAt     *time.Time
 }
 
 // Body is an opaque, bounded protocol message. Passwords and traffic never enter SQLite.
@@ -90,6 +103,7 @@ type Message struct {
 
 type peer struct {
 	id        string
+	ownerID   uint
 	socket    *websocket.Conn
 	out       chan Message
 	dataOut   chan Message
@@ -127,19 +141,26 @@ type session struct {
 	accepted      bool
 	stage         int
 	expires       time.Time
+	createdAt     time.Time
 }
 type Relay struct {
-	db                     *gorm.DB
-	admission              string
-	bandwidthBitsPerSecond int64
-	mu                     sync.Mutex
-	peers                  map[string]*peer
-	sessions               map[string]*session
-	closed                 bool
-	admissionBudget        *rate.Limiter
-	stop                   chan struct{}
-	once                   sync.Once
-	workers                sync.WaitGroup
+	db              *gorm.DB
+	mu              sync.Mutex
+	peers           map[string]*peer
+	sessions        map[string]*session
+	closed          bool
+	admissionBudget *rate.Limiter
+	stop            chan struct{}
+	once            sync.Once
+	workers         sync.WaitGroup
+	policyMu        sync.Mutex // Serialize registration, admission and policy changes.
+	config          RelayConfig
+	console         *Console
+	startedAt       time.Time
+	node            atomic.Pointer[NodeSettings]
+	metrics         atomic.Pointer[ServerMetrics]
+	receivedBytes   atomic.Uint64
+	sentBytes       atomic.Uint64
 }
 
 func newRelay(path, admission string) (*Relay, error) {
@@ -150,13 +171,7 @@ func newRelayWithConfig(config RelayConfig) (*Relay, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	path, admission := config.Database, config.AdmissionKey
-	if path != ":memory:" {
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-			return nil, err
-		}
-	}
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	db, err := openRelayDatabase(config)
 	if err != nil {
 		return nil, err
 	}
@@ -164,20 +179,25 @@ func newRelayWithConfig(config RelayConfig) (*Relay, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1)
-	if err = db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		_ = sqlDB.Close()
-		return nil, err
-	}
-	if err = db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		_ = sqlDB.Close()
-		return nil, err
-	}
 	if err = db.AutoMigrate(&Device{}); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	r := &Relay{db: db, admission: admission, bandwidthBitsPerSecond: config.BandwidthBitsPerSecond, peers: make(map[string]*peer), sessions: make(map[string]*session), admissionBudget: rate.NewLimiter(20, 40), stop: make(chan struct{})}
+	r := &Relay{db: db, peers: make(map[string]*peer), sessions: make(map[string]*session), admissionBudget: rate.NewLimiter(20, 40), stop: make(chan struct{}), config: config, startedAt: time.Now()}
+	settings := initialNodeSettings(config)
+	r.node.Store(&settings)
+	if config.ConsoleEnabled {
+		r.console, err = newConsole(r)
+		if err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
+		r.config.BootstrapPassword = ""
+	}
+	telemetry := &telemetrySampler{}
+	if r.console != nil {
+		r.sampleTelemetry(telemetry)
+	}
 	r.workers.Add(1)
 	go func() {
 		defer r.workers.Done()
@@ -188,6 +208,9 @@ func newRelayWithConfig(config RelayConfig) (*Relay, error) {
 			case <-r.stop:
 				return
 			case <-ticker.C:
+				if r.console != nil {
+					r.sampleTelemetry(telemetry)
+				}
 				r.mu.Lock()
 				for id, s := range r.sessions {
 					if !s.accepted && time.Now().After(s.expires) {
@@ -209,9 +232,10 @@ func newRelayWithConfig(config RelayConfig) (*Relay, error) {
 func (r *Relay) router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	g := gin.New() // No request/body/token logging.
+	_ = g.SetTrustedProxies(nil)
 	g.Use(gin.Recovery(), func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxMessage)
-		if c.Request.URL.Path != "/health" && !r.admissionBudget.Allow() {
+		if strings.HasPrefix(c.Request.URL.Path, "/v1/") && !r.admissionBudget.Allow() {
 			c.AbortWithStatusJSON(429, gin.H{"error": "admission rate limit"})
 			return
 		}
@@ -221,6 +245,10 @@ func (r *Relay) router() *gin.Engine {
 	g.POST("/v1/register", r.register)
 	g.GET("/v1/devices/:id", r.lookup)
 	g.GET("/v1/channel", r.channel)
+	g.GET("/ready", r.readiness)
+	if r.console != nil {
+		r.console.routes(g)
+	}
 	return g
 }
 func hashCredential(value string) string {
@@ -241,10 +269,17 @@ func (r *Relay) authenticate(c *gin.Context) (string, bool) {
 		c.JSON(401, gin.H{"error": "device authentication failed"})
 		return "", false
 	}
+	if _, err := r.devicePolicy(device); err != nil {
+		c.JSON(403, gin.H{"error": "device or owner is disabled"})
+		return "", false
+	}
+	c.Set("device", device)
 	return device.ID, true
 }
 func (r *Relay) register(c *gin.Context) {
-	if r.admission != "" && subtle.ConstantTimeCompare([]byte(bearer(c)), []byte(r.admission)) != 1 {
+	r.policyMu.Lock()
+	defer r.policyMu.Unlock()
+	if !r.admissionAllowed(bearer(c)) {
 		c.JSON(401, gin.H{"error": "admission denied"})
 		return
 	}
@@ -262,12 +297,12 @@ func (r *Relay) register(c *gin.Context) {
 	}
 	digest := hashCredential(input.Credential)
 	// Stable pseudonymous ID; never depends on machine serial numbers or account names.
-	device := Device{ID: strings.ToUpper(digest[:12]), CredentialHash: digest}
-	if err = r.db.Where("credential_hash = ?", digest).FirstOrCreate(&device).Error; err != nil {
-		c.JSON(503, gin.H{"error": "registration storage unavailable"})
+	device, bits, err := r.registerDevice(digest)
+	if err != nil {
+		c.JSON(403, gin.H{"error": "device registration denied or storage unavailable"})
 		return
 	}
-	c.JSON(200, gin.H{"id": device.ID, "bitsPerSecond": r.bandwidthBitsPerSecond, "protocol": 1})
+	c.JSON(200, gin.H{"id": device.ID, "bitsPerSecond": bits, "protocol": 1})
 }
 func (r *Relay) lookup(c *gin.Context) {
 	if _, ok := r.authenticate(c); !ok {
@@ -283,25 +318,56 @@ var upgrade = websocket.Upgrader{ReadBufferSize: 4096, WriteBufferSize: 4096, Ha
 	CheckOrigin: func(req *http.Request) bool { return req.Header.Get("Origin") == "" }}
 
 func (r *Relay) channel(c *gin.Context) {
+	r.policyMu.Lock()
 	id, ok := r.authenticate(c)
 	if !ok {
+		r.policyMu.Unlock()
+		return
+	}
+	device := c.MustGet("device").(Device)
+	bits, policyErr := r.devicePolicy(device)
+	if policyErr != nil {
+		r.policyMu.Unlock()
+		c.JSON(403, gin.H{"error": "device or owner is disabled"})
 		return
 	}
 	socket, err := upgrade.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		r.policyMu.Unlock()
 		return
 	}
-	bytesPerSecond := float64(r.bandwidthBitsPerSecond) / 8
+	bytesPerSecond := float64(bits) / 8
 	p := &peer{id: id, socket: socket, out: make(chan Message, 64), dataOut: make(chan Message, 64), dataIn: make(chan Message, 64), done: make(chan struct{}), written: make(chan struct{}), processed: make(chan struct{}), budget: rate.NewLimiter(rate.Limit(bytesPerSecond), 64*1024), control: rate.NewLimiter(20, 40)}
+	if device.OwnerID != nil {
+		p.ownerID = *device.OwnerID
+	}
 	r.mu.Lock()
 	if r.closed || len(r.peers) >= 1024 || r.peers[id] != nil {
 		r.mu.Unlock()
+		r.policyMu.Unlock()
 		p.stop()
 		return
+	}
+	// Account devices share one bidirectional budget. Anonymous peers each keep their own.
+	// Reuse only active peers: a policy update stops old peers before new admission.
+	if p.ownerID != 0 {
+		for _, existing := range r.peers {
+			if existing.ownerID != p.ownerID {
+				continue
+			}
+			select {
+			case <-existing.done:
+				continue
+			default:
+			}
+			p.budget = existing.budget
+			break
+		}
 	}
 	r.peers[id] = p
 	r.workers.Add(1)
 	r.mu.Unlock()
+	r.policyMu.Unlock()
 	defer r.remove(p)
 	defer r.workers.Done()
 	socket.SetReadLimit(maxMessage)
@@ -369,7 +435,13 @@ func (r *Relay) writeLoop(p *peer) {
 	defer p.stop()
 	write := func(m Message) bool {
 		_ = p.socket.SetWriteDeadline(time.Now().Add(15 * time.Second))
-		return p.socket.WriteJSON(m) == nil
+		if p.socket.WriteJSON(m) != nil {
+			return false
+		}
+		if m.Type == "data" {
+			r.sentBytes.Add(uint64(len(m.Body)))
+		}
+		return true
 	}
 	ping := func() bool {
 		return p.socket.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)) == nil
@@ -479,7 +551,7 @@ func (r *Relay) route(p *peer, m Message) {
 			return
 		}
 		m.Session = hex.EncodeToString(sid)
-		r.sessions[m.Session] = &session{origin: p.id, owner: m.To, expires: time.Now().Add(90 * time.Second)}
+		r.sessions[m.Session] = &session{origin: p.id, owner: m.To, expires: time.Now().Add(90 * time.Second), createdAt: time.Now().UTC()}
 		m.From = p.id
 		if !target.send(m) {
 			delete(r.sessions, m.Session)
@@ -555,7 +627,9 @@ func (r *Relay) route(p *peer, m Message) {
 	}
 	m.From = p.id
 	m.To = targetID
-	target.send(m)
+	if target.send(m) && m.Type == "data" {
+		r.receivedBytes.Add(uint64(len(m.Body)))
+	}
 }
 func (r *Relay) remove(p *peer) {
 	p.stop()
@@ -589,6 +663,9 @@ func (r *Relay) close() error {
 		}
 		r.mu.Unlock()
 		r.workers.Wait()
+		if r.console != nil {
+			r.console.close()
+		}
 		db, e := r.db.DB()
 		if e != nil {
 			err = e
@@ -606,6 +683,19 @@ func main() {
 			}
 			if !entry.IsDir() {
 				data, readErr := licenses.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				fmt.Printf("\n=== %s ===\n%s\n", path, data)
+			}
+			return nil
+		})
+		_ = fs.WalkDir(consoleAssets, "www/dist/licenses", func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() {
+				data, readErr := consoleAssets.ReadFile(path)
 				if readErr != nil {
 					return readErr
 				}
@@ -645,7 +735,7 @@ func main() {
 		_ = server.Shutdown(ctx)
 		_ = relay.close()
 	}()
-	fmt.Printf("EmbedDesk relay protocol 1; bandwidth %d bits/s; HTTP only; no administration UI\n", config.BandwidthBitsPerSecond)
+	fmt.Printf("EmbedDesk relay protocol 1; bandwidth %d bits/s; HTTP only; console enabled: %t\n", config.BandwidthBitsPerSecond, config.ConsoleEnabled)
 	err = server.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal("HTTP listener failed")
@@ -695,6 +785,9 @@ func loadRelayConfig() (RelayConfig, error) {
 			return RelayConfig{}, fmt.Errorf("invalid EMBEDDESK_BANDWIDTH_BITS_PER_SECOND: %w", err)
 		}
 		config.BandwidthBitsPerSecond = parsed
+	}
+	if err := config.loadConsoleEnv(); err != nil {
+		return RelayConfig{}, err
 	}
 	return config, config.validate()
 }

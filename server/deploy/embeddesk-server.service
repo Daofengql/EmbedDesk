@@ -1,0 +1,24 @@
+[Unit]
+Description=EmbedDesk relay and management console
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=embeddesk
+Group=embeddesk
+WorkingDirectory=/var/lib/embeddesk
+EnvironmentFile=/etc/embeddesk/server.env
+ExecStart=/opt/embeddesk/embeddesk-server
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/embeddesk
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

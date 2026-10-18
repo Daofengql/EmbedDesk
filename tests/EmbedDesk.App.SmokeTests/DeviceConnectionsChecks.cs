@@ -17,7 +17,7 @@ internal static class DeviceConnectionsChecks
     public static async Task RunAsync()
     {
         var root = FindRepository(); var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-Node-Test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
-        var relayPath = Path.Combine(root, "artifacts", "relay-test.exe"); if (!File.Exists(relayPath)) throw new IOException("Build server/relay to artifacts/relay-test.exe before this check.");
+        var relayPath = Path.Combine(root, "artifacts", "relay-test.exe"); if (!File.Exists(relayPath)) throw new IOException("Build server to artifacts/relay-test.exe before this check.");
         var probe = new TcpListener(IPAddress.Loopback, 0); probe.Start(); var port = ((IPEndPoint)probe.LocalEndpoint).Port; probe.Stop();
         var start = await RelayStartAsync(directory, port, 1000000);
         using var process = Process.Start(start)!; var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();

@@ -23,6 +23,7 @@ internal sealed class AppSettingsStore : IDisposable
     {
         _path = Path.Combine(directory ?? AppDataPaths.SettingsDirectory, "app-settings.json");
         _document = Load(_path);
+        _document.ConnectionPreferences = NormalizeConnectionPreferences(_document.ConnectionPreferences ?? new());
         _saveTimer = new Timer(_ => SaveNow(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -480,17 +481,24 @@ internal sealed class AppSettingsStore : IDisposable
         var servers = (value.RelayServers ?? [])
             .Where(profile => profile is not null && IsValidRelayProfile(profile))
             .GroupBy(profile => profile.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First() with { Name = group.First().Name.Trim(), Url = group.First().Url.Trim().TrimEnd('/') })
+            .Select(group => group.First() with { Name = group.First().Name.Trim(), Url = group.First().Url.Trim().TrimEnd('/'), BuiltIn = false })
             .Take(64)
             .ToList();
-        foreach (var profile in RelayServerCatalog.BuiltInServers)
-        {
-            servers.RemoveAll(existing => existing.Id == profile.Id || string.Equals(existing.Url, profile.Url, StringComparison.OrdinalIgnoreCase));
-            servers.Add(profile);
-        }
+        // Migrate the old single address before adding catalog entries, so an upgrade retains it.
         if (servers.Count == 0 && IsValidRelayUrl(legacyUrl))
             servers.Add(new RelayServerProfile { Name = "自定义中继", Url = legacyUrl.TrimEnd('/') });
         var defaultId = value.DefaultRelayServerId ?? string.Empty;
+        if (servers.All(profile => !string.Equals(profile.Id, defaultId, StringComparison.OrdinalIgnoreCase)))
+            defaultId = servers.FirstOrDefault(profile => string.Equals(profile.Url, legacyUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))?.Id
+                ?? servers.FirstOrDefault()?.Id ?? string.Empty;
+        foreach (var profile in RelayServerCatalog.BuiltInServers)
+        {
+            var replacedDefault = servers.Any(existing => string.Equals(existing.Id, defaultId, StringComparison.OrdinalIgnoreCase)
+                && (existing.Id == profile.Id || string.Equals(existing.Url, profile.Url, StringComparison.OrdinalIgnoreCase)));
+            servers.RemoveAll(existing => existing.Id == profile.Id || string.Equals(existing.Url, profile.Url, StringComparison.OrdinalIgnoreCase));
+            servers.Add(profile);
+            if (replacedDefault) defaultId = profile.Id;
+        }
         if (servers.All(profile => !string.Equals(profile.Id, defaultId, StringComparison.OrdinalIgnoreCase)))
             defaultId = servers.FirstOrDefault()?.Id ?? string.Empty;
         var defaultUrl = servers.FirstOrDefault(profile => string.Equals(profile.Id, defaultId, StringComparison.OrdinalIgnoreCase))?.Url ?? legacyUrl;

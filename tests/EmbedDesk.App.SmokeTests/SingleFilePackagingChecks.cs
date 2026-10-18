@@ -14,7 +14,9 @@ internal static class SingleFilePackagingChecks
     {
         if (Directory.GetFiles(AppContext.BaseDirectory, "*", SearchOption.AllDirectories).Length != 1)
             throw new InvalidOperationException("Packaging verification requires an isolated directory containing only the EXE.");
+        await using var relayIsolation = new RelayTrafficIsolation(viewModel);
         await viewModel.InitializeAsync();
+        await viewModel.Connections.StopAsync();
         var window = new MainWindow(viewModel);
         window.Show();
         try

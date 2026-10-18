@@ -17,8 +17,19 @@ internal sealed record RelayServerProfile
 
 internal static class RelayServerCatalog
 {
-    // 正式免费中继部署后在此加入公开地址，不能把私人测试节点作为产品预设。
-    internal static IReadOnlyList<RelayServerProfile> BuiltInServers { get; } = Array.Empty<RelayServerProfile>();
+    // This public value filters scans; it is neither a user credential nor device authorization.
+    private const string FreeRelayAdmissionToken = "avGCGdvDnrGM_KOjnRkAVyffju1yhPw8-DqFXfz2VK8";
+    internal static IReadOnlyList<RelayServerProfile> BuiltInServers { get; } = Array.AsReadOnly<RelayServerProfile>(
+    [
+        new() { Id = "free-relay-1", Name = "免费中继 1", Url = "https://embeddesk-free-relay-sgp.silverdragon.cn", BuiltIn = true }
+    ]);
+
+    internal static bool TryGetAdmissionToken(RelayServerProfile profile, out string token)
+    {
+        var known = BuiltInServers.FirstOrDefault(server => server.Id == profile.Id && server.Url == profile.Url);
+        token = known is not null ? FreeRelayAdmissionToken : string.Empty;
+        return known is not null;
+    }
 }
 
 internal sealed class RelayServerStatus : ObservableObject
@@ -51,8 +62,9 @@ internal sealed record ConnectionPreferences
     public string ServerUrl { get; init; } = string.Empty;
     // Legacy field retained for JSON migration; the runtime always auto-connects when a relay exists.
     public bool AutoConnect { get; init; } = true;
-    public List<RelayServerProfile> RelayServers { get; init; } = RelayServerCatalog.BuiltInServers.ToList();
-    public string DefaultRelayServerId { get; init; } = RelayServerCatalog.BuiltInServers.FirstOrDefault()?.Id ?? string.Empty;
+    // AppSettingsStore merges the authoritative catalog after migrating saved relay preferences.
+    public List<RelayServerProfile> RelayServers { get; init; } = [];
+    public string DefaultRelayServerId { get; init; } = string.Empty;
     // Until the next settings save, only existing profiles may use the old global admission secret.
     public bool RelayTokensMigrated { get; init; }
     public bool PreferDirect { get; init; } = true;

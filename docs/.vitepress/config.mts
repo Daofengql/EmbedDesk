@@ -83,7 +83,7 @@ export default defineConfig({
           { text: '发布 Windows EXE', link: '/development/releasing' },
           { text: '维护文档与 GitHub Pages', link: '/development/docs-site' },
           { text: '产品方向与待验收事项', link: '/ProductRoadmap' },
-          { text: '自部署中继', link: `${repository}/blob/main/server/relay/README.md` }
+          { text: '自部署中继', link: `${repository}/blob/main/server/README.md` }
         ]
       }
     ],

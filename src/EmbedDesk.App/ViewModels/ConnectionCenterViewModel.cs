@@ -87,6 +87,7 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     {
         var stored = WindowsCredentialStore.Read(_credentialPrefix + "/" + RelayTokenSecretName(profile));
         if (stored is not null) return stored.Secret;
+        if (RelayServerCatalog.TryGetAdmissionToken(profile, out var publicToken)) return publicToken;
         var preferences = Preferences;
         return !preferences.RelayTokensMigrated && preferences.RelayServers.Any(saved => saved.Id == profile.Id && saved.Url == profile.Url)
             ? ReadSecret("admission") : string.Empty;
@@ -98,7 +99,13 @@ public sealed class ConnectionCenterViewModel : ObservableObject, IAsyncDisposab
     {
         var previous = Preferences;
         var changes = previous.RelayServers.ToDictionary(RelayTokenSecretName, _ => string.Empty, StringComparer.Ordinal);
-        foreach (var profile in preferences.RelayServers) changes[RelayTokenSecretName(profile)] = relayTokens[profile.Id];
+        foreach (var profile in preferences.RelayServers)
+        {
+            var token = relayTokens[profile.Id];
+            // Catalog defaults follow application updates; only explicit per-node overrides are stored.
+            changes[RelayTokenSecretName(profile)] = RelayServerCatalog.TryGetAdmissionToken(profile, out var publicToken) && token == publicToken
+                ? string.Empty : token;
+        }
         // Retire the global key only after all existing relay entries have independent credentials.
         changes["admission"] = string.Empty;
         if (password is not null) changes["password"] = password;

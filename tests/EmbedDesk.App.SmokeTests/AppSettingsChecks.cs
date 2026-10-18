@@ -8,11 +8,88 @@ using EmbedDesk.Infrastructure.Bridging;
 using EmbedDesk.Infrastructure.Networking;
 using EmbedDesk.Core.Models;
 using EmbedDesk.Protocols;
+using EmbedDesk.Infrastructure.Connections;
 
 namespace EmbedDesk.App.SmokeTests;
 
 internal static class AppSettingsChecks
 {
+    public static async Task RunRelayCatalogChecksAsync()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-Relay-Catalog", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var builtIn = RelayServerCatalog.BuiltInServers.First();
+            using (var fresh = new AppSettingsStore(Path.Combine(directory, "fresh")))
+            {
+                var preferences = fresh.Snapshot().ConnectionPreferences;
+                Require(preferences.RelayServers.SequenceEqual(RelayServerCatalog.BuiltInServers)
+                    && preferences.DefaultRelayServerId == builtIn.Id && preferences.ServerUrl == builtIn.Url,
+                    "fresh settings automatically select the built-in free relay");
+            }
+            var legacyDirectory = Path.Combine(directory, "legacy"); Directory.CreateDirectory(legacyDirectory);
+            await File.WriteAllTextAsync(Path.Combine(legacyDirectory, "app-settings.json"),
+                "{\"SchemaVersion\":2,\"ConnectionPreferences\":{\"ServerUrl\":\"http://127.0.0.1:7080\",\"AutoConnect\":false}}");
+            using (var legacy = new AppSettingsStore(legacyDirectory))
+            {
+                var preferences = legacy.Snapshot().ConnectionPreferences;
+                Require(preferences.RelayServers.Single(p => !p.BuiltIn).Url == "http://127.0.0.1:7080"
+                    && preferences.RelayServers.Single(p => p.Id == preferences.DefaultRelayServerId).Url == "http://127.0.0.1:7080"
+                    && preferences.RelayServers.Count(p => p.BuiltIn) == RelayServerCatalog.BuiltInServers.Count,
+                    "adding the catalog preserves legacy relay addresses and their default selection");
+                legacy.SaveNow();
+            }
+            using var store = new AppSettingsStore(Path.Combine(directory, "saved"));
+            var custom = new RelayServerProfile { Name = "Saved custom relay", Url = "http://127.0.0.1:7081", BuiltIn = true };
+            store.Update(s => s.ConnectionPreferences = new() { RelayServers = [custom], DefaultRelayServerId = custom.Id });
+            store.SaveNow();
+            using (var reload = new AppSettingsStore(Path.GetDirectoryName(store.FilePath)))
+            {
+                var preferences = reload.Snapshot().ConnectionPreferences;
+                Require(preferences.DefaultRelayServerId == custom.Id && !preferences.RelayServers.Single(p => p.Id == custom.Id).BuiltIn
+                    && preferences.RelayServers.Count(p => p.Id == builtIn.Id) == 1,
+                    "saved custom defaults survive upgrades and only catalog nodes retain built-in status");
+            }
+            await using var node = new DeviceNode(new FakeSerialService());
+            await using var model = new ConnectionCenterViewModel(node, store);
+            try
+            {
+                model.SaveSecret("admission", "test-legacy-admission");
+                Require(RelayServerCatalog.TryGetAdmissionToken(builtIn, out var publicToken) && publicToken.Length > 0
+                    && model.ReadRelayAdmissionToken(builtIn) == publicToken
+                    && model.ReadRelayAdmissionToken(custom) == "test-legacy-admission",
+                    "catalog admission stays separate from the saved legacy custom-relay secret");
+                Require(!RelayServerCatalog.TryGetAdmissionToken(builtIn with { Url = "http://127.0.0.1:7082" }, out _)
+                    && !RelayServerCatalog.TryGetAdmissionToken(builtIn with { Id = "unrecognized-relay" }, out _)
+                    && model.ReadRelayAdmissionToken(builtIn with { Url = "http://127.0.0.1:7082" }).Length == 0,
+                    "a built-in flag or mismatched relay identity never receives catalog admission");
+                model.SaveRelayAdmissionToken(builtIn, "test-explicit-node-override");
+                Require(model.ReadRelayAdmissionToken(builtIn) == "test-explicit-node-override", "an explicit per-node credential takes precedence over the catalog default");
+                model.SaveRelayAdmissionToken(builtIn, string.Empty);
+                Require(model.ReadRelayAdmissionToken(builtIn) == publicToken, "removing a per-node override restores the current catalog admission value");
+                var tokens = model.Preferences.RelayServers.ToDictionary(p => p.Id, model.ReadRelayAdmissionToken);
+                model.SaveConnectionPreferences(model.Preferences, tokens);
+                var savedJson = await File.ReadAllTextAsync(store.FilePath);
+                Require(!savedJson.Contains(publicToken, StringComparison.Ordinal) && !savedJson.Contains("test-legacy-admission", StringComparison.Ordinal)
+                    && model.ReadSecret("admission").Length == 0 && model.ReadRelayAdmissionToken(builtIn) == publicToken,
+                    "saving settings migrates custom credentials without persisting public admission in JSON");
+            }
+            finally
+            {
+                model.SaveSecret("admission", string.Empty);
+                foreach (var profile in model.Preferences.RelayServers) model.SaveRelayAdmissionToken(profile, string.Empty);
+            }
+            var duplicate = builtIn with { Id = Guid.NewGuid().ToString("N"), BuiltIn = false };
+            store.Update(s => s.ConnectionPreferences = new() { RelayServers = [duplicate], DefaultRelayServerId = duplicate.Id });
+            var normalized = store.Snapshot().ConnectionPreferences;
+            Require(normalized.RelayServers.Count(p => p.Url == builtIn.Url) == 1 && normalized.DefaultRelayServerId == builtIn.Id,
+                "a saved copy of the public address merges into the catalog and preserves its default choice");
+            Console.WriteLine("PASS built-in relay catalog, existing settings migration and admission isolation without network traffic");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     public static async Task RunAsync()
     {
         var directory = Path.Combine(Path.GetTempPath(), "EmbedDesk-AppSettings-Smoke", Guid.NewGuid().ToString("N"));
@@ -239,8 +316,8 @@ internal static class AppSettingsChecks
                         && !(await File.ReadAllTextAsync(restored.FilePath)).Contains("transient scan metadata", StringComparison.Ordinal),
                         "existing TCP rules retain their protocol and scanned serial metadata never enters settings JSON");
                 }
-                Require(migratedRelay.RelayServers.Single().Url == "https://relay.example.test"
-                    && migratedRelay.DefaultRelayServerId == migratedRelay.RelayServers[0].Id, "legacy relay URL migrates to a stable default server entry");
+                Require(migratedRelay.RelayServers.Single(p => !p.BuiltIn).Url == "https://relay.example.test"
+                    && migratedRelay.DefaultRelayServerId == migratedRelay.RelayServers.Single(p => !p.BuiltIn).Id, "legacy relay URL migrates to a stable default server entry");
                 var virtualId = Guid.NewGuid().ToString("N");
                 restored.Update(s =>
                 {
@@ -261,17 +338,17 @@ internal static class AppSettingsChecks
                 { RelayServers = s.ConnectionPreferences.RelayServers.Append(fallback).ToList(), DefaultRelayServerId = fallback.Id });
                 restored.SaveNow();
                 var isolatedSnapshot = restored.Snapshot(); isolatedSnapshot.ConnectionPreferences.RelayServers.Clear();
-                Require(restored.Snapshot().ConnectionPreferences.RelayServers.Count == 2, "relay list snapshots do not mutate the settings store");
+                Require(restored.Snapshot().ConnectionPreferences.RelayServers.Count == 2 + RelayServerCatalog.BuiltInServers.Count, "relay list snapshots do not mutate the settings store");
                 using var relayReload = new AppSettingsStore(Path.GetDirectoryName(newOptions.FilePath));
                 var relays = relayReload.Snapshot().ConnectionPreferences;
-                Require(relays.RelayServers.Count == 2 && relays.DefaultRelayServerId == fallback.Id
+                Require(relays.RelayServers.Count == 2 + RelayServerCatalog.BuiltInServers.Count && relays.DefaultRelayServerId == fallback.Id
                     && relays.RelayServers.Single(p => p.Id == fallback.Id).Name == "备用中继", "relay server list and default selection round-trip");
             }
             var relayMigration = Path.Combine(directory, "relay-migration"); Directory.CreateDirectory(relayMigration);
             await File.WriteAllTextAsync(Path.Combine(relayMigration, "app-settings.json"),
                 "{\"SchemaVersion\":2,\"ConnectionPreferences\":{\"ServerUrl\":\"http://127.0.0.1:7080\",\"AutoConnect\":false}}");
             using (var legacyRelay = new AppSettingsStore(relayMigration))
-                Require(legacyRelay.Snapshot().ConnectionPreferences.RelayServers.Single().Url == "http://127.0.0.1:7080",
+                Require(legacyRelay.Snapshot().ConnectionPreferences.RelayServers.Single(p => !p.BuiltIn).Url == "http://127.0.0.1:7080",
                     "old JSON relay configuration migrates even when the retired auto-connect option was disabled");
 
             var unknownSchemaDirectory = Path.Combine(directory, "future-schema");
@@ -285,7 +362,9 @@ internal static class AppSettingsChecks
             await using var remoteSerial = new RemoteSerialClient();
             await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), new FakeSerialService(),
                 new FakeBridge(), remoteSerial, new FakeRemoteDebugService(), directory);
+            await using var relayIsolation = new RelayTrafficIsolation(viewModel);
             await viewModel.InitializeAsync();
+            await viewModel.Connections.StopAsync();
             viewModel.AddSerialSession();
             var remoteMerge = viewModel.RemoteDebug!.MergeProfiles(imported.RemoteProfiles);
             Require(remoteMerge.Added == 1 && viewModel.RemoteDebug.Profiles.Any(profile => profile.Name == "S3 测试" && profile.S3AccessKeyId.Length == 0),

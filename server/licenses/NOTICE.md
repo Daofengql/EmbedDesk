@@ -4,6 +4,7 @@ Runtime modules linked by the default Windows/Linux relay builds. Versions are p
 
 | Module | Version | License text |
 | --- | --- | --- |
+| github.com/dchest/captcha | v1.1.0 | [LICENSE](github.com_dchest_captcha-LICENSE.txt) |
 | github.com/dustin/go-humanize | v1.0.1 | [LICENSE](github.com_dustin_go-humanize-LICENSE.txt) |
 | github.com/gabriel-vasile/mimetype | v1.4.3 | [LICENSE](github.com_gabriel-vasile_mimetype-LICENSE.txt) |
 | github.com/gin-contrib/sse | v0.1.0 | [LICENSE](github.com_gin-contrib_sse-LICENSE.txt) |
@@ -34,3 +35,8 @@ Runtime modules linked by the default Windows/Linux relay builds. Versions are p
 | modernc.org/sqlite | v1.23.1 | [LICENSE](modernc.org_sqlite-LICENSE.txt) |
 | github.com/google/uuid | v1.3.0 | [LICENSE](github.com_google_uuid-LICENSE.txt) |
 | golang.org/x/sys | v0.48.0 | [LICENSE](golang.org_x_sys-LICENSE.txt) |
+| gorm.io/driver/mysql | v1.5.7 | [License](gorm.io_driver_mysql-License.txt) |
+| github.com/go-sql-driver/mysql | v1.7.0 | [LICENSE](github.com_go-sql-driver_mysql-LICENSE.txt) |
+| github.com/redis/go-redis/v9 | v9.17.2 | [LICENSE](github.com_redis_go-redis_v9-LICENSE.txt) |
+| github.com/cespare/xxhash/v2 | v2.3.0 | [LICENSE.txt](github.com_cespare_xxhash_v2-LICENSE.txt.txt) |
+| github.com/dgryski/go-rendezvous | v0.0.0-20200823014737-9f7001d12a5f | [LICENSE](github.com_dgryski_go-rendezvous-LICENSE.txt) |

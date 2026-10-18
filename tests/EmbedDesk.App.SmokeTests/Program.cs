@@ -49,6 +49,7 @@ internal sealed class SmokeApplication : Application
         await using var viewModel = new MainWindowViewModel(new TcpUdpTransportService(), serial, new FakeBridge(), remote, remoteDebug, settingsDirectory);
         try
         {
+            if (e.Args.Contains("--relay-catalog-check")) { await AppSettingsChecks.RunRelayCatalogChecksAsync(); SetExitCode(0); return; }
             if (e.Args.Contains("--debug-tools-check")) { await DebugToolsChecks.RunAsync(viewModel); SetExitCode(0); return; }
             if (e.Args.Contains("--debug-connections-check")) { await DebugConnectionChecks.RunAsync(); SetExitCode(0); return; }
             viewModel.AddSerialSession();

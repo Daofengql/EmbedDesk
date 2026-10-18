@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: GPL-3.0-only
+services:
+  server:
+    build: .
+    image: ${EMBEDDESK_IMAGE:-embeddesk-relay:local}
+    restart: unless-stopped
+    ports:
+      - "${EMBEDDESK_BIND_ADDRESS:-127.0.0.1}:${EMBEDDESK_PORT:-7080}:7080"
+    environment:
+      EMBEDDESK_DATABASE_DRIVER: mysql
+      EMBEDDESK_MYSQL_DSN: ${EMBEDDESK_MYSQL_DSN:?set a dedicated MySQL DSN}
+      EMBEDDESK_REDIS_URL: ${EMBEDDESK_REDIS_URL:?set the Redis URL}
+      EMBEDDESK_CONSOLE_ENABLED: "true"
+      # Node settings seed the database once. Later updates use the console.
+      EMBEDDESK_RELAY_NAME: ${EMBEDDESK_RELAY_NAME:-EmbedDesk}
+      EMBEDDESK_ADMISSION_KEY: ${EMBEDDESK_ADMISSION_KEY:-}
+      EMBEDDESK_BANDWIDTH_BITS_PER_SECOND: ${EMBEDDESK_BANDWIDTH_BITS_PER_SECOND:-1000000}
+      EMBEDDESK_COOKIE_SECURE: ${EMBEDDESK_COOKIE_SECURE:-true}
+      EMBEDDESK_PUBLIC_URL: ${EMBEDDESK_PUBLIC_URL:?set the public HTTP or HTTPS origin}
+      # Both values are required for the first empty database, then remove both.
+      EMBEDDESK_BOOTSTRAP_USERNAME: ${EMBEDDESK_BOOTSTRAP_USERNAME:-}
+      EMBEDDESK_BOOTSTRAP_PASSWORD: ${EMBEDDESK_BOOTSTRAP_PASSWORD:-}
+      EMBEDDESK_REGISTRATION_ENABLED: ${EMBEDDESK_REGISTRATION_ENABLED:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: embeddesk
+      MYSQL_USER: embeddesk
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set a database password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set a root password}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql -h 127.0.0.1 -u embeddesk -D embeddesk -Nse 'SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set a Redis password}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  mysql-data:
+  redis-data:

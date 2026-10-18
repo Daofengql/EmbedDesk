@@ -56,7 +56,8 @@ internal static class RelayAdmissionChecks
                 try
                 {
                     model.SaveConnectionPreferences(model.Preferences with { DefaultRelayServerId = b.Id },
-                        new Dictionary<string, string> { [a.Id] = "test-uncommitted-token", [b.Id] = "" });
+                        model.Preferences.RelayServers.ToDictionary(profile => profile.Id,
+                            profile => profile.Id == a.Id ? "test-uncommitted-token" : profile.Id == b.Id ? "" : model.ReadRelayAdmissionToken(profile)));
                     throw new InvalidOperationException("A locked settings file was reported as saved.");
                 }
                 catch (IOException) { }

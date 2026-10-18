@@ -13,7 +13,9 @@ internal static class ConnectionCenterUiChecks
 {
     public static async Task RunAsync(MainWindowViewModel model)
     {
+        await using var relayIsolation = new RelayTrafficIsolation(model);
         await model.InitializeAsync();
+        await model.Connections.StopAsync();
         model.Connections.SaveService(new() { Name = "开发板 SSH", Kind = SharedServiceKind.Tcp, TargetHost = "BOARD_HOST", TargetPort = 22 });
         model.Connections.SaveService(new() { Name = "开发板 UDP", Kind = SharedServiceKind.Udp, TargetHost = "BOARD_HOST", TargetPort = 9000 });
         model.Connections.SaveService(new() { Name = "板卡控制台", Kind = SharedServiceKind.Serial, PortName = "COM3" });
@@ -57,23 +59,30 @@ internal static class ConnectionCenterUiChecks
         await CaptureAsync(settings, "settings-relays-default", 820, 680);
         CheckRelayEditorAlignment(settings);
         for (var index = 0; index < tabs.Items.Count; index++) { tabs.SelectedIndex = index; await CaptureAsync(settings, "settings-" + index, 680, 570); if (index == 0) CheckRelayEditorAlignment(settings); }
-        DeviceConnectionsChecks.Require(settings.FindName("AutoConnect") is null && settings.RelayStatuses.Count == 2
+        DeviceConnectionsChecks.Require(settings.FindName("AutoConnect") is null && settings.RelayStatuses.Count == 2 + RelayServerCatalog.BuiltInServers.Count
             && settings.RelayStatuses.Any(s => s.IsDefault), "relay settings list replaces the retired auto-connect control and marks the default server");
         DeviceConnectionsChecks.Require(settings.FindName("AdmissionKey") is null && settings.FindName("ClearAdmission") is null,
             "connection options no longer contain a global admission key");
         tabs.SelectedIndex = 0;
+        var builtInStatus = settings.RelayStatuses.First(status => status.Profile.BuiltIn);
+        var relayList = (ListBox)settings.FindName("RelayServers");
+        relayList.SelectedItem = builtInStatus; relayList.ScrollIntoView(builtInStatus);
+        await CaptureAsync(settings, "settings-built-in-minimum", 680, 570);
+        DeviceConnectionsChecks.Require(!builtInStatus.CanDelete && !((Button)settings.FindName("EditRelayButton")).IsEnabled
+            && RelayConnectionInfo.Parse(settings.ExportRelayCode(builtInStatus)).Url == builtInStatus.Profile.Url,
+            "built-in free relay remains visible and immutable while its connection code can be copied");
         settings.ImportRelayCode(RelayConnectionInfo.Encode("导入的中继", profiles[0].Url, "test-ui-replacement-token"));
-        DeviceConnectionsChecks.Require(settings.RelayStatuses.Count == 2 && ((Button)settings.FindName("AddRelayButton")).Content.Equals("更新"), "importing an existing address stages a replacement without adding duplicates");
+        DeviceConnectionsChecks.Require(settings.RelayStatuses.Count == 2 + RelayServerCatalog.BuiltInServers.Count && ((Button)settings.FindName("AddRelayButton")).Content.Equals("更新"), "importing an existing address stages a replacement without adding duplicates");
         await CaptureAsync(settings, "settings-relay-import-minimum", 680, 570);
         ((Button)settings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         DeviceConnectionsChecks.Require(RelayConnectionInfo.Parse(settings.ExportRelayCode(settings.RelayStatuses[0])).AdmissionToken == "test-ui-replacement-token", "copyable relay code contains the staged per-relay token");
         ((TextBox)settings.FindName("RelayNameInput")).Text = "取消时不保存";
         ((TextBox)settings.FindName("RelayUrlInput")).Text = "http://127.0.0.1:7082";
         ((Button)settings.FindName("AddRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        ((ListBox)settings.FindName("RelayServers")).SelectedItem = settings.RelayStatuses[2];
+        ((ListBox)settings.FindName("RelayServers")).SelectedItem = settings.RelayStatuses.Single(status => status.Profile.Url == "http://127.0.0.1:7082");
         ((Button)settings.FindName("SetDefaultRelayButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         settings.Close();
-        DeviceConnectionsChecks.Require(model.Connections.Preferences.RelayServers.Count == 2
+        DeviceConnectionsChecks.Require(model.Connections.Preferences.RelayServers.Count == 2 + RelayServerCatalog.BuiltInServers.Count
             && model.Connections.Preferences.DefaultRelayServerId == profiles[0].Id
             && model.Connections.ReadRelayAdmissionToken(profiles[0]) == "test-ui-legacy-token", "canceling settings discards tokens, added servers and default selection");
         var saveSettings = new SettingsWindow(model);
