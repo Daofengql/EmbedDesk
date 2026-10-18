@@ -63,13 +63,13 @@ Push-Location ../EmbedDesk.Relay
 try {
     go test ./...
     go vet ./...
-    go build -o ../EmbedDesk/artifacts/relay-test.exe .
+    go build -o ../EmbedDesk/artifacts/relay-test.exe ./cmd/relay
 } finally {
     Pop-Location
 }
 ```
 
-检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见 [EmbedDesk.Relay README](https://github.com/Daofengql/EmbedDesk.Relay)。
+检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见 [EmbedDesk.Relay 部署文档](https://daofengql.github.io/EmbedDesk.Relay/deployment/)。
 
 ## 记录验证结果
 

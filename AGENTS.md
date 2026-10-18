@@ -122,7 +122,7 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | 单文件与终端资源 | `--packaging-check` |
 
 - `--packaging-check` 应使用发布后的烟雾测试 EXE，在仅有该 EXE 的隔离目录执行，检查 WebView2、本地 Shell 和终端嵌入资源；普通 build 不代表单文件验证通过。
-- 设备连接 / TLS 检查前，在同级 `EmbedDesk.Relay` 仓库执行 `go build -o ../EmbedDesk/artifacts/relay-test.exe .`；服务端执行 `go test ./...`、`go vet ./...`。设备检查使用本机临时数据库、TLS 和模拟 COM，不能代替公网或硬件实测。解决方案未包含 Smoke 项目，修改后需单独构建 Smoke 项目，避免 `--no-build` 运行旧程序集。
+- 设备连接 / TLS 检查前，在同级 `EmbedDesk.Relay` 仓库执行 `go build -o ../EmbedDesk/artifacts/relay-test.exe ./cmd/relay`；服务端执行 `go test ./...`、`go vet ./...`。设备检查使用本机临时数据库、TLS 和模拟 COM，不能代替公网或硬件实测。解决方案未包含 Smoke 项目，修改后需单独构建 Smoke 项目，避免 `--no-build` 运行旧程序集。
 - `--iperf3-peer-check HOST PORT`、`--live-doh-check` 等真实网络入口会产生外部流量，不纳入默认本机回归；需要实测时使用当前任务范围内的目标和适当时长、限速。
 - 报告区分编译、自动测试、截图检查、真实对端互通和硬件实测。分析器警告存在时不要声称零警告。
 
