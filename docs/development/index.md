@@ -12,7 +12,7 @@
 | `src/EmbedDesk.Protocols/` | 桥接帧与安全通道原语 |
 | `src/EmbedDesk.Infrastructure/` | 串口、网络、桥接、远程、烧录与录制实现 |
 | `src/EmbedDesk.App/` | WPF、MVVM、终端与嵌入资源 |
-| `server/` | 独立 Go 中继及第三方许可 |
+| `EmbedDesk.Relay`（独立仓库） | Go 中继、React 控制台及第三方许可 |
 | `tests/EmbedDesk.Core.Tests/` | 核心测试 |
 | `tests/EmbedDesk.App.SmokeTests/` | 桌面与协议回归 |
 
@@ -56,20 +56,20 @@ Smoke 项目没有包含在解决方案中。源码修改后先单独构建，�
 
 ## 中继构建与验证
 
-设备连接和 TLS 检查前先构建中继；Go 版本以 [go.mod](../../server/go.mod) 为准。
+设备连接和 TLS 检查前先在同级的 `EmbedDesk.Relay` 仓库构建中继；Go 版本以该仓库的 `go.mod` 为准。
 
 ```powershell
-Push-Location server
+Push-Location ../EmbedDesk.Relay
 try {
     go test ./...
     go vet ./...
-    go build -o ../artifacts/relay-test.exe .
+    go build -o ../EmbedDesk/artifacts/relay-test.exe .
 } finally {
     Pop-Location
 }
 ```
 
-检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见[中继 README](../../server/README.md)。
+检查使用本机临时数据库、TLS 夹具和模拟 COM。部署步骤与真实边界见 [EmbedDesk.Relay README](https://github.com/Daofengql/EmbedDesk.Relay)。
 
 ## 记录验证结果
 

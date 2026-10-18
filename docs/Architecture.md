@@ -10,7 +10,7 @@ EmbedDesk 是 .NET 8 / WPF / MVVM 桌面应用。连接中心管理设备身份�
 | `src/EmbedDesk.Protocols` | EDBG 有界编解码、ECDH / AES-GCM 安全通道原语和旧 STCP 定义 |
 | `src/EmbedDesk.Infrastructure` | 物理 / 共享串口、设备连接、网络、远程、固件、录制和安全实现 |
 | `src/EmbedDesk.App` | WPF 窗口、MVVM、配置凭据、本地 ConPTY、RDP ActiveX、终端资源和托盘 |
-| `server` | 独立 Go / Gin / GORM 中继，支持 MySQL / SQLite 与 Redis；`www/` 的 React 控制台嵌入二进制，HTTP 由反向代理提供 TLS |
+| `EmbedDesk.Relay`（独立仓库） | Go / Gin / GORM 中继，支持 MySQL / SQLite 与 Redis；React 控制台嵌入二进制，HTTP 由反向代理提供 TLS |
 | `tests` | 核心测试和独立构建的桌面 / 协议 / 文件流 Smoke 程序 |
 
 依赖注册见 [ServiceCollectionExtensions.cs](../src/EmbedDesk.Infrastructure/ServiceCollectionExtensions.cs)，全局会话协调见 [MainWindowViewModel.cs](../src/EmbedDesk.App/ViewModels/MainWindowViewModel.cs)。
@@ -50,9 +50,9 @@ flowchart TB
 
 `VirtualSerialBridge` 对接已安装的 com0com 串口对，同步外部打开状态、格式和控制线，不自动安装驱动；实验性限制见 [VirtualSerialPorts.md](VirtualSerialPorts.md)。局域网文件服务独立维护 TCP HTTP 和 UDP 发现、断点续传与校验，不依赖中继或系统目录映射，详见 [LanFiles.md](LanFiles.md)。
 
-`server/` 是独立的 Go 服务，`server/www/` 使用 React 和 Ant Design，生产构建将前端与许可嵌入 Linux 单二进制。GORM 保存用户、设备归属、节点设置和审计；推荐 MySQL，保留 SQLite。Redis 可保存控制台会话、验证码摘要和尝试限流；未配置时使用数据库。Redis 不负责跨实例路由或分布式带宽，当前服务为单实例。
+`EmbedDesk.Relay` 是独立的 Go 服务仓库，`www/` 使用 React 和 Ant Design，生产构建将前端与许可嵌入 Linux 单二进制。GORM 保存用户、设备归属、节点设置和审计；推荐 MySQL，保留 SQLite。Redis 可保存控制台会话、验证码摘要和尝试限流；未配置时使用数据库。Redis 不负责跨实例路由或分布式带宽，当前服务为单实例。
 
-控制台有管理员、注册用户和只读访客。注册使用一次性、3 分钟有效的图片验证码。节点公共 Token 只是扫描过滤值，更新仅影响后续设备注册；节点设置首次由启动配置初始化，随后数据库为准。设备先匿名接入，用户可凭 ID 领取无主设备，管理员可调整归属；凭 ID 领取不证明真实设备持有。绑定后账号内所有设备共用双向总带宽预算，同账号互传计入两端 RX/TX；匿名设备每台使用默认值。绑定、转移或修改单用户配额会断开关联设备以应用新配额。部署和接口见 [server/README.md](../server/README.md)。
+控制台有管理员、注册用户和只读访客。注册使用一次性、3 分钟有效的图片验证码。节点公共 Token 只是扫描过滤值，更新仅影响后续设备注册；节点设置首次由启动配置初始化，随后数据库为准。设备先匿名接入，用户可凭 ID 领取无主设备，管理员可调整归属；凭 ID 领取不证明真实设备持有。绑定后账号内所有设备共用双向总带宽预算，同账号互传计入两端 RX/TX；匿名设备每台使用默认值。绑定、转移或修改单用户配额会断开关联设备以应用新配额。部署和接口见 [EmbedDesk.Relay README](https://github.com/Daofengql/EmbedDesk.Relay)。
 
 管理员概览通过 `/api/console/overview` 的管理员专属 `server` 字段读取 CPU、系统内存、平均负载及中继流量采样，前端约每 2 秒刷新；普通角色不返回主机指标。RX 统计中继接收的数据 body，TX 统计成功发出的数据 body，合计和累计值不包含网卡其他流量或 WebSocket / TLS 头。未知操作系统指标保留 `null`，界面显示暂不可用；累计值只覆盖当前进程生命周期，不保存历史时序。
 

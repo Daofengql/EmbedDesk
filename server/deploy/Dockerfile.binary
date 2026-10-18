@@ -1,9 +1,0 @@
-# SPDX-License-Identifier: GPL-3.0-only
-# Build context contains the Linux amd64/arm64 embeddesk-server binary.
-FROM gcr.io/distroless/static-debian12:nonroot
-LABEL org.opencontainers.image.licenses="GPL-3.0-only"
-WORKDIR /app
-COPY --chown=65532:65532 --chmod=0555 embeddesk-server /app/embeddesk-server
-ENV EMBEDDESK_LISTEN=0.0.0.0:7080
-EXPOSE 7080
-ENTRYPOINT ["/app/embeddesk-server"]

@@ -50,8 +50,8 @@
 
 - 网络工具包括 CIDR、DNS / DoH、TLS、Ping / 路由追踪、端口扫描、内网发现、STUN NAT 与 UPnP；Ping 和路由追踪放在同一工具，端口扫描只列出开放端口。NAT 类型使用中英名称，不根据一次失败或单个映射草率下结论。
 - 局域网文件工具保持独立服务端 / 客户端、主动发现和共享根目录内的子目录浏览，不建立系统目录映射。TCP HTTP 传输、UDP 发现；支持剪贴板、3 文件 / 每文件 3 路分块上传、右下角悬浮传输队列、实时速率 / 剩余时间、持久化断点和逐块 SHA-256。版本指纹只采样首尾，不做整文件扫描或承诺检测旧缓存静默损坏；不设固定文件大小上限，遵循磁盘空间与文件系统限制，完成才原子发布。客户端可从任意本地目录选源文件，但远端目标必须是共享根目录内的相对路径。关闭可后台保留，重开恢复同一实例，真正退出等待清理。仅用于可信 IPv4 局域网；Base64 不是加密，访问码不广播，路径不得超出共享根目录，不将 UDP 发现描述为文件正文加速。详见 `docs/LanFiles.md`。
-- 全局中继为独立 Go / Gin / GORM 服务，生产推荐 MySQL / Redis、保留 SQLite；Go 项目在 `server/`，React / Ant Design 控制台在 `server/www/`，构建后嵌入 Linux 单二进制。服务仅监听 HTTP，TLS 由 Nginx 等反向代理提供；Docker 可按部署配置直接映射端口，此时 HTTP 控制与登录链路没有 TLS 保护。控制与数据共用 WebSocket，保留心跳、超时检测及有上限的退避重连。正式授权的免费节点由客户端目录维护；人工授权依赖可信中继与传输链路，不能声称抗恶意中继冒充。
-- 中继账号为系统管理员、注册用户和只读访客。节点公共 Token 由管理员统一维护，点击“刷新令牌”确认后由服务器随机生成，控制台不允许手动输入；仅简单过滤扫描，不是个人 Token 或设备访问授权。刷新只影响后续注册，不主动断开现有连接。注册必须使用一次性、3 分钟有效的图片验证码。首次启用控制台从启动配置初始化节点设置，随后数据库为准。详见 `server/README.md`。
+- 全局中继为独立开源仓库 [EmbedDesk.Relay](https://github.com/Daofengql/EmbedDesk.Relay) 中的 Go / Gin / GORM 服务，生产推荐 MySQL / Redis、保留 SQLite；React / Ant Design 控制台构建后嵌入 Linux 单二进制。服务仅监听 HTTP，TLS 由 Nginx 等反向代理提供；Docker 可按部署配置直接映射端口，此时 HTTP 控制与登录链路没有 TLS 保护。控制与数据共用 WebSocket，保留心跳、超时检测及有上限的退避重连。正式授权的免费节点由客户端目录维护；人工授权依赖可信中继与传输链路，不能声称抗恶意中继冒充。
+- 中继账号为系统管理员、注册用户和只读访客。节点公共 Token 由管理员统一维护，点击“刷新令牌”确认后由服务器随机生成，控制台不允许手动输入；仅简单过滤扫描，不是个人 Token 或设备访问授权。刷新只影响后续注册，不主动断开现有连接。注册必须使用一次性、3 分钟有效的图片验证码。首次启用控制台从启动配置初始化节点设置，随后数据库为准。详见 [EmbedDesk.Relay README](https://github.com/Daofengql/EmbedDesk.Relay)。
 - 控制台用户、设备和中继会话列表支持当前页批量选择与批量启停、配额调整、设备归属、断开／删除及会话关闭；批量写入整批校验，访客不显示写操作，危险操作需二次确认。
 - 无主设备为匿名设备，每台使用节点默认带宽；注册用户可凭设备 ID 绑定无主设备，管理员可调整归属，访客只读。知道未绑定设备 ID 即可领取，不能宣称证明真实持有。绑定后账号下所有设备共享双向合计总带宽，同账号互传按每端 RX/TX 计入预算。管理员可设置新用户总配额初值和单用户配额；默认值不覆盖现有用户，在线匿名设备重连应用新默认。绑定、转移归属或修改单用户配额会断开相关设备以应用新配额。具体边界见 `docs/DeviceConnections.md`。
 - 管理员控制台首页优先展示服务器负载与当前中继数据带宽，约每 2 秒刷新；普通用户和访客不返回主机指标。RX/TX 统一从中继视角表示接收与成功发出，只计加密数据 body，不冒充网卡流量或包含 WebSocket / TLS 包头的链路速率。空闲速率归零，未知系统指标显示暂不可用，不伪造 0。
@@ -79,7 +79,7 @@
 - `src/EmbedDesk.Core/`：模型与接口；`src/EmbedDesk.Protocols/`：桥接帧协议。
 - `src/EmbedDesk.Infrastructure/`：串口、网络、桥接、远程、烧录及录制实现。
 - `src/EmbedDesk.App/`：WPF 窗口、控件、MVVM、本地终端与嵌入资源。
-- `server/`：独立中继、内嵌 React 控制台及原始第三方许可，不依赖桌面运行时；生产使用 MySQL / Redis，本机回归可使用 SQLite。
+- `EmbedDesk.Relay`（独立仓库）：中继、内嵌 React 控制台及原始第三方许可，不依赖桌面运行时；生产使用 MySQL / Redis，本机回归可使用 SQLite。
 - `tests/EmbedDesk.Core.Tests/`：核心测试；`tests/EmbedDesk.App.SmokeTests/`：桌面与协议回归。
 - 架构、桥接及性能说明分别见 `docs/Architecture.md`、`docs/SerialBridgeProtocol.md`、`docs/performance.md`。
 
@@ -122,7 +122,7 @@ dotnet run --project tests/EmbedDesk.App.SmokeTests -- --iperf3-check
 | 单文件与终端资源 | `--packaging-check` |
 
 - `--packaging-check` 应使用发布后的烟雾测试 EXE，在仅有该 EXE 的隔离目录执行，检查 WebView2、本地 Shell 和终端嵌入资源；普通 build 不代表单文件验证通过。
-- 设备连接 / TLS 检查前，在 `server` 执行 `go build -o ../artifacts/relay-test.exe .`；服务端执行 `go test ./...`、`go vet ./...`。设备检查使用本机临时数据库、TLS 和模拟 COM，不能代替公网或硬件实测。解决方案未包含 Smoke 项目，修改后需单独构建 Smoke 项目，避免 `--no-build` 运行旧程序集。
+- 设备连接 / TLS 检查前，在同级 `EmbedDesk.Relay` 仓库执行 `go build -o ../EmbedDesk/artifacts/relay-test.exe .`；服务端执行 `go test ./...`、`go vet ./...`。设备检查使用本机临时数据库、TLS 和模拟 COM，不能代替公网或硬件实测。解决方案未包含 Smoke 项目，修改后需单独构建 Smoke 项目，避免 `--no-build` 运行旧程序集。
 - `--iperf3-peer-check HOST PORT`、`--live-doh-check` 等真实网络入口会产生外部流量，不纳入默认本机回归；需要实测时使用当前任务范围内的目标和适当时长、限速。
 - 报告区分编译、自动测试、截图检查、真实对端互通和硬件实测。分析器警告存在时不要声称零警告。
 

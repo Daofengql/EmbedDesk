@@ -1,6 +1,6 @@
 # 设备连接与共享服务
 
-连接中心统一管理设备身份、授权和连接路径。串口共享与 TCP / UDP 端口映射复用同一设备会话；局域网文件工具保持独立。操作步骤见[连接中心指南](guide/connection-center.md)，本文描述当前实现与协议边界，服务端部署见[中继说明](../server/README.md)。
+连接中心统一管理设备身份、授权和连接路径。串口共享与 TCP / UDP 端口映射复用同一设备会话；局域网文件工具保持独立。操作步骤见[连接中心指南](guide/connection-center.md)，本文描述当前实现与协议边界，服务端部署见[EmbedDesk.Relay](https://github.com/Daofengql/EmbedDesk.Relay)。
 
 ## 使用流程
 
